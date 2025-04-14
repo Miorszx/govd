@@ -14,6 +14,7 @@ var List = []*models.Extractor{
 	tiktok.VMExtractor,
 	instagram.Extractor,
 	instagram.StoriesExtractor,
+	instagram.ShareURLExtractor,
 	twitter.Extractor,
 	twitter.ShortExtractor,
 	pinterest.Extractor,
