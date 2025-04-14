@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -230,8 +229,6 @@ func SendErrorMessage(
 	ctx *ext.Context,
 	errorMessage string,
 ) {
-	log.Println(errorMessage)
-
 	switch {
 	case ctx.Update.Message != nil:
 		ctx.EffectiveMessage.Reply(
