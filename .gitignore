@@ -1,0 +1,16 @@
+*.exe
+*.json
+*.txt
+*.py
+*.html
+
+old/
+
+.env
+.idea/
+
+downloads
+
+govd
+
+.DS_Store
