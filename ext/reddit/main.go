@@ -12,7 +12,7 @@ import (
 	"govd/util"
 )
 
-var HTTPSession = util.NewHTTPSession()
+var httpSession = util.GetHTTPSession()
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Reddit (Short)",
@@ -37,7 +37,7 @@ var ShortExtractor = &models.Extractor{
 			req.AddCookie(cookie)
 		}
 
-		res, err := HTTPSession.Do(req)
+		res, err := httpSession.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -229,7 +229,7 @@ func GetRedditData(host string, slug string) (RedditResponse, error) {
 		req.AddCookie(cookie)
 	}
 
-	res, err := HTTPSession.Do(req)
+	res, err := httpSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

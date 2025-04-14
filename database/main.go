@@ -41,6 +41,9 @@ func Start() {
 	if err != nil {
 		log.Fatalf("failed to get database connection: %v", err)
 	}
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetConnMaxLifetime(time.Hour)
 	err = sqlDB.Ping()
 	if err != nil {
 		log.Fatalf("failed to ping database: %v", err)

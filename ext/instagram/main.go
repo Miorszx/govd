@@ -16,6 +16,8 @@ import (
 // feel free to open PR, if you want to
 // add support for the official Instagram API
 
+var httpSession = util.GetHTTPSession()
+
 const (
 	apiHostname  = "api.igram.world"
 	apiKey       = "aaeaf2805cea6abef3f9d2b6a666fce62fd9d612a43ab772bb50ce81455112e0"
@@ -41,8 +43,6 @@ var igHeaders = map[string]string{
 	"Upgrade-Insecure-Requests": "1",
 	"User-Agent":                util.ChromeUA,
 }
-
-var HTTPSession = util.NewHTTPSession()
 
 var Extractor = &models.Extractor{
 	Name:       "Instagram",
@@ -96,7 +96,7 @@ var ShareURLExtractor = &models.Extractor{
 		for k, v := range igHeaders {
 			req.Header.Set(k, v)
 		}
-		resp, err := HTTPSession.Do(req)
+		resp, err := httpSession.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -183,7 +183,7 @@ func GetVideoAPI(contentURL string) (*IGramResponse, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", util.ChromeUA)
 
-	resp, err := HTTPSession.Do(req)
+	resp, err := httpSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

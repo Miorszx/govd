@@ -17,7 +17,7 @@ const (
 	apiEndpoint = "https://x.com/i/api/graphql/zZXycP0V6H7m-2r0mOnFcA/TweetDetail"
 )
 
-var HTTPSession = util.NewHTTPSession()
+var httpSession = util.GetHTTPSession()
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Twitter (Short)",
@@ -33,7 +33,7 @@ var ShortExtractor = &models.Extractor{
 			return nil, fmt.Errorf("failed to create req: %w", err)
 		}
 		req.Header.Set("User-Agent", util.ChromeUA)
-		res, err := HTTPSession.Do(req)
+		res, err := httpSession.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -151,7 +151,7 @@ func GetTweetAPI(tweetID string) (*Tweet, error) {
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := HTTPSession.Do(req)
+	resp, err := httpSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

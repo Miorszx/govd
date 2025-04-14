@@ -23,7 +23,7 @@ const (
 	appUserAgent       = packageID + " (Linux; U; Android 13; en_US; Pixel 7; Build/TD1A.220804.031; Cronet/58.0.2991.0)"
 )
 
-var HTTPSession = util.NewHTTPSession()
+var httpSession = util.GetHTTPSession()
 
 var VMExtractor = &models.Extractor{
 	Name:       "TikTok VM",
@@ -147,7 +147,7 @@ func GetVideoAPI(awemeID string) (*AwemeDetails, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Argus", "")
 
-	resp, err := HTTPSession.Do(req)
+	resp, err := httpSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

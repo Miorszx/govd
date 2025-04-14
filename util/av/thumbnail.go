@@ -12,10 +12,7 @@ func ExtractVideoThumbnail(
 		Input(videoPath).
 		Output(thumbnailPath, ffmpeg.KwArgs{
 			"vframes": 1,
-			"f":       "image2",
 			"ss":      "00:00:01",
-			"c:v":     "mjpeg",
-			"q:v":     10, // not sure
 		}).
 		Silent(true).
 		OverWriteOutput().

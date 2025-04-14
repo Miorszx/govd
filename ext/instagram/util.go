@@ -115,7 +115,7 @@ func GetPostCaption(
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("TE", "trailers")
 
-	resp, err := HTTPSession.Do(req)
+	resp, err := httpSession.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}

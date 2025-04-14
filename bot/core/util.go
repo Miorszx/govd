@@ -57,10 +57,10 @@ func insertVideoInfo(
 	format *models.MediaFormat,
 	filePath string,
 ) {
-	width, height, duration := av.GetVideoInfo(filePath)
+	duration, width, height := av.GetVideoInfo(filePath)
+	format.Duration = duration
 	format.Width = width
 	format.Height = height
-	format.Duration = duration
 }
 
 func GetMessageFileID(msg *gotgbot.Message) string {
