@@ -37,6 +37,7 @@ require (
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/titanous/json5 v1.0.0
 	github.com/u2takey/go-utils v0.3.1 // indirect
 	github.com/unki2aut/go-mpd v0.0.0-20250218132413-c6a2d2d492f4
 	go.uber.org/mock v0.5.0 // indirect
