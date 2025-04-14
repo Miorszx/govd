@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -45,7 +46,14 @@ func NewBotClient() BotClient {
 	}
 	return BotClient{
 		BotClient: &gotgbot.BaseBotClient{
-			Client:             http.Client{},
+			Client: http.Client{
+				Transport: &http.Transport{
+					// avoid using proxy for telegram
+					Proxy: func(r *http.Request) (*url.URL, error) {
+						return nil, nil
+					},
+				},
+			},
 			UseTestEnvironment: false,
 			DefaultRequestOpts: &gotgbot.RequestOpts{
 				Timeout: 10 * time.Minute,

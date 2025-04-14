@@ -12,14 +12,7 @@ import (
 	"govd/util"
 )
 
-var HTTPClient = &http.Client{
-	CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return fmt.Errorf("stopped after 10 redirects")
-		}
-		return nil
-	},
-}
+var HTTPSession = util.NewHTTPSession()
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Reddit (Short)",
@@ -44,7 +37,7 @@ var ShortExtractor = &models.Extractor{
 			req.AddCookie(cookie)
 		}
 
-		res, err := HTTPClient.Do(req)
+		res, err := HTTPSession.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -236,7 +229,7 @@ func GetRedditData(host string, slug string) (RedditResponse, error) {
 		req.AddCookie(cookie)
 	}
 
-	res, err := HTTPClient.Do(req)
+	res, err := HTTPSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

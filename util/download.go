@@ -45,7 +45,7 @@ func DownloadFile(
 			return "", ctx.Err()
 		default:
 			// create the download directory if it doesn't exist
-			if err := ensureDownloadDir(config.DownloadDir); err != nil {
+			if err := EnsureDownloadDir(config.DownloadDir); err != nil {
 				return "", err
 			}
 
@@ -78,7 +78,7 @@ func DownloadFileWithSegments(
 	if config == nil {
 		config = DefaultConfig()
 	}
-	if err := ensureDownloadDir(config.DownloadDir); err != nil {
+	if err := EnsureDownloadDir(config.DownloadDir); err != nil {
 		return "", err
 	}
 	tempDir := filepath.Join(config.DownloadDir, "segments_"+time.Now().Format("20060102_150405"))
@@ -151,10 +151,14 @@ func downloadInMemory(ctx context.Context, fileURL string, timeout time.Duration
 	return io.ReadAll(resp.Body)
 }
 
-func ensureDownloadDir(dir string) error {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create downloads directory: %w", err)
+func EnsureDownloadDir(dir string) error {
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create downloads directory: %w", err)
+			}
+		} else {
+			return fmt.Errorf("error accessing directory: %w", err)
 		}
 	}
 	return nil
@@ -453,7 +457,7 @@ func MergeSegmentFiles(
 		config = DefaultConfig()
 	}
 
-	if err := ensureDownloadDir(config.DownloadDir); err != nil {
+	if err := EnsureDownloadDir(config.DownloadDir); err != nil {
 		return "", err
 	}
 

@@ -1,7 +1,6 @@
 package instagram
 
 import (
-	"crypto/tls"
 	"fmt"
 	"govd/enums"
 	"govd/models"
@@ -9,9 +8,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3"
 )
 
 // as a public service, we can't use the official API
@@ -46,17 +42,7 @@ var igHeaders = map[string]string{
 	"User-Agent":                util.ChromeUA,
 }
 
-var HTTPClient = &http.Client{
-	Transport: &http3.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-		QUICConfig: &quic.Config{
-			MaxIncomingStreams: -1,
-			EnableDatagrams:    true,
-		},
-	},
-}
+var HTTPSession = util.NewHTTPSession()
 
 var Extractor = &models.Extractor{
 	Name:       "Instagram",
@@ -110,7 +96,7 @@ var ShareURLExtractor = &models.Extractor{
 		for k, v := range igHeaders {
 			req.Header.Set(k, v)
 		}
-		resp, err := HTTPClient.Do(req)
+		resp, err := HTTPSession.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -197,7 +183,7 @@ func GetVideoAPI(contentURL string) (*IGramResponse, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", util.ChromeUA)
 
-	resp, err := HTTPClient.Do(req)
+	resp, err := HTTPSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

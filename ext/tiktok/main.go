@@ -1,15 +1,11 @@
 package tiktok
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
-
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3"
 
 	"govd/enums"
 	"govd/models"
@@ -27,17 +23,7 @@ const (
 	appUserAgent       = packageID + " (Linux; U; Android 13; en_US; Pixel 7; Build/TD1A.220804.031; Cronet/58.0.2991.0)"
 )
 
-var HTTPClient = &http.Client{
-	Transport: &http3.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-		QUICConfig: &quic.Config{
-			MaxIncomingStreams: -1,
-			EnableDatagrams:    true,
-		},
-	},
-}
+var HTTPSession = util.NewHTTPSession()
 
 var VMExtractor = &models.Extractor{
 	Name:       "TikTok VM",
@@ -161,7 +147,7 @@ func GetVideoAPI(awemeID string) (*AwemeDetails, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Argus", "")
 
-	resp, err := HTTPClient.Do(req)
+	resp, err := HTTPSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

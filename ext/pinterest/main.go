@@ -17,6 +17,8 @@ const (
 	shortenerAPIFormat  = "https://api.pinterest.com/url_shortener/%s/redirect/"
 )
 
+var HTTPSession = util.NewHTTPSession()
+
 var ShortExtractor = &models.Extractor{
 	Name:       "Pinterest (Short)",
 	CodeName:   "pinterest:short",
@@ -146,8 +148,7 @@ func GetPinData(pinID string) (*PinData, error) {
 	// fix 403 error
 	req.Header.Set("X-Pinterest-PWS-Handler", "www/[username].js")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := HTTPSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
