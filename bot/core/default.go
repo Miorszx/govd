@@ -111,9 +111,9 @@ func HandleDefaultStoredFormatDownload(
 		storedMedias[0],
 		isCaptionEnabled,
 	)
-	var formats []*models.DownloadedMedia
+	var medias []*models.DownloadedMedia
 	for _, media := range storedMedias {
-		formats = append(formats, &models.DownloadedMedia{
+		medias = append(medias, &models.DownloadedMedia{
 			FilePath:          "",
 			ThumbnailFilePath: "",
 			Media:             media,
@@ -121,7 +121,7 @@ func HandleDefaultStoredFormatDownload(
 	}
 	_, err := SendMedias(
 		bot, ctx, dlCtx,
-		formats,
+		medias,
 		&models.SendMediaFormatsOptions{
 			Caption:  messageCaption,
 			IsStored: true,

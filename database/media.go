@@ -39,7 +39,7 @@ func StoreMedia(
 		if err := tx.Where(models.Media{
 			ExtractorCodeName: extractorCodeName,
 			ContentID:         contentID,
-		}).FirstOrCreate(&media).Error; err != nil {
+		}).Create(&media).Error; err != nil {
 			return fmt.Errorf("failed to get or create media: %w", err)
 		}
 		if media.Format != nil {
