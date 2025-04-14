@@ -239,13 +239,5 @@ func GetInlineFormat(
 	}
 	msg := &msgs[0]
 	msg.Delete(bot, nil)
-	err = StoreMedias(
-		dlCtx, msgs,
-		medias,
-	)
-	if err != nil {
-		errChan <- fmt.Errorf("failed to store media: %w", err)
-		return
-	}
 	mediaChan <- medias[0].Media
 }
