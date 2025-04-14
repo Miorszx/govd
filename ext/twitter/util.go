@@ -136,7 +136,7 @@ func extractResolution(url string) (int64, int64) {
 func FindTweetData(resp *APIResponse, tweetID string) (*Tweet, error) {
 	instructions := resp.Data.ThreadedConversationWithInjectionsV2.Instructions
 	if len(instructions) == 0 {
-		return nil, fmt.Errorf("nessuna istruzione trovata nella risposta")
+		return nil, fmt.Errorf("tweet data missing")
 	}
 
 	entries := instructions[0].Entries
@@ -154,9 +154,9 @@ func FindTweetData(resp *APIResponse, tweetID string) (*Tweet, error) {
 				return result.Legacy, nil
 			}
 
-			return nil, fmt.Errorf("struttura del tweet non valida")
+			return nil, fmt.Errorf("invalid tweet data")
 		}
 	}
 
-	return nil, fmt.Errorf("tweet non trovato nella risposta")
+	return nil, fmt.Errorf("tweet not found")
 }
