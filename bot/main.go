@@ -41,7 +41,7 @@ func Start() {
 	}
 	logDispatcherErrors, err := strconv.ParseBool(os.Getenv("LOG_DISPATCHER_ERRORS"))
 	if err != nil {
-		log.Println("failed to parse LOG_ERRORS env, using false")
+		log.Println("failed to parse LOG_DISPATCHER_ERRORS env, using false")
 		logDispatcherErrors = false
 	}
 	dispatcher := ext.NewDispatcher(&ext.DispatcherOpts{
