@@ -3,6 +3,7 @@ package bot
 import (
 	"log"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -53,7 +54,8 @@ func Start() {
 		},
 		Panic: func(b *gotgbot.Bot, ctx *ext.Context, r interface{}) {
 			if logDispatcherErrors {
-				log.Printf("panic occurred while handling update: %v", r)
+				log.Printf("panic occurred while handling update: %v\n", r)
+				log.Printf("stack trace:\n%s\n", debug.Stack())
 			}
 		},
 		MaxRoutines: concurrentUpdates,
