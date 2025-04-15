@@ -31,7 +31,7 @@ cd govd
 sh build.sh
 ```
 
-## installation with Docker
+## installation with docker
 first build the image using the dockerfile
 
 ```bash
