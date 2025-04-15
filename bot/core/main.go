@@ -88,6 +88,15 @@ func SendMedias(
 	for _, chunk := range mediaGroupChunks {
 		var inputMediaList []gotgbot.InputMedia
 		for idx, media := range chunk {
+			// always clean up files, in case of error
+			defer func() {
+				if media.FilePath != "" {
+					os.Remove(media.FilePath)
+				}
+				if media.ThumbnailFilePath != "" {
+					os.Remove(media.ThumbnailFilePath)
+				}
+			}()
 			var caption string
 
 			if idx == 0 {
@@ -112,15 +121,6 @@ func SendMedias(
 		)
 		if err != nil {
 			return nil, err
-		}
-
-		for _, media := range chunk {
-			if media.FilePath != "" {
-				os.Remove(media.FilePath)
-			}
-			if media.ThumbnailFilePath != "" {
-				os.Remove(media.ThumbnailFilePath)
-			}
 		}
 
 		sentMessages = append(sentMessages, msgs...)

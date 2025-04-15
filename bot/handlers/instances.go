@@ -20,6 +20,7 @@ func getInstanceMessage() string {
 		"branch: <a href='%s'>%s</a>\n\n" +
 		"public instances\n" +
 		"- @govd_bot | main official instance\n" +
+		"- @govd_pingu_bot | pingu instance\n" +
 		"\nwant to add your own instance? reach us on @govdsupport"
 }
 

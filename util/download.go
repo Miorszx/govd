@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"net/http"
 	"os"
@@ -64,6 +63,7 @@ func DownloadFile(
 			if config.Remux {
 				err := av.RemuxFile(filePath)
 				if err != nil {
+					os.Remove(filePath)
 					return "", fmt.Errorf("remuxing failed: %w", err)
 				}
 			}
@@ -93,13 +93,10 @@ func DownloadFileWithSegments(
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create temporary directory: %w", err)
 	}
-	var cleanupErr error
-	defer func() {
-		if cleanupErr = os.RemoveAll(tempDir); cleanupErr != nil {
-			log.Printf("warning: failed to clean up temp directory %s: %v\n", tempDir, cleanupErr)
-		}
-	}()
-	downloadedFiles, err := DownloadSegments(ctx, segmentURLs, config)
+
+	defer os.RemoveAll(tempDir)
+
+	downloadedFiles, err := downloadSegments(ctx, segmentURLs, config)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to download segments: %w", err)
@@ -446,7 +443,7 @@ func createChunks(fileSize int, chunkSize int) [][2]int {
 	return chunks
 }
 
-func DownloadSegments(
+func downloadSegments(
 	ctx context.Context,
 	segmentURLs []string,
 	config *models.DownloadConfig,
@@ -462,6 +459,7 @@ func DownloadSegments(
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create temporary directory: %w", err)
 	}
+	defer os.RemoveAll(tempDir)
 
 	semaphore := make(chan struct{}, config.Concurrency)
 	var wg sync.WaitGroup
@@ -523,13 +521,6 @@ func DownloadSegments(
 		wg.Wait()
 		close(errChan)
 	}()
-
-	for err := range errChan {
-		if err != nil {
-			os.RemoveAll(tempDir)
-			return nil, err
-		}
-	}
 
 	return downloadedFiles, nil
 }

@@ -16,6 +16,7 @@ func RemuxFile(
 	if err != nil {
 		return fmt.Errorf("failed to rename file: %v", err)
 	}
+	defer os.Remove(tempFileName)
 	err = ffmpeg.
 		Input(tempFileName).
 		Output(outputFile, ffmpeg.KwArgs{
@@ -26,10 +27,6 @@ func RemuxFile(
 		Run()
 	if err != nil {
 		return fmt.Errorf("failed to remux file: %v", err)
-	}
-	err = os.Remove(tempFileName)
-	if err != nil {
-		return fmt.Errorf("failed to remove temp file: %v", err)
 	}
 	return nil
 }
