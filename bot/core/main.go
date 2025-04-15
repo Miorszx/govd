@@ -20,17 +20,13 @@ import (
 func HandleDownloadRequest(
 	bot *gotgbot.Bot,
 	ctx *ext.Context,
+	taskCtx context.Context,
 	dlCtx *models.DownloadContext,
 ) error {
-	taskCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	dlCtx.Context = taskCtx
-
 	chatID := ctx.EffectiveMessage.Chat.Id
 	if dlCtx.Extractor.Type == enums.ExtractorTypeSingle {
 		TypingEffect(bot, ctx, chatID)
-		err := HandleDefaultFormatDownload(bot, ctx, dlCtx)
+		err := HandleDefaultFormatDownload(bot, ctx, taskCtx, dlCtx)
 		if err != nil {
 			return err
 		}

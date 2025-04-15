@@ -34,6 +34,7 @@ func InlineDownloadHandler(
 		})
 		return nil
 	}
+
 	return core.HandleInline(bot, ctx, dlCtx)
 }
 
@@ -56,7 +57,14 @@ func InlineDownloadResultHandler(
 	)
 	defer cancel()
 
+	taskCtx, cancel := context.WithTimeout(
+		context.Background(),
+		5*time.Minute,
+	)
+	defer cancel()
+
 	go core.GetInlineFormat(
+		taskCtx,
 		bot, ctx, dlCtx,
 		mediaChan, errChan,
 	)

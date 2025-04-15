@@ -86,17 +86,16 @@ func downloadMediaItem(
 }
 
 func StartDownloadTask(
+	ctx context.Context,
 	media *models.Media,
 	idx int,
 	config *models.DownloadConfig,
 ) (*models.DownloadedMedia, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	return downloadMediaItem(ctx, media, config, idx)
 }
 
 func StartConcurrentDownload(
+	ctx context.Context,
 	media *models.Media,
 	resultsChan chan<- models.DownloadedMedia,
 	config *models.DownloadConfig,
@@ -105,9 +104,6 @@ func StartConcurrentDownload(
 	idx int,
 ) {
 	defer wg.Done()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	result, err := downloadMediaItem(ctx, media, config, idx)
 	if err != nil {
@@ -119,13 +115,15 @@ func StartConcurrentDownload(
 }
 
 func DownloadMedia(
+	ctx context.Context,
 	media *models.Media,
 	config *models.DownloadConfig,
 ) (*models.DownloadedMedia, error) {
-	return StartDownloadTask(media, 0, config)
+	return StartDownloadTask(ctx, media, 0, config)
 }
 
 func DownloadMedias(
+	ctx context.Context,
 	medias []*models.Media,
 	config *models.DownloadConfig,
 ) ([]*models.DownloadedMedia, error) {
@@ -134,7 +132,7 @@ func DownloadMedias(
 	}
 
 	if len(medias) == 1 {
-		result, err := DownloadMedia(medias[0], config)
+		result, err := DownloadMedia(ctx, medias[0], config)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +145,7 @@ func DownloadMedias(
 
 	for idx, media := range medias {
 		wg.Add(1)
-		go StartConcurrentDownload(media, resultsChan, config, errChan, &wg, idx)
+		go StartConcurrentDownload(ctx, media, resultsChan, config, errChan, &wg, idx)
 	}
 
 	go func() {
@@ -158,19 +156,26 @@ func DownloadMedias(
 
 	var results []*models.DownloadedMedia
 	var firstError error
-
-	select {
-	case err := <-errChan:
-		if err != nil {
-			firstError = err
+	received := 0
+	for received < len(medias) {
+		select {
+		case result, ok := <-resultsChan:
+			if ok {
+				resultCopy := result
+				results = append(results, &resultCopy)
+				received++
+			}
+		case err, ok := <-errChan:
+			if ok && firstError == nil {
+				firstError = err
+				received++
+			}
+		case <-ctx.Done():
+			if firstError == nil {
+				firstError = ctx.Err()
+			}
+			received++
 		}
-	default:
-		// no errors (yet)
-	}
-
-	for result := range resultsChan {
-		resultCopy := result // create a copy to avoid pointer issues
-		results = append(results, &resultCopy)
 	}
 
 	if firstError != nil {

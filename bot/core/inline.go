@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -205,6 +206,7 @@ func StartInlineTask(
 }
 
 func GetInlineFormat(
+	taskCtx context.Context,
 	bot *gotgbot.Bot,
 	ctx *ext.Context,
 	dlCtx *models.DownloadContext,
@@ -239,7 +241,7 @@ func GetInlineFormat(
 		mediaList[i].Format = defaultFormat
 	}
 	messageCaption := FormatCaption(mediaList[0], true)
-	medias, err := DownloadMedias(mediaList, nil)
+	medias, err := DownloadMedias(taskCtx, mediaList, nil)
 	if err != nil {
 		errChan <- fmt.Errorf("failed to download medias: %w", err)
 		return

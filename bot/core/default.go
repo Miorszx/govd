@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"govd/database"
 	"govd/models"
@@ -12,6 +13,7 @@ import (
 func HandleDefaultFormatDownload(
 	bot *gotgbot.Bot,
 	ctx *ext.Context,
+	taskCtx context.Context,
 	dlCtx *models.DownloadContext,
 ) error {
 	storedMedias, err := database.GetDefaultMedias(
@@ -51,7 +53,7 @@ func HandleDefaultFormatDownload(
 		mediaList[i].Format = defaultFormat
 	}
 
-	medias, err := DownloadMedias(mediaList, nil)
+	medias, err := DownloadMedias(taskCtx, mediaList, nil)
 	if err != nil {
 		return fmt.Errorf("failed to download media list: %w", err)
 	}

@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"govd/bot/core"
 	"govd/database"
 	extractors "govd/ext"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -39,7 +41,12 @@ func URLHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 			return err
 		}
 	}
-	err = core.HandleDownloadRequest(bot, ctx, dlCtx)
+
+	taskCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	err = core.HandleDownloadRequest(
+		bot, ctx, taskCtx, dlCtx)
 	if err != nil {
 		core.HandleErrorMessage(
 			bot, ctx, err)
