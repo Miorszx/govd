@@ -31,6 +31,19 @@ cd govd
 sh build.sh
 ```
 
+## installation with Docker
+first build the image using the dockerfile
+
+```bash
+docker build -t govd-bot .
+```
+
+then edit the .env file and match the DB properties with the MariaDB service environment variables in the docker-compose.yml file and run
+
+```bash
+docker compose up -d
+```
+
 ## env variables
 
 | variable              | description                                      | default                      |
