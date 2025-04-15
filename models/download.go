@@ -11,4 +11,5 @@ type DownloadConfig struct {
 	RetryDelay      time.Duration // delay between retries
 	Remux           bool          // whether to remux the downloaded file with ffmpeg
 	ProgressUpdater func(float64) // optional function to report download progress
+	MaxInMemory     int           // maximum file size for in-memory downloads
 }

@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -16,7 +17,23 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 )
 
-var InlineTasks = make(map[string]*models.DownloadContext)
+var InlineTasks sync.Map
+
+func GetTask(id string) (*models.DownloadContext, bool) {
+	value, ok := InlineTasks.Load(id)
+	if !ok {
+		return nil, false
+	}
+	return value.(*models.DownloadContext), true
+}
+
+func SetTask(id string, task *models.DownloadContext) {
+	InlineTasks.Store(id, task)
+}
+
+func DeleteTask(id string) {
+	InlineTasks.Delete(id)
+}
 
 func HandleInline(
 	bot *gotgbot.Bot,
@@ -183,7 +200,7 @@ func StartInlineTask(
 		log.Println("failed to answer inline query")
 		return nil
 	}
-	InlineTasks[taskID] = dlCtx
+	SetTask(taskID, dlCtx)
 	return nil
 }
 

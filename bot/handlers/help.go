@@ -9,7 +9,9 @@ var helpMessage = "usage:\n" +
 	"- you can add the bot to a group " +
 	"to start catching sent links\n" +
 	"- you can send a link to the bot privately " +
-	"to download the media too\n\n" +
+	"to download the media too\n" +
+	"- you can use inline mode " +
+	"to download media from any chat\n\n" +
 	"group commands:\n" +
 	"- /settings = show current settings\n" +
 	"- /captions (true|false) = enable/disable descriptions\n" +

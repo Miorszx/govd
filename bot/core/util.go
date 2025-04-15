@@ -198,6 +198,16 @@ func HandleErrorMessage(
 	err error,
 ) {
 	currentError := err
+
+	if errors.As(currentError, context.Canceled) ||
+		errors.As(currentError, context.DeadlineExceeded) {
+		SendErrorMessage(
+			bot, ctx,
+			"download request canceled or timed out",
+		)
+		return
+	}
+
 	for currentError != nil {
 		var botError *util.Error
 		if errors.As(currentError, &botError) {

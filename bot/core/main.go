@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"slices"
@@ -21,6 +22,11 @@ func HandleDownloadRequest(
 	ctx *ext.Context,
 	dlCtx *models.DownloadContext,
 ) error {
+	taskCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	dlCtx.Context = taskCtx
+
 	chatID := ctx.EffectiveMessage.Chat.Id
 	if dlCtx.Extractor.Type == enums.ExtractorTypeSingle {
 		TypingEffect(bot, ctx, chatID)

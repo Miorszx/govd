@@ -41,11 +41,12 @@ func InlineDownloadResultHandler(
 	bot *gotgbot.Bot,
 	ctx *ext.Context,
 ) error {
-	dlCtx, ok := core.InlineTasks[ctx.ChosenInlineResult.ResultId]
+	taskID := ctx.ChosenInlineResult.ResultId
+	dlCtx, ok := core.GetTask(taskID)
 	if !ok {
 		return nil
 	}
-	defer delete(core.InlineTasks, ctx.ChosenInlineResult.ResultId)
+	defer core.DeleteTask(taskID)
 
 	mediaChan := make(chan *models.Media, 1)
 	errChan := make(chan error, 1)

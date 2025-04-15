@@ -25,13 +25,15 @@ func GetHTTPSession() *http.Client {
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
-			MaxIdleConnsPerHost:   10,
-			MaxConnsPerHost:       10,
+			MaxIdleConnsPerHost:   20,
+			MaxConnsPerHost:       20,
+			ResponseHeaderTimeout: 30 * time.Second,
+			DisableCompression:    false,
 		}
 
 		httpSession = &http.Client{
 			Transport: transport,
-			Timeout:   30 * time.Second,
+			Timeout:   60 * time.Second,
 		}
 	})
 	return httpSession

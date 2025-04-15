@@ -29,6 +29,7 @@ func DefaultConfig() *models.DownloadConfig {
 		RetryAttempts: 3,
 		RetryDelay:    2 * time.Second,
 		Remux:         true,
+		MaxInMemory:   50 * 1024 * 1024, // 50MB
 	}
 }
 
@@ -127,7 +128,10 @@ func DownloadFileInMemory(
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			data, err := downloadInMemory(ctx, fileURL, config.Timeout)
+			data, err := downloadInMemory(
+				ctx, fileURL,
+				config,
+			)
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -142,9 +146,12 @@ func DownloadFileInMemory(
 func downloadInMemory(
 	ctx context.Context,
 	fileURL string,
-	timeout time.Duration,
+	config *models.DownloadConfig,
 ) ([]byte, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	reqCtx, cancel := context.WithTimeout(
+		ctx,
+		config.Timeout,
+	)
 	defer cancel()
 
 	select {
@@ -167,6 +174,10 @@ func downloadInMemory(
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	if resp.ContentLength > int64(config.MaxInMemory) {
+		return nil, fmt.Errorf("file too large for in-memory download: %d bytes", resp.ContentLength)
 	}
 
 	var buf bytes.Buffer

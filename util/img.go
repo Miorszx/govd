@@ -105,9 +105,6 @@ func DetectImageFormat(file io.ReadSeeker) (string, error) {
 }
 
 func isHEIF(header []byte) bool {
-	if len(header) < 12 {
-		return false
-	}
 	isHeifHeader := header[0] == 0x00 && header[1] == 0x00 &&
 		header[2] == 0x00 && (header[3] == 0x18 || header[3] == 0x1C) &&
 		bytes.Equal(header[4:8], []byte("ftyp"))
