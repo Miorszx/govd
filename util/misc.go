@@ -110,3 +110,11 @@ func CheckFFmpeg() bool {
 	_, err := exec.LookPath("ffmpeg")
 	return err == nil
 }
+
+func ClearDownlods() {
+	downloadsDir := os.Getenv("DOWNLOADS_DIR")
+	if downloadsDir == "" {
+		downloadsDir = "downloads"
+	}
+	os.RemoveAll(downloadsDir)
+}

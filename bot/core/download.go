@@ -194,7 +194,15 @@ func DownloadMedias(
 	}
 
 	if firstError != nil {
-		return results, firstError
+		for _, result := range results {
+			if result.FilePath != "" {
+				os.Remove(result.FilePath)
+			}
+			if result.ThumbnailFilePath != "" {
+				os.Remove(result.ThumbnailFilePath)
+			}
+		}
+		return nil, firstError
 	}
 
 	if len(results) > 1 {

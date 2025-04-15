@@ -481,9 +481,19 @@ func downloadSegments(
 
 	errChan := make(chan error, len(segmentURLs))
 	var errMutex sync.Mutex
+
 	var firstErr error
 
 	downloadedFiles := make([]string, len(segmentURLs))
+	defer func() {
+		if firstErr != nil {
+			for _, path := range downloadedFiles {
+				if path != "" {
+					os.Remove(path)
+				}
+			}
+		}
+	}()
 
 	downloadCtx, cancelDownload := context.WithCancel(ctx)
 	defer cancelDownload()
