@@ -14,7 +14,8 @@ func main() {
 	if err != nil {
 		log.Fatal("error loading .env file")
 	}
-	util.ClearDownlods()
+	util.CleanupDownloadsDir()
+	util.StartDownloadsCleanup()
 	ok := util.CheckFFmpeg()
 	if !ok {
 		log.Fatal("ffmpeg executable not found. please install it or add it to your PATH")

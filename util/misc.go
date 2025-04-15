@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -111,10 +112,35 @@ func CheckFFmpeg() bool {
 	return err == nil
 }
 
-func ClearDownlods() {
-	downloadsDir := os.Getenv("DOWNLOADS_DIR")
+func CleanupDownloadsDir() {
+	downloadsDir := os.Getenv("DOWNLOAD_DIR")
 	if downloadsDir == "" {
 		downloadsDir = "downloads"
 	}
-	os.RemoveAll(downloadsDir)
+	filepath.Walk(downloadsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if path == downloadsDir {
+			return nil
+		}
+		if time.Since(info.ModTime()) > 30*time.Minute {
+			if info.IsDir() {
+				os.RemoveAll(path)
+			} else {
+				os.Remove(path)
+			}
+		}
+		return nil
+	})
+}
+
+func StartDownloadsCleanup() {
+	ticker := time.NewTicker(1 * time.Hour)
+	go func() {
+		for {
+			CleanupDownloadsDir()
+			<-ticker.C
+		}
+	}()
 }
