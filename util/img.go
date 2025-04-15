@@ -37,6 +37,7 @@ func ImgToJPEG(file io.ReadSeeker, outputPath string) error {
 
 	if format == "jpeg" {
 		if _, err = file.Seek(0, io.SeekStart); err != nil {
+			os.Remove(outputPath)
 			return fmt.Errorf("failed to reset file position: %w", err)
 		}
 
@@ -48,11 +49,13 @@ func ImgToJPEG(file io.ReadSeeker, outputPath string) error {
 	}
 
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		os.Remove(outputPath)
 		return fmt.Errorf("failed to reset file position: %w", err)
 	}
 
 	img, _, err := image.Decode(file)
 	if err != nil {
+		os.Remove(outputPath)
 		return fmt.Errorf("failed to decode image: %w", err)
 	}
 
