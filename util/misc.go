@@ -15,6 +15,8 @@ import (
 	"github.com/aki237/nscjar"
 )
 
+var cookiesCache = make(map[string][]*http.Cookie)
+
 func GetLocationURL(
 	url string,
 	userAgent string,
@@ -88,6 +90,10 @@ func GetLastError(err error) error {
 }
 
 func ParseCookieFile(fileName string) ([]*http.Cookie, error) {
+	cachedCookies, ok := cookiesCache[fileName]
+	if ok {
+		return cachedCookies, nil
+	}
 	cookiePath := filepath.Join("cookies", fileName)
 	cookieFile, err := os.Open(cookiePath)
 	if err != nil {
@@ -100,6 +106,7 @@ func ParseCookieFile(fileName string) ([]*http.Cookie, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse cookie file: %w", err)
 	}
+	cookiesCache[fileName] = cookies
 	return cookies, nil
 }
 
