@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -18,22 +19,65 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 )
 
+type TaskEntry struct {
+	Task      *models.DownloadContext
+	CreatedAt time.Time
+}
+
 var InlineTasks sync.Map
+var cleanupActive sync.Once
+
+const taskTimeout = 5 * time.Minute
 
 func GetTask(id string) (*models.DownloadContext, bool) {
 	value, ok := InlineTasks.Load(id)
 	if !ok {
 		return nil, false
 	}
-	return value.(*models.DownloadContext), true
+	entry, ok := value.(TaskEntry)
+	if !ok {
+		return nil, false
+	}
+	return entry.Task, true
 }
 
 func SetTask(id string, task *models.DownloadContext) {
-	InlineTasks.Store(id, task)
+	InlineTasks.Store(id, TaskEntry{
+		Task:      task,
+		CreatedAt: time.Now(),
+	})
+	cleanupActive.Do(startTasksCleanup)
 }
 
 func DeleteTask(id string) {
 	InlineTasks.Delete(id)
+}
+
+func startTasksCleanup() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			cleanupStaleTasks()
+		}
+	}()
+}
+
+func cleanupStaleTasks() {
+	now := time.Now()
+	InlineTasks.Range(func(key, value interface{}) bool {
+		entry, ok := value.(TaskEntry)
+		if !ok {
+			InlineTasks.Delete(key)
+			return true
+		}
+
+		if now.Sub(entry.CreatedAt) > taskTimeout {
+			InlineTasks.Delete(key)
+		}
+		return true
+	})
 }
 
 func HandleInline(
