@@ -44,41 +44,7 @@ func downloadMediaItem(
 		}
 	}()
 
-	if format.Type != enums.MediaTypePhoto {
-		if len(format.Segments) == 0 {
-			path, err := util.DownloadFile(
-				ctx, format.URL,
-				fileName, config,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to download file: %w", err)
-			}
-			filePath = path
-		} else {
-			path, err := util.DownloadFileWithSegments(
-				ctx, format.Segments,
-				fileName, config,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to download segments: %w", err)
-			}
-			filePath = path
-		}
-
-		if format.Type == enums.MediaTypeVideo || format.Type == enums.MediaTypeAudio {
-			path, err := getFileThumbnail(format, filePath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get thumbnail: %w", err)
-			}
-			thumbnailFilePath = path
-		}
-
-		if format.Type == enums.MediaTypeVideo {
-			if format.Width == 0 || format.Height == 0 || format.Duration == 0 {
-				insertVideoInfo(format, filePath)
-			}
-		}
-	} else {
+	if format.Type == enums.MediaTypePhoto {
 		file, err := util.DownloadFileInMemory(ctx, format.URL, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to download image: %w", err)
@@ -88,9 +54,42 @@ func downloadMediaItem(
 			return nil, fmt.Errorf("failed to convert image: %w", err)
 		}
 		filePath = path
+		cleanup = false
+		return &models.DownloadedMedia{
+			FilePath:          filePath,
+			ThumbnailFilePath: thumbnailFilePath,
+			Media:             media,
+			Index:             idx,
+		}, nil
 	}
 
-	// all good, no need to delete files
+	// hndle non-photo (video/audio/other)
+	if len(format.Segments) == 0 {
+		path, err := util.DownloadFile(ctx, format.URL, fileName, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download file: %w", err)
+		}
+		filePath = path
+	} else {
+		path, err := util.DownloadFileWithSegments(ctx, format.Segments, fileName, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download segments: %w", err)
+		}
+		filePath = path
+	}
+
+	if format.Type == enums.MediaTypeVideo || format.Type == enums.MediaTypeAudio {
+		path, err := getFileThumbnail(format, filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get thumbnail: %w", err)
+		}
+		thumbnailFilePath = path
+	}
+
+	if format.Type == enums.MediaTypeVideo && (format.Width == 0 || format.Height == 0 || format.Duration == 0) {
+		insertVideoInfo(format, filePath)
+	}
+
 	cleanup = false
 	return &models.DownloadedMedia{
 		FilePath:          filePath,

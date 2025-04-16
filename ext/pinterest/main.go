@@ -27,8 +27,8 @@ var (
 		"co\\.in", "co\\.nz", "id", "com\\.ec", "com\\.py", "tw", "be", "uk", "com\\.bo", "com\\.pe",
 	}
 	validHostRegex     = strings.Join(validHost, "|")
-	validUrlPattern    = `https?://(?:[^/]+\.)?pinterest\.(` + validHostRegex + `)/pin/(?:[\w-]+--)?(?P<id>\d+)`
-	pinValidUrlPattern = `https?://(www\.)?pin\.(` + validHostRegex + `)/(?P<id>\w+)`
+	validURLPattern    = `https?://(?:[^/]+\.)?pinterest\.(` + validHostRegex + `)/pin/(?:[\w-]+--)?(?P<id>\d+)`
+	pinValidURLPattern = `https?://(www\.)?pin\.(` + validHostRegex + `)/(?P<id>\w+)`
 )
 
 var ShortExtractor = &models.Extractor{
@@ -36,7 +36,7 @@ var ShortExtractor = &models.Extractor{
 	CodeName:   "pinterest:short",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(pinValidUrlPattern),
+	URLPattern: regexp.MustCompile(pinValidURLPattern),
 	Host: func() []string {
 		var domains []string
 		for _, domain := range validHost {
@@ -63,7 +63,7 @@ var Extractor = &models.Extractor{
 	CodeName:   "pinterest",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(validUrlPattern),
+	URLPattern: regexp.MustCompile(validURLPattern),
 	Host: func() []string {
 		var domains []string
 		for _, domain := range validHost {
@@ -161,7 +161,7 @@ func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 func GetPinData(pinID string) (*PinData, error) {
 	params := BuildPinRequestParams(pinID)
 
-	req, err := http.NewRequest("GET", pinResourceEndpoint, nil)
+	req, err := http.NewRequest(http.MethodGet, pinResourceEndpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

@@ -184,12 +184,21 @@ func downloadInMemory(
 		return nil, fmt.Errorf("file too large for in-memory download: %d bytes", resp.ContentLength)
 	}
 
-	var buf bytes.Buffer
+	var bufPool = sync.Pool{
+		New: func() any {
+			return bytes.NewBuffer(make([]byte, 0, 1024*1024))
+		},
+	}
+
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer bufPool.Put(buf)
+
 	if resp.ContentLength > 0 {
 		buf.Grow(int(resp.ContentLength))
 	}
 
-	_, err = io.Copy(&buf, resp.Body)
+	_, err = io.Copy(buf, resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -218,8 +227,11 @@ func runChunkedDownload(
 ) error {
 	// reduce concurrency if it's greater
 	// than the number of available CPUs
-	if runtime.NumCPU() < config.Concurrency && runtime.GOMAXPROCS(0) < config.Concurrency {
-		config.Concurrency = runtime.NumCPU()
+	maxProcs := runtime.GOMAXPROCS(0)
+	optimalConcurrency := int(math.Max(1, float64(maxProcs-1)))
+
+	if config.Concurrency > optimalConcurrency {
+		config.Concurrency = optimalConcurrency
 	}
 
 	fileSize, err := getFileSize(ctx, fileURL, config.Timeout)
@@ -446,7 +458,7 @@ func createChunks(fileSize int, chunkSize int) [][2]int {
 	numChunks := int(math.Ceil(float64(fileSize) / float64(chunkSize)))
 	chunks := make([][2]int, numChunks)
 
-	for i := 0; i < numChunks; i++ {
+	for i := range chunks {
 		start := i * chunkSize
 		end := start + chunkSize - 1
 		if end >= fileSize {

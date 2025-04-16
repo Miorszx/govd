@@ -32,7 +32,7 @@ var ShortExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		req, err := http.NewRequest("GET", ctx.MatchedContentURL, nil)
+		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
@@ -225,7 +225,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 func GetRedditData(host string, slug string) (RedditResponse, error) {
 	url := fmt.Sprintf("https://%s/%s/.json", host, slug)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

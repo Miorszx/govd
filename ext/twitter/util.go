@@ -28,7 +28,7 @@ func BuildAPIHeaders(cookies []*http.Cookie) map[string]string {
 		return nil
 	}
 	headers := map[string]string{
-		"authorization":             fmt.Sprintf("Bearer %s", authToken),
+		"authorization":             "Bearer " + authToken,
 		"user-agent":                util.ChromeUA,
 		"x-twitter-auth-type":       "OAuth2Session",
 		"x-twitter-client-language": "en",
@@ -140,7 +140,7 @@ func FindTweetData(resp *APIResponse, tweetID string) (*Tweet, error) {
 	}
 
 	entries := instructions[0].Entries
-	entryID := fmt.Sprintf("tweet-%s", tweetID)
+	entryID := "tweet-" + tweetID
 
 	for _, entry := range entries {
 		if entry.EntryID == entryID {

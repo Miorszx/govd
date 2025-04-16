@@ -19,14 +19,14 @@ func GetLocationURL(
 	url string,
 	userAgent string,
 ) (string, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	if userAgent == "" {
 		userAgent = ChromeUA
 	}
-	req.Header.Set("User-Agent", ChromeUA)
+	req.Header.Set("User-Agent", userAgent)
 	session := GetHTTPSession()
 	resp, err := session.Do(req)
 	if err != nil {

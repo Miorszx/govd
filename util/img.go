@@ -7,6 +7,7 @@ import (
 	"image/jpeg"
 	"io"
 	"os"
+	"slices"
 
 	_ "image/gif"
 	_ "image/png"
@@ -117,10 +118,5 @@ func isHEIF(header []byte) bool {
 	heifBrands := []string{"heic", "heix", "mif1", "msf1"}
 	brand := string(header[8:12])
 
-	for _, b := range heifBrands {
-		if brand == b {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(heifBrands, brand)
 }

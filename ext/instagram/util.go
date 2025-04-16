@@ -2,6 +2,7 @@ package instagram
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"govd/util"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,7 +21,7 @@ var captionPattern = regexp.MustCompile(
 )
 
 func BuildSignedPayload(contentURL string) (io.Reader, error) {
-	timestamp := fmt.Sprintf("%d", time.Now().UnixMilli())
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	hash := sha256.New()
 	_, err := io.WriteString(
 		hash,
@@ -29,7 +31,7 @@ func BuildSignedPayload(contentURL string) (io.Reader, error) {
 		return nil, fmt.Errorf("error writing to SHA256 hash: %w", err)
 	}
 	secretBytes := hash.Sum(nil)
-	secretString := fmt.Sprintf("%x", secretBytes)
+	secretString := hex.EncodeToString(secretBytes)
 	secretString = strings.ToLower(secretString)
 	payload := map[string]string{
 		"url":  contentURL,
@@ -76,13 +78,13 @@ func ParseIGramResponse(body []byte) (*IGramResponse, error) {
 }
 
 func GetCDNURL(contentURL string) (string, error) {
-	parsedUrl, err := url.Parse(contentURL)
+	parsedURL, err := url.Parse(contentURL)
 	if err != nil {
-		return "", fmt.Errorf("can't parse igram URL: %v", err)
+		return "", fmt.Errorf("can't parse igram URL: %w", err)
 	}
-	queryParams, err := url.ParseQuery(parsedUrl.RawQuery)
+	queryParams, err := url.ParseQuery(parsedURL.RawQuery)
 	if err != nil {
-		return "", fmt.Errorf("can't unescape igram URL: %v", err)
+		return "", fmt.Errorf("can't unescape igram URL: %w", err)
 	}
 	cdnURL := queryParams.Get("uri")
 	return cdnURL, nil
@@ -133,7 +135,6 @@ func GetPostCaption(
 	if len(matches) < 2 {
 		// post has no caption most likely
 		return "", nil
-	} else {
-		return html.UnescapeString(matches[1]), nil
 	}
+	return html.UnescapeString(matches[1]), nil
 }

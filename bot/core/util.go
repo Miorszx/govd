@@ -107,9 +107,11 @@ func StoreMedias(
 	medias []*models.DownloadedMedia,
 ) error {
 	var storedMedias []*models.Media
+
 	if len(medias) == 0 {
 		return fmt.Errorf("no media to store")
 	}
+
 	for idx, msg := range msgs {
 		fileID := GetMessageFileID(&msg)
 		if len(fileID) == 0 {
@@ -211,27 +213,22 @@ func HandleErrorMessage(
 	for currentError != nil {
 		var botError *util.Error
 		if errors.As(currentError, &botError) {
-			SendErrorMessage(bot, ctx, fmt.Sprintf(
-				"error occurred when downloading: %s",
-				currentError.Error(),
-			))
+			SendErrorMessage(bot, ctx,
+				"error occurred when downloading: "+currentError.Error(),
+			)
 			return
 		}
 		currentError = errors.Unwrap(currentError)
 	}
 
 	lastError := util.GetLastError(err)
-	errorMessage := fmt.Sprintf(
-		"error occurred when downloading: %s",
-		lastError.Error(),
-	)
+	errorMessage := "error occurred when downloading: " + lastError.Error()
 
 	if strings.Contains(errorMessage, bot.Token) {
 		errorMessage = "telegram related error, probably connection issue"
 	}
 
 	SendErrorMessage(bot, ctx, errorMessage)
-
 }
 
 func SendErrorMessage(

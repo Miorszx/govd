@@ -29,7 +29,7 @@ var ShortExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		req, err := http.NewRequest("GET", ctx.MatchedContentURL, nil)
+		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create req: %w", err)
 		}
@@ -139,7 +139,7 @@ func GetTweetAPI(tweetID string) (*Tweet, error) {
 	}
 	query := BuildAPIQuery(tweetID)
 
-	req, err := http.NewRequest("GET", apiEndpoint, nil)
+	req, err := http.NewRequest(http.MethodGet, apiEndpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create req: %w", err)
 	}

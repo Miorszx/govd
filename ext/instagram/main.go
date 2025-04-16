@@ -185,7 +185,7 @@ func GetVideoAPI(contentURL string) (*IGramResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build signed payload: %w", err)
 	}
-	req, err := http.NewRequest("POST", apiURL, payload)
+	req, err := http.NewRequest(http.MethodPost, apiURL, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

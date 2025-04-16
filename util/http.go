@@ -20,15 +20,20 @@ func GetHTTPSession() *http.Client {
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
+			ForceAttemptHTTP2: true,
+
+			MaxIdleConns:    100,
+			IdleConnTimeout: 90 * time.Second,
+
+			TLSHandshakeTimeout:   5 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
-			MaxIdleConnsPerHost:   20,
-			MaxConnsPerHost:       20,
-			ResponseHeaderTimeout: 30 * time.Second,
-			DisableCompression:    false,
+
+			MaxIdleConnsPerHost: 100,
+			MaxConnsPerHost:     100,
+
+			ResponseHeaderTimeout: 10 * time.Second,
+
+			DisableCompression: false,
 		}
 
 		httpSession = &http.Client{

@@ -17,7 +17,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/inlinequery"
 )
 
-var AllowedUpdates = []string{
+var allowedUpdates = []string{
 	"message",
 	"callback_query",
 	"inline_query",
@@ -69,7 +69,7 @@ func Start() {
 			RequestOpts: &gotgbot.RequestOpts{
 				Timeout: time.Second * 10,
 			},
-			AllowedUpdates: AllowedUpdates,
+			AllowedUpdates: allowedUpdates,
 		},
 	})
 	if err != nil {
