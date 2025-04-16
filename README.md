@@ -32,6 +32,7 @@ sh build.sh
 ```
 
 ## installation with docker
+
 first build the image using the dockerfile
 
 ```bash
@@ -71,6 +72,7 @@ docker compose up -d
 | `HTTPS_PROXY`         | http proxy (optional)                           |                                        |
 | `NO_PROXY`            | no proxy domains (optional)                      |                                        |
 | `REPO_URL`            | project repository url                           | `https://github.com/govdbot/govd`      |
+| `PROFILER_PORT`       | port for profiler http server (pprof)              | `0` _(disabled)_                                    |
 
 **note:**
 to avoid limits on files, you should host your own telegram botapi. public bot instance is currently running under a botapi fork, [tdlight-telegram-bot-api](https://github.com/tdlight-team/tdlight-telegram-bot-api), but you can use the official botapi client too.
