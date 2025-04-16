@@ -25,6 +25,7 @@ var ShortExtractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://t\.co/(?P<id>\w+)`),
+	Host:       []string{"t.co"},
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
@@ -58,6 +59,12 @@ var Extractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/(vx)?(twitter|x)\.com\/([^\/]+)\/status\/(?P<id>\d+)`),
+	Host: []string{
+		"twitter.com",
+		"x.com",
+		"vxx.com",
+		"vxtwitter.com",
+	},
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)

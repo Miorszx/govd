@@ -11,6 +11,7 @@ type Extractor struct {
 	Type       enums.ExtractorType
 	Category   enums.ExtractorCategory
 	URLPattern *regexp.Regexp
+	Host       []string
 	IsDRM      bool
 	IsRedirect bool
 

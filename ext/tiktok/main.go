@@ -23,7 +23,19 @@ const (
 	appUserAgent       = packageID + " (Linux; U; Android 13; en_US; Pixel 7; Build/TD1A.220804.031; Cronet/58.0.2991.0)"
 )
 
-var httpSession = util.GetHTTPSession()
+var (
+	httpSession = util.GetHTTPSession()
+	baseHost    = []string{
+		"tiktok.com",
+		"vxtiktok.com",
+		"vm.tiktok.com",
+		"vt.tiktok.com",
+		"vt.vxtiktok.com",
+		"vm.vxtiktok.com",
+		"m.tiktok.com",
+		"m.vxtiktok.com",
+	}
+)
 
 var VMExtractor = &models.Extractor{
 	Name:       "TikTok VM",
@@ -31,6 +43,7 @@ var VMExtractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https:\/\/((?:vm|vt|www)\.)?(vx)?tiktok\.com\/(?:t\/)?(?P<id>[a-zA-Z0-9]+)`),
+	Host:       baseHost,
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
@@ -50,6 +63,7 @@ var Extractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/((www|m)\.)?(vx)?tiktok\.com\/((?:embed|@[\w\.-]+)\/)?(v(ideo)?|p(hoto)?)\/(?P<id>[0-9]+)`),
+	Host:       baseHost,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)

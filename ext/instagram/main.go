@@ -44,12 +44,17 @@ var igHeaders = map[string]string{
 	"User-Agent":                util.ChromeUA,
 }
 
+var instagramHost = []string{
+	"instagram.com",
+}
+
 var Extractor = &models.Extractor{
 	Name:       "Instagram",
 	CodeName:   "instagram",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https:\/\/www\.instagram\.com\/(reel|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
+	Host:       instagramHost,
 	IsRedirect: false,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
@@ -66,6 +71,7 @@ var StoriesExtractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https:\/\/www\.instagram\.com\/stories\/[a-zA-Z0-9._]+\/(?P<id>\d+)`),
+	Host:       instagramHost,
 	IsRedirect: false,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
@@ -82,6 +88,7 @@ var ShareURLExtractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/(www\.)?instagram\.com\/share\/((reels?|video|s|p)\/)?(?P<id>[^\/\?]+)`),
+	Host:       instagramHost,
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {

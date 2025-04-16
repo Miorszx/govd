@@ -12,7 +12,15 @@ import (
 	"govd/util"
 )
 
-var httpSession = util.GetHTTPSession()
+var (
+	httpSession = util.GetHTTPSession()
+	baseHost    = []string{
+		"reddit.com",
+		"redditmedia.com",
+		"old.reddit.com",
+		"old.redditmedia.com",
+	}
+)
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Reddit (Short)",
@@ -20,6 +28,7 @@ var ShortExtractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?P<host>(?:\w+\.)?reddit(?:media)?\.com)/(?P<slug>(?:(?:r|user)/[^/]+/)?s/(?P<id>[^/?#&]+))`),
+	Host:       baseHost,
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
@@ -57,6 +66,7 @@ var Extractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?P<host>(?:\w+\.)?reddit(?:media)?\.com)/(?P<slug>(?:(?:r|user)/[^/]+/)?comments/(?P<id>[^/?#&]+))`),
+	Host:       baseHost,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
