@@ -53,7 +53,7 @@ var Extractor = &models.Extractor{
 	CodeName:   "instagram",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(`https:\/\/www\.instagram\.com\/(reel|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
+	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/(reel|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
 
@@ -70,7 +70,7 @@ var StoriesExtractor = &models.Extractor{
 	CodeName:   "instagram:stories",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(`https:\/\/www\.instagram\.com\/stories\/[a-zA-Z0-9._]+\/(?P<id>\d+)`),
+	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/stories\/[a-zA-Z0-9._]+\/(?P<id>\d+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
 
