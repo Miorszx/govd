@@ -62,6 +62,11 @@ func getStartKeyboard(bot *gotgbot.Bot) gotgbot.InlineKeyboardMarkup {
 
 func StartHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	if ctx.EffectiveMessage.Chat.Type != "private" {
+		ctx.EffectiveMessage.Reply(
+			bot,
+			"i'm online! i'll download every media in this group.",
+			nil,
+		)
 		return nil
 	}
 	keyboard := getStartKeyboard(bot)
