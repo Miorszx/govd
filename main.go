@@ -23,7 +23,8 @@ func main() {
 	profilerPort, err := strconv.Atoi(os.Getenv("PROFILER_PORT"))
 	if err == nil && profilerPort > 0 {
 		go func() {
-			http.ListenAndServe(fmt.Sprintf("localhost:%d", profilerPort), nil)
+			log.Printf("starting profiler on port %d", profilerPort)
+			http.ListenAndServe(fmt.Sprintf(":%d", profilerPort), nil)
 		}()
 	}
 	util.CleanupDownloadsDir()
