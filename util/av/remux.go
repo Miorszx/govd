@@ -9,6 +9,8 @@ import (
 )
 
 func RemuxFile(inputFile string) error {
+	astiav.SetLogLevel(astiav.LogLevelQuiet)
+
 	ext := strings.ToLower(filepath.Ext(inputFile))
 	var muxerName string
 	switch ext {

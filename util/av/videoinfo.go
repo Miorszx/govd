@@ -3,6 +3,8 @@ package av
 import "github.com/asticode/go-astiav"
 
 func GetVideoInfo(filePath string) (int64, int64, int64) {
+	astiav.SetLogLevel(astiav.LogLevelQuiet)
+
 	formatCtx := astiav.AllocFormatContext()
 	if formatCtx == nil {
 		return 0, 0, 0

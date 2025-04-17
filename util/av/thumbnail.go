@@ -11,6 +11,8 @@ import (
 )
 
 func ExtractVideoThumbnail(videoPath string, imagePath string) error {
+	astiav.SetLogLevel(astiav.LogLevelQuiet)
+
 	formatCtx := astiav.AllocFormatContext()
 	defer formatCtx.Free()
 
