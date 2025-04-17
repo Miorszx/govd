@@ -56,8 +56,6 @@ func ParseIGramResponse(body []byte) (*IGramResponse, error) {
 	if err := sonic.ConfigFastest.Unmarshal(body, &rawResponse); err != nil {
 		return nil, fmt.Errorf("failed to decode response1: %w", err)
 	}
-	
-	
 
 	switch rawResponse.(type) {
 	case []interface{}:
@@ -113,7 +111,6 @@ func GetPostCaption(
 	req.Header.Set("Referer", "https://www.instagram.com/accounts/onetap/?next=%2F")
 	req.Header.Set("Alt-Used", "www.instagram.com")
 	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("Cookie", `csrftoken=Ib2Zuvf1y9HkDwXFxkdang; sessionid=8569455296%3AIFQiov2eYfTdSd%3A19%3AAYfVHnaxecWGWhyzxvz60vu5qLn05DyKgN_tTZUXTA; ds_user_id=8569455296; mid=Z_j1vQAEAAGVUE3KuxMR7vBonGBw; ig_did=BC48C8B7-D71B-49EF-8195-F9DE37A57B49; rur="CLN\0548569455296\0541775905137:01f7ebda5b896815e9279bb86a572db6bdc8ebccf3e1f8d5327e2bc5ca187fd5cd932b66"; wd=513x594; datr=x_X4Z_CHqpwtjaRKq7PtCNu3`)
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
 	req.Header.Set("Sec-Fetch-Dest", "document")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
@@ -130,7 +127,9 @@ func GetPostCaption(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get response: %s", resp.Status)
+		// return an empty caption
+		// probably 429 error
+		return "", nil
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

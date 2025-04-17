@@ -2,6 +2,10 @@ github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.31 h1:SIkzqC6Nv+znY4NGbWlJceWdns8Q
 github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.31/go.mod h1:kL1v4iIjlalwm3gCYGvF4NLa3hs+aKEfRkNJvj4aoDU=
 github.com/aki237/nscjar v0.0.0-20210417074043-bbb606196143 h1:PqRkQZW8lAlK2DnH9iSBfISmDxSChaoNJHwP0p7SD2Y=
 github.com/aki237/nscjar v0.0.0-20210417074043-bbb606196143/go.mod h1:l0r3UsMujHR1bAYL7R0+6NXkHo/vIe+ja3xLZbUZNb8=
+github.com/asticode/go-astiav v0.35.1 h1:jq27Ihf+GXtOTnhzNTcpKrW1iLNRAuPSoarh7/SapYc=
+github.com/asticode/go-astiav v0.35.1/go.mod h1:K7D8UC6GeQt85FUxk2KVwYxHnotrxuEnp5evkkudc2s=
+github.com/asticode/go-astikit v0.42.0 h1:pnir/2KLUSr0527Tv908iAH6EGYYrYta132vvjXsH5w=
+github.com/asticode/go-astikit v0.42.0/go.mod h1:h4ly7idim1tNhaVkdVBeXQZEE3L0xblP7fCWbgwipF0=
 github.com/aws/aws-sdk-go v1.38.20/go.mod h1:hcU610XS61/+aQV88ixoOzUoG7v3b31pl2zKMmprdro=
 github.com/aws/aws-sdk-go v1.55.6 h1:cSg4pvZ3m8dgYcgqB97MrcdjUmZ1BeMYKUxMMB89IPk=
 github.com/aws/aws-sdk-go v1.55.6/go.mod h1:eRwEWoyTWFMVYVQzKMNHWP5/RV4xIUGMQfXQHfHkpNU=

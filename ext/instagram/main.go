@@ -126,12 +126,10 @@ func MediaListFromAPI(
 	}
 	var caption string
 	if !stories {
-		// caption, err = GetPostCaption(postURL)
-		// if err != nil {
-		// 	return nil, fmt.Errorf("failed to get caption: %w", err)
-		// }
-
-		// todo: fix this (429 error)
+		caption, err = GetPostCaption(postURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get caption: %w", err)
+		}
 	}
 	for _, item := range details.Items {
 		media := ctx.Extractor.NewMedia(

@@ -18,6 +18,7 @@ require (
 )
 
 require (
+	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/go-sql-driver/mysql v1.7.0 // indirect
@@ -29,6 +30,7 @@ require (
 
 require (
 	github.com/aki237/nscjar v0.0.0-20210417074043-bbb606196143
+	github.com/asticode/go-astiav v0.35.1
 	github.com/aws/aws-sdk-go v1.55.6 // indirect
 	github.com/grafov/m3u8 v0.12.1
 	github.com/jinzhu/inflection v1.0.0 // indirect

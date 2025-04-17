@@ -1,18 +1,41 @@
 package av
 
-import (
-	"github.com/tidwall/gjson"
-	ffmpeg "github.com/u2takey/ffmpeg-go"
-)
+import "github.com/asticode/go-astiav"
 
 func GetVideoInfo(filePath string) (int64, int64, int64) {
-	probeData, err := ffmpeg.Probe(filePath)
-	if err != nil {
+	formatCtx := astiav.AllocFormatContext()
+	if formatCtx == nil {
 		return 0, 0, 0
 	}
-	duration := gjson.Get(probeData, "format.duration").Float()
-	width := gjson.Get(probeData, "streams.0.width").Int()
-	height := gjson.Get(probeData, "streams.0.height").Int()
+	defer formatCtx.Free()
 
-	return int64(duration), width, height
+	if err := formatCtx.OpenInput(filePath, nil, nil); err != nil {
+		return 0, 0, 0
+	}
+	defer formatCtx.CloseInput()
+
+	if err := formatCtx.FindStreamInfo(nil); err != nil {
+		return 0, 0, 0
+	}
+
+	var width, height int64
+	found := false
+	for _, stream := range formatCtx.Streams() {
+		if stream.CodecParameters().MediaType() == astiav.MediaTypeVideo {
+			width = int64(stream.CodecParameters().Width())
+			height = int64(stream.CodecParameters().Height())
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return 0, 0, 0
+	}
+
+	// get duration in seconds
+	duration := formatCtx.Duration()
+	durationSeconds := duration / int64(astiav.TimeBase)
+
+	return durationSeconds, width, height
 }
