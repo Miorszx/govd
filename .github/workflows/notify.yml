@@ -13,7 +13,7 @@ jobs:
           disable_web_page_preview: true
           format: html
           message: |
-            <b>🛠 ${{ github.actor }} created commit</b> (<code>${{github.sha}}</code>)
+            <b>new commit created</b> (<code>${{ github.actor }}</code>)
             <i>${{ github.event.commits[0].message }}</i>
             
-            <a href='https://github.com/${{ github.repository }}/commit/${{github.sha}}'>See changes</a>
+            <a href='https://github.com/${{ github.repository }}/commit/${{github.sha}}'>see changes</a>
