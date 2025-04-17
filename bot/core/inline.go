@@ -265,6 +265,7 @@ func GetInlineFormat(
 	mediaList := response.MediaList
 	if len(mediaList) == 0 {
 		errChan <- fmt.Errorf("no media found for content ID: %s", dlCtx.MatchedContentID)
+		return
 	}
 	if len(mediaList) > 1 {
 		errChan <- util.ErrInlineMediaGroup

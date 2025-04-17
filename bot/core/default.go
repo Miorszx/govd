@@ -37,7 +37,7 @@ func HandleDefaultFormatDownload(
 
 	mediaList := response.MediaList
 	if len(mediaList) == 0 {
-		return fmt.Errorf("no media found for content ID: %s", dlCtx.MatchedContentID)
+		return nil
 	}
 
 	for i := range mediaList {
