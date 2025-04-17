@@ -10,8 +10,10 @@ jobs:
         with:
           to: ${{ secrets.TELEGRAM_TO }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
+          disable_web_page_preview: true
+          format: html
           message: |
-            ${{ github.actor }} created commit:
-            Commit message: ${{ github.event.commits[0].message }}
+            <b>🛠 ${{ github.actor }} created commit</b> (<code>${{github.sha}}</code>)
+            <i>${{ github.event.commits[0].message }}</i>
             
-            See changes: https://github.com/${{ github.repository }}/commit/${{github.sha}}
+            <a href='https://github.com/${{ github.repository }}/commit/${{github.sha}}'>See changes</a>
