@@ -2,6 +2,7 @@ package ext
 
 import (
 	"govd/ext/instagram"
+	"govd/ext/ninegag"
 	"govd/ext/pinterest"
 	"govd/ext/reddit"
 	"govd/ext/tiktok"
@@ -21,5 +22,6 @@ var List = []*models.Extractor{
 	pinterest.ShortExtractor,
 	reddit.Extractor,
 	reddit.ShortExtractor,
+	ninegag.Extractor,
 	// todo: add every ext lol
 }

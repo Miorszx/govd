@@ -25,6 +25,7 @@ require (
 	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
 require (
