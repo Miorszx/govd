@@ -64,9 +64,11 @@ func containsURL(msg *gotgbot.Message) bool {
 
 func getMessageURL(msg *gotgbot.Message) string {
 	for _, entity := range msg.Entities {
-		if entity.Type == "url" {
-			return msg.Text[entity.Offset : entity.Offset+entity.Length]
-		}
+		parsedEntity := gotgbot.ParseEntity(
+			msg.Text,
+			entity,
+		)
+		return parsedEntity.Text
 	}
 	return ""
 }
