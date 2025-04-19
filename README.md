@@ -86,7 +86,7 @@ _this method only works on linux and macos, if you want to build the bot on wind
 | HTTP_PROXY  [(?)](#proxying)           | http proxy (optional)                        |                                       |
 | HTTPS_PROXY [(?)](#proxying)            | https proxy (optional)                       |                                       |
 | NO_PROXY         [(?)](#proxying)      | no proxy domains (optional)                  |                                       |
-| EDGE_PROXY_URL [(?)](#proxying)         | url of your edge proxy url (optional)        |                                       |
+| EDGE_PROXY_URL [(?)](#proxying)         | url of your edge proxy (optional)        |                                       |
 | REPO_URL               | project repository url                       | https://github.com/govdbot/govd       |
 | PROFILER_PORT          | port for profiler http server (pprof)        | 0 _(disabled)_                        |
 
@@ -95,7 +95,7 @@ _this method only works on linux and macos, if you want to build the bot on wind
 # proxying
 there are two types of proxying available: http and edge.
 - **http proxy**: this is a standard http proxy that can be used to route requests through a proxy server. you can set the `HTTP_PROXY` and `HTTPS_PROXY` environment variables to use this feature. (SOCKS5 is supported too)
-- **edge proxy**: this is a custom proxy that is used to route requests through a specific url. you can set the `EDGE_PROXY_URL` environment variable to use this feature. this is useful for routing requests through a specific server or service. howver, this feature is not totally implemented yet.
+- **edge proxy**: this is a custom proxy that is used to route requests through a specific url. you can set the `EDGE_PROXY_URL` environment variable to use this feature. this is useful for routing requests through a specific server or service. however, this feature is not totally implemented yet.
 
 **note:** by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.
 
