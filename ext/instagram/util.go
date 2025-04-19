@@ -97,6 +97,7 @@ func GetCDNURL(contentURL string) (string, error) {
 func GetPostCaption(
 	postURL string,
 ) (string, error) {
+	edgeProxyClient := util.GetEdgeProxyClient()
 	req, err := http.NewRequest(
 		http.MethodGet,
 		postURL,
@@ -120,7 +121,7 @@ func GetPostCaption(
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("TE", "trailers")
 
-	resp, err := httpSession.Do(req)
+	resp, err := edgeProxyClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
