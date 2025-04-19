@@ -55,11 +55,9 @@ func URLHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 }
 
 func URLFilter(msg *gotgbot.Message) bool {
-	return message.Text(msg) && !message.Command(msg) && containsURL(msg)
-}
-
-func containsURL(msg *gotgbot.Message) bool {
-	return message.Entity("url")(msg)
+	return message.Text(msg) &&
+		!message.Command(msg) &&
+		message.Entity("url")(msg)
 }
 
 func getMessageURL(msg *gotgbot.Message) string {
