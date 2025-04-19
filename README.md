@@ -1,93 +1,115 @@
 # govd
-
 a telegram bot for downloading media from various platforms
 
-this project was born after the discontinuation of a highly popular bot known as UVD, and draws significant inspiration from [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+this project was born after the discontinuation of a highly popular bot known as uvd, and draws significant inspiration from [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 
 - official instance: [@govd_bot](https://t.me/govd_bot)
 - support group: [govdsupport](https://t.me/govdsupport)
 
-## features
+---
 
-- download media from various platforms
-- download videos, photos, and audio
-- inline mode support
-- group chat support with customizable settings
-- media caption support
+* [dependencies](#dependencies)
+* [installation](#installation)
+    * [build](#build)
+    * [docker](#docker-recommended)
+* [options](#options)
+* [authentication](#authentication)
+* [proxying](#proxying)
+* [todo](#todo)
 
-## dependencies
-
-- ffmpeg >= 6.1.1
+# dependencies
+- ffmpeg >= 7.x **(*)**
 - libheif >= 1.19.7
 - pkg-config
 - mysql or mariadb
 
-## installation
+**note:** libav shared libraries must be installed on the system in order to build the bot.
 
-```bash
-git clone https://github.com/govdbot/govd.git
-cd govd
-# edit .env file with your bot token and database credentials
-sh build.sh
-```
+# installation
+## build
+_this method only works on linux and macos, if you want to build the bot on windows, check [docker installation](#installation-with-docker) instead._
 
-## installation with docker
+1. clone the repository
+    ```bash
+    git clone https://github.com/govdbot/govd.git && cd govd
+    ```
 
-first build the image using the dockerfile
+2. edit the `.env` file to set the database properties.  
+   for enhanced security, it is recommended to change the `DB_PASSWORD` property in the `.env` file.
 
-```bash
-docker build -t govd-bot .
-```
+3. make sure your database is up and running.
 
-next, update the .env file to ensure the database properties match the environment variables defined for the MariaDB service in the docker-compose.yml file 
-(while the default environment variables defined for the MariaDB service are acceptable, it is recommended to change the `MYSQL_PASSWORD` property in the docker-compose.yaml file for enhanced security and ensure that you also modify the the `DB_PASSWORD` property in the .env file to reflect this change)
+4. build and run the bot:
 
-the following line in the .env file MUST be set as shown below
+    ```bash
+    sh build.sh && ./govd
+    ```
 
-```env
-DB_HOST=db
-```
+## docker (recommended)
+> [!WARNING]  
+> this method is currently not working due to a wrong version of the libav (ffmpeg) library in the docker image. feel free to open a PR if you can fix it.
 
-finally run the compose to start all services
+1. build the image using the dockerfile:
 
-```bash
-docker compose up -d
-```
+    ```bash
+    docker build -t govd-bot .
+    ```
 
-## env variables
+2. update the `.env` file to ensure the database properties match the environment variables defined for the mariadb service in the `docker-compose.yml` file.  
+   for enhanced security, it is recommended to change the `MYSQL_PASSWORD` property in `docker-compose.yaml` and ensure `DB_PASSWORD` in `.env` matches it.
 
-| variable              | description                                      | default                      |
-|-----------------------|--------------------------------------------------|----------------------------------------|
-| `DB_HOST`             | database host                                    | `localhost`                            |
-| `DB_PORT`             | database port                                    | `3306`                                 |
-| `DB_NAME`             | database name                                    | `govd`                                 |
-| `DB_USER`             | database user                                    | `govd`                                 |
-| `DB_PASSWORD`         | database password                                | `password`                             |
-| `BOT_API_URL`*         | telegram bot api url                             | `https://api.telegram.org`             |
-| `BOT_TOKEN`           | telegram bot token                               | `12345678:ABC-DEF1234ghIkl-zyx57W2P0s` |
-| `CONCURRENT_UPDATES`  | max concurrent updates handled by the bot        | `50`                                   |
-| `LOG_DISPATCHER_ERRORS` | log dispatcher errors        | `0`                                    |
-| `DOWNLOADS_DIR`       | directory for downloaded files                   | `downloads`                            |
-| `HTTP_PROXY`          | http proxy (optional)                            |                                        |
-| `HTTPS_PROXY`         | http proxy (optional)                           |                                        |
-| `NO_PROXY`            | no proxy domains (optional)                      |                                        |
-| `REPO_URL`            | project repository url                           | `https://github.com/govdbot/govd`      |
-| `PROFILER_PORT`       | port for profiler http server (pprof)              | `0` _(disabled)_                                    |
+    the following line in the `.env` file **must** be set as:
 
-**note:**
-to avoid limits on files, you should host your own telegram botapi. public bot instance is currently running under a botapi fork, [tdlight-telegram-bot-api](https://github.com/tdlight-team/tdlight-telegram-bot-api), but you can use the official botapi client too.
+    ```
+    DB_HOST=db
+    ```
 
-## cookies
+3. run the compose to start all services:
 
-some extractors require cookies for download. to add your cookies, just insert a txt file in cookies folder (netscape format)
+    ```bash
+    docker compose up -d
+    ```
 
-## todo
+# options
+| variable               | description                                  | default                               |
+|------------------------|----------------------------------------------|---------------------------------------|
+| DB_HOST                | database host                                | localhost                             |
+| DB_PORT                | database port                                | 3306                                  |
+| DB_NAME                | database name                                | govd                                  |
+| DB_USER                | database user                                | govd                                  |
+| DB_PASSWORD            | database password                            | password                              |
+| BOT_API_URL            | telegram bot api url                         | https://api.telegram.org              |
+| BOT_TOKEN              | telegram bot token                           | 12345678:ABC-DEF1234ghIkl-zyx57W2P0s  |
+| CONCURRENT_UPDATES     | max concurrent updates handled               | 50                                    |
+| LOG_DISPATCHER_ERRORS  | log dispatcher errors                        | 0                                     |
+| DOWNLOADS_DIR          | directory for downloaded files               | downloads                             |
+| HTTP_PROXY  [(?)](#proxying)           | http proxy (optional)                        |                                       |
+| HTTPS_PROXY [(?)](#proxying)            | https proxy (optional)                       |                                       |
+| NO_PROXY         [(?)](#proxying)      | no proxy domains (optional)                  |                                       |
+| EDGE_PROXY_URL [(?)](#proxying)         | url of your edge proxy url (optional)        |                                       |
+| REPO_URL               | project repository url                       | https://github.com/govdbot/govd       |
+| PROFILER_PORT          | port for profiler http server (pprof)        | 0 _(disabled)_                        |
 
+**note:** to avoid limits on files, you should host your own telegram botapi. public bot instance is currently running under a botapi fork, [tdlight-telegram-bot-api](https://github.com/tdlight-team/tdlight-telegram-bot-api), but you can use the official botapi client too.
+
+# proxying
+there are two types of proxying available: http and edge.
+- **http proxy**: this is a standard http proxy that can be used to route requests through a proxy server. you can set the `HTTP_PROXY` and `HTTPS_PROXY` environment variables to use this feature. (SOCKS5 is supported too)
+- **edge proxy**: this is a custom proxy that is used to route requests through a specific url. you can set the `EDGE_PROXY_URL` environment variable to use this feature. this is useful for routing requests through a specific server or service. howver, this feature is not totally implemented yet.
+
+**note:** by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.
+
+# authentication
+some extractors require authentication to access the content. you can easily use cookies for that; simply export cookies from your browser in netscape format and place them in cookies folder (e.g. `cookies/reddit.txt`). you can easily export cookies using _Get cookies.txt LOCALLY_ extension for your browser.
+
+# todo
 - [ ] add more extractors
 - [ ] switch to native libav
 - [ ] add tests
 - [ ] improve error handling
-- [ ] add support for telegram wehbhooks
+- [ ] add support for telegram webhooks
 - [ ] switch to pgsql (?)
-- [ ] better API (?)
-- [ ] better docs with multiple README
+- [ ] better api (?)
+- [ ] better docs with multiple readme
+
+---

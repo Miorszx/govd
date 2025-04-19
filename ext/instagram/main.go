@@ -92,6 +92,8 @@ var ShareURLExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
+		// temporary fix for public instances
+		edgeProxyClient := util.GetEdgeProxyClient()
 		req, err := http.NewRequest(
 			http.MethodGet,
 			ctx.MatchedContentURL,
@@ -100,14 +102,12 @@ var ShareURLExtractor = &models.Extractor{
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
-		for k, v := range igHeaders {
-			req.Header.Set(k, v)
-		}
-		resp, err := httpSession.Do(req)
+		resp, err := edgeProxyClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
 		defer resp.Body.Close()
+
 		return &models.ExtractorResponse{
 			URL: resp.Request.URL.String(),
 		}, nil
