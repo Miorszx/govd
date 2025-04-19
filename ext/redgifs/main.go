@@ -68,25 +68,33 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	media.NSFW = true // always nsfw
 
 	if gif.Urls.Sd != "" {
-		media.AddFormat(&models.MediaFormat{
+		format := &models.MediaFormat{
 			FormatID:   "sd",
 			Type:       enums.MediaTypeVideo,
 			URL:        []string{gif.Urls.Sd},
 			VideoCodec: enums.MediaCodecAVC,
 			Width:      int64(gif.Width / 2),
 			Height:     int64(gif.Height / 2),
-		})
+		}
+		if gif.HasAudio {
+			format.AudioCodec = enums.MediaCodecAAC
+		}
+		media.AddFormat(format)
 	}
 
 	if gif.Urls.Hd != "" {
-		media.AddFormat(&models.MediaFormat{
+		format := &models.MediaFormat{
 			FormatID:   "hd",
 			Type:       enums.MediaTypeVideo,
 			URL:        []string{gif.Urls.Hd},
 			VideoCodec: enums.MediaCodecAVC,
 			Width:      int64(gif.Width),
 			Height:     int64(gif.Height),
-		})
+		}
+		if gif.HasAudio {
+			format.AudioCodec = enums.MediaCodecAAC
+		}
+		media.AddFormat(format)
 	}
 
 	if gif.Urls.Poster != "" {
@@ -98,12 +106,6 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 		for _, format := range media.Formats {
 			format.Thumbnail = thumbnails
 			format.Duration = int64(gif.Duration)
-		}
-	}
-
-	if gif.HasAudio {
-		for _, format := range media.Formats {
-			format.AudioCodec = enums.MediaCodecAAC
 		}
 	}
 

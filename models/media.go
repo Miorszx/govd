@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -106,12 +107,21 @@ func (media *Media) GetDefaultVideoFormat() *MediaFormat {
 	if len(filtered) == 0 {
 		return nil
 	}
-	bestFormat := filtered[0]
-	for _, format := range filtered {
-		if format.Bitrate > bestFormat.Bitrate {
-			bestFormat = format
+	slices.SortFunc(filtered, func(a, b *MediaFormat) int {
+		if a.Bitrate != b.Bitrate {
+			if a.Bitrate > b.Bitrate {
+				return -1
+			}
+			return 1
 		}
-	}
+		if a.Height > b.Height {
+			return -1
+		} else if a.Height < b.Height {
+			return 1
+		}
+		return 0
+	})
+	bestFormat := filtered[0]
 	bestFormat.IsDefault = true
 	return bestFormat
 }
