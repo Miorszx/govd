@@ -74,22 +74,12 @@ var ShareURLExtractor = &models.Extractor{
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		client := util.GetHTTPClient(ctx.Extractor.CodeName)
-		req, err := http.NewRequest(
-			http.MethodGet,
-			ctx.MatchedContentURL,
-			nil,
-		)
+		redirectURL, err := util.GetLocationURL(client, ctx.MatchedContentURL, "")
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			return nil, fmt.Errorf("failed to get url location: %w", err)
 		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to send request: %w", err)
-		}
-		defer resp.Body.Close()
-
 		return &models.ExtractorResponse{
-			URL: resp.Request.URL.String(),
+			URL: redirectURL,
 		}, nil
 	},
 }

@@ -46,8 +46,9 @@ var ShortExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
+		client := util.GetHTTPClient(ctx.Extractor.CodeName)
 		shortURL := fmt.Sprintf(shortenerAPIFormat, ctx.MatchedContentID)
-		location, err := util.GetLocationURL(shortURL, "")
+		location, err := util.GetLocationURL(client, shortURL, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get real url: %w", err)
 		}

@@ -46,12 +46,13 @@ var VMExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		location, err := util.GetLocationURL(ctx.MatchedContentURL, "")
+		client := util.GetHTTPClient(ctx.Extractor.CodeName)
+		redirectURL, err := util.GetLocationURL(client, ctx.MatchedContentURL, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get url location: %w", err)
 		}
 		return &models.ExtractorResponse{
-			URL: location,
+			URL: redirectURL,
 		}, nil
 	},
 }

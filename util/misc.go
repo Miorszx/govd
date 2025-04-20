@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"govd/models"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,9 +19,13 @@ import (
 var cookiesCache = make(map[string][]*http.Cookie)
 
 func GetLocationURL(
+	client models.HTTPClient,
 	url string,
 	userAgent string,
 ) (string, error) {
+	if client == nil {
+		client = GetDefaultHTTPClient()
+	}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -29,8 +34,7 @@ func GetLocationURL(
 		userAgent = ChromeUA
 	}
 	req.Header.Set("User-Agent", userAgent)
-	session := GetDefaultHTTPClient()
-	resp, err := session.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}

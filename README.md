@@ -97,7 +97,7 @@ you can configure specific extractors options with `ext-cfg.yaml` file. document
 # proxying
 there are two types of proxying available: http and edge.
 - **http proxy**: this is a standard http proxy that can be used to route requests through a proxy server. you can set the `HTTP_PROXY` and `HTTPS_PROXY` environment variables to use this feature. (SOCKS5 is supported too)
-- **edge proxy**: this is a custom proxy that is used to route requests through a specific url. you can set the `EDGE_PROXY_URL` environment variable to use this feature. this is useful for routing requests through a specific server or service. however, this feature is not totally implemented yet.
+- **edge proxy**: this is a custom proxy that is used to route requests through a specific url. currenrly, you can only set this proxy with `ext-cfg.yaml` file. this is useful for routing requests through a specific server or service. however, this feature is not totally implemented yet.
 
 **note:** by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.
 
