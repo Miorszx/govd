@@ -1,5 +1,5 @@
 instagram_share:
-  edge_proxy: https://example.com
+  edge_proxy_url: https://example.com
 
 reddit:
   https_proxy: https://example.com
