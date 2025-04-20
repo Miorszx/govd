@@ -2,6 +2,7 @@ package redgifs
 
 import (
 	"fmt"
+	"govd/models"
 	"govd/util"
 	"net/http"
 	"time"
@@ -11,22 +12,22 @@ import (
 
 var accessToken *Token
 
-func GetAccessToken() (*Token, error) {
+func GetAccessToken(ctx *models.DownloadContext) (*Token, error) {
 	if accessToken == nil || time.Now().Unix() >= accessToken.ExpiresIn {
-		if err := RefreshAccessToken(); err != nil {
+		if err := RefreshAccessToken(ctx); err != nil {
 			return nil, err
 		}
 	}
 	return accessToken, nil
 }
 
-func RefreshAccessToken() error {
+func RefreshAccessToken(ctx *models.DownloadContext) error {
 	req, err := http.NewRequest(http.MethodGet, tokenEndpoint, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("User-Agent", util.ChromeUA)
-	res, err := session.Do(req)
+	res, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

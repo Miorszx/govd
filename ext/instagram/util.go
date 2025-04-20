@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"govd/models"
 	"govd/util"
 	"html"
 	"io"
@@ -95,9 +96,9 @@ func GetCDNURL(contentURL string) (string, error) {
 }
 
 func GetPostCaption(
+	ctx *models.DownloadContext,
 	postURL string,
 ) (string, error) {
-	edgeProxyClient := util.GetEdgeProxyClient()
 	req, err := http.NewRequest(
 		http.MethodGet,
 		postURL,
@@ -121,7 +122,7 @@ func GetPostCaption(
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("TE", "trailers")
 
-	resp, err := edgeProxyClient.Do(req)
+	resp, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}

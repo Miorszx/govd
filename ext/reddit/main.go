@@ -13,8 +13,7 @@ import (
 )
 
 var (
-	httpSession = util.GetHTTPSession()
-	baseHost    = []string{
+	baseHost = []string{
 		"reddit.com",
 		"redditmedia.com",
 		"old.reddit.com",
@@ -24,12 +23,13 @@ var (
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Reddit (Short)",
-	CodeName:   "reddit:short",
+	CodeName:   "reddit_short",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?P<host>(?:\w+\.)?reddit(?:media)?\.com)/(?P<slug>(?:(?:r|user)/[^/]+/)?s/(?P<id>[^/?#&]+))`),
 	Host:       baseHost,
 	IsRedirect: true,
+	Client:     util.GetHTTPSession("reddit_short"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
@@ -46,7 +46,7 @@ var ShortExtractor = &models.Extractor{
 			req.AddCookie(cookie)
 		}
 
-		res, err := httpSession.Do(req)
+		res, err := ctx.Extractor.Client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -67,6 +67,7 @@ var Extractor = &models.Extractor{
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?P<host>(?:\w+\.)?reddit(?:media)?\.com)/(?P<slug>(?:(?:r|user)/[^/]+/)?comments/(?P<id>[^/?#&]+))`),
 	Host:       baseHost,
+	Client:     util.GetHTTPSession("reddit"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -86,7 +87,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	contentID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
-	manifest, err := GetRedditData(host, slug)
+	manifest, err := GetRedditData(ctx, host, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +223,11 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return mediaList, nil
 }
 
-func GetRedditData(host string, slug string) (RedditResponse, error) {
+func GetRedditData(
+	ctx *models.DownloadContext,
+	host string,
+	slug string,
+) (RedditResponse, error) {
 	url := fmt.Sprintf("https://%s/%s/.json", host, slug)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -239,7 +244,7 @@ func GetRedditData(host string, slug string) (RedditResponse, error) {
 		req.AddCookie(cookie)
 	}
 
-	res, err := httpSession.Do(req)
+	res, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -252,7 +257,7 @@ func GetRedditData(host string, slug string) (RedditResponse, error) {
 			altHost = "www.reddit.com"
 		}
 
-		return GetRedditData(altHost, slug)
+		return GetRedditData(ctx, altHost, slug)
 	}
 
 	var response RedditResponse

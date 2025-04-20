@@ -21,6 +21,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var downloadHTTPSession = GetDefaultHTTPSession()
+
 func DefaultConfig() *models.DownloadConfig {
 	downloadsDir := os.Getenv("DOWNLOADS_DIR")
 	if downloadsDir == "" {
@@ -171,7 +173,7 @@ func downloadInMemory(
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := httpSession.Do(req)
+	resp, err := downloadHTTPSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file: %w", err)
 	}
@@ -362,7 +364,7 @@ func getFileSize(ctx context.Context, fileURL string, timeout time.Duration) (in
 		return 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := httpSession.Do(req)
+	resp, err := downloadHTTPSession.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get file size: %w", err)
 	}
@@ -419,7 +421,7 @@ func downloadChunk(
 	}
 	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", chunk[0], chunk[1]))
 
-	resp, err := httpSession.Do(req)
+	resp, err := downloadHTTPSession.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download failed: %w", err)
 	}

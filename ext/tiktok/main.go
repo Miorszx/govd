@@ -24,8 +24,7 @@ const (
 )
 
 var (
-	httpSession = util.GetHTTPSession()
-	baseHost    = []string{
+	baseHost = []string{
 		"tiktok.com",
 		"vxtiktok.com",
 		"vm.tiktok.com",
@@ -45,6 +44,7 @@ var VMExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https:\/\/((?:vm|vt|www)\.)?(vx)?tiktok\.com\/(?:t\/)?(?P<id>[a-zA-Z0-9]+)`),
 	Host:       baseHost,
 	IsRedirect: true,
+	Client:     util.GetHTTPSession("tiktokvm"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		location, err := util.GetLocationURL(ctx.MatchedContentURL, "")
@@ -64,6 +64,7 @@ var Extractor = &models.Extractor{
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/((www|m)\.)?(vx)?tiktok\.com\/((?:embed|@[\w\.-]+)\/)?(v(ideo)?|p(hoto)?)\/(?P<id>[0-9]+)`),
 	Host:       baseHost,
+	Client:     util.GetHTTPSession("tiktok"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -79,7 +80,7 @@ var Extractor = &models.Extractor{
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	var mediaList []*models.Media
 
-	details, err := GetVideoAPI(ctx.MatchedContentID)
+	details, err := GetVideoAPI(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get from api: %w", err)
 	}
@@ -137,7 +138,8 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return mediaList, nil
 }
 
-func GetVideoAPI(awemeID string) (*AwemeDetails, error) {
+func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
+	awemeID := ctx.MatchedContentID
 	apiURL := fmt.Sprintf(
 		"https://%s/aweme/v1/multi/aweme/detail/",
 		apiHostname,
@@ -161,7 +163,7 @@ func GetVideoAPI(awemeID string) (*AwemeDetails, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Argus", "")
 
-	resp, err := httpSession.Do(req)
+	resp, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

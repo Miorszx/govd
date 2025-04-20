@@ -18,16 +18,15 @@ const (
 	apiEndpoint = "https://x.com/i/api/graphql/zZXycP0V6H7m-2r0mOnFcA/TweetDetail"
 )
 
-var httpSession = util.GetHTTPSession()
-
 var ShortExtractor = &models.Extractor{
 	Name:       "Twitter (Short)",
-	CodeName:   "twitter:short",
+	CodeName:   "twitter_short",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://t\.co/(?P<id>\w+)`),
 	Host:       []string{"t.co"},
 	IsRedirect: true,
+	Client:     util.GetHTTPSession("twitter_short"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
@@ -35,7 +34,7 @@ var ShortExtractor = &models.Extractor{
 			return nil, fmt.Errorf("failed to create req: %w", err)
 		}
 		req.Header.Set("User-Agent", util.ChromeUA)
-		res, err := httpSession.Do(req)
+		res, err := ctx.Extractor.Client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -66,6 +65,7 @@ var Extractor = &models.Extractor{
 		"vxx.com",
 		"vxtwitter.com",
 	},
+	Client: util.GetHTTPSession("twitter"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -81,7 +81,7 @@ var Extractor = &models.Extractor{
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	var mediaList []*models.Media
 
-	tweetData, err := GetTweetAPI(ctx.MatchedContentID)
+	tweetData, err := GetTweetAPI(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tweet data: %w", err)
 	}
@@ -129,7 +129,8 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return mediaList, nil
 }
 
-func GetTweetAPI(tweetID string) (*Tweet, error) {
+func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
+	tweetID := ctx.MatchedContentID
 	cookies, err := util.ParseCookieFile("twitter.txt")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cookies: %w", err)
@@ -159,7 +160,7 @@ func GetTweetAPI(tweetID string) (*Tweet, error) {
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := httpSession.Do(req)
+	resp, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

@@ -16,8 +16,6 @@ import (
 // feel free to open PR, if you want to
 // add support for the official Instagram API
 
-var httpSession = util.GetHTTPSession()
-
 const (
 	apiHostname  = "api.igram.world"
 	apiKey       = "aaeaf2805cea6abef3f9d2b6a666fce62fd9d612a43ab772bb50ce81455112e0"
@@ -39,6 +37,7 @@ var Extractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/(reel|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
+	Client:     util.GetHTTPSession("instagram"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx, false)
@@ -50,12 +49,13 @@ var Extractor = &models.Extractor{
 
 var StoriesExtractor = &models.Extractor{
 	Name:       "Instagram Stories",
-	CodeName:   "instagram:stories",
+	CodeName:   "instagram_stories",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/stories\/[a-zA-Z0-9._]+\/(?P<id>\d+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
+	Client:     util.GetHTTPSession("instagram_stories"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx, true)
@@ -67,16 +67,15 @@ var StoriesExtractor = &models.Extractor{
 
 var ShareURLExtractor = &models.Extractor{
 	Name:       "Instagram Share URL",
-	CodeName:   "instagram:share",
+	CodeName:   "instagram_share",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/(www\.)?instagram\.com\/share\/((reels?|video|s|p)\/)?(?P<id>[^\/\?]+)`),
 	Host:       instagramHost,
 	IsRedirect: true,
+	Client:     util.GetHTTPSession("instagram_share"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		// temporary fix for public instances
-		edgeProxyClient := util.GetEdgeProxyClient()
 		req, err := http.NewRequest(
 			http.MethodGet,
 			ctx.MatchedContentURL,
@@ -85,7 +84,7 @@ var ShareURLExtractor = &models.Extractor{
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
-		resp, err := edgeProxyClient.Do(req)
+		resp, err := ctx.Extractor.Client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -103,13 +102,13 @@ func MediaListFromAPI(
 ) ([]*models.Media, error) {
 	var mediaList []*models.Media
 	postURL := ctx.MatchedContentURL
-	details, err := GetVideoAPI(postURL)
+	details, err := GetVideoAPI(ctx, postURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get post: %w", err)
 	}
 	var caption string
 	if !stories {
-		caption, err = GetPostCaption(postURL)
+		caption, err = GetPostCaption(ctx, postURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get caption: %w", err)
 		}
@@ -157,7 +156,10 @@ func MediaListFromAPI(
 	return mediaList, nil
 }
 
-func GetVideoAPI(contentURL string) (*IGramResponse, error) {
+func GetVideoAPI(
+	ctx *models.DownloadContext,
+	contentURL string,
+) (*IGramResponse, error) {
 	apiURL := fmt.Sprintf(
 		"https://%s/api/convert",
 		apiHostname,
@@ -173,7 +175,7 @@ func GetVideoAPI(contentURL string) (*IGramResponse, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", util.ChromeUA)
 
-	resp, err := httpSession.Do(req)
+	resp, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

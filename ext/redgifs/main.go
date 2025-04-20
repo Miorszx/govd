@@ -18,8 +18,6 @@ const (
 )
 
 var (
-	session = util.GetHTTPSession()
-
 	baseApiHeaders = map[string]string{
 		"referer":      "https://www.redgifs.com/",
 		"origin":       "https://www.redgifs.com",
@@ -37,6 +35,7 @@ var Extractor = &models.Extractor{
 		"redgifs.com",
 		"thumbs2.redgifs.com",
 	},
+	Client: util.GetHTTPSession("redgifs"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -52,7 +51,7 @@ var Extractor = &models.Extractor{
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	var mediaList []*models.Media
 
-	response, err := GetVideo(ctx.MatchedContentID)
+	response, err := GetVideo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get from api: %w", err)
 	}
@@ -116,13 +115,14 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return mediaList, nil
 }
 
-func GetVideo(videoID string) (*Response, error) {
+func GetVideo(ctx *models.DownloadContext) (*Response, error) {
+	videoID := ctx.MatchedContentID
 	url := videoEndpoint + videoID + "?views=true"
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	token, err := GetAccessToken()
+	token, err := GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
@@ -132,7 +132,7 @@ func GetVideo(videoID string) (*Response, error) {
 	for k, v := range baseApiHeaders {
 		req.Header.Set(k, v)
 	}
-	res, err := session.Do(req)
+	res, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

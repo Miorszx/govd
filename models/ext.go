@@ -14,6 +14,7 @@ type Extractor struct {
 	Host       []string
 	IsDRM      bool
 	IsRedirect bool
+	Client     HTTPClient
 
 	Run func(*DownloadContext) (*ExtractorResponse, error)
 }
@@ -32,4 +33,11 @@ func (extractor *Extractor) NewMedia(
 		ContentURL:        contentURL,
 		ExtractorCodeName: extractor.CodeName,
 	}
+}
+
+type ExtractorConfig struct {
+	HTTPProxy    string `yaml:"http_proxy"`
+	HTTPSProxy   string `yaml:"https_proxy"`
+	NoProxy      string `yaml:"no_proxy"`
+	EdgeProxyURL string `yaml:"edge_proxy_url"`
 }

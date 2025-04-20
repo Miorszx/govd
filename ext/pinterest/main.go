@@ -19,8 +19,7 @@ const (
 )
 
 var (
-	httpSession = util.GetHTTPSession()
-	validHost   = []string{
+	validHost = []string{
 		"com", "fr", "de", "ch", "jp", "cl", "ca", "it", "co\\.uk", "nz", "ru", "com\\.au",
 		"at", "pt", "co\\.kr", "es", "com\\.mx", "dk", "ph", "th", "com\\.uy", "co", "nl",
 		"info", "kr", "ie", "vn", "com\\.vn", "ec", "mx", "in", "pe", "co\\.at", "hu",
@@ -33,7 +32,7 @@ var (
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Pinterest (Short)",
-	CodeName:   "pinterest:short",
+	CodeName:   "pinterest_short",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(pinValidURLPattern),
@@ -45,6 +44,7 @@ var ShortExtractor = &models.Extractor{
 		return domains
 	}(),
 	IsRedirect: true,
+	Client:     util.GetHTTPSession("pinterest_short"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		shortURL := fmt.Sprintf(shortenerAPIFormat, ctx.MatchedContentID)
@@ -72,6 +72,7 @@ var Extractor = &models.Extractor{
 		}
 		return domains
 	}(),
+	Client: util.GetHTTPSession("pinterest"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		media, err := ExtractPinMedia(ctx)
@@ -88,7 +89,7 @@ func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 	pinID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
-	pinData, err := GetPinData(pinID)
+	pinData, err := GetPinData(ctx, pinID)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,10 @@ func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return nil, fmt.Errorf("no media found for pin ID: %s", pinID)
 }
 
-func GetPinData(pinID string) (*PinData, error) {
+func GetPinData(
+	ctx *models.DownloadContext,
+	pinID string,
+) (*PinData, error) {
 	params := BuildPinRequestParams(pinID)
 
 	req, err := http.NewRequest(http.MethodGet, pinResourceEndpoint, nil)
@@ -175,7 +179,7 @@ func GetPinData(pinID string) (*PinData, error) {
 	// fix 403 error
 	req.Header.Set("X-Pinterest-PWS-Handler", "www/[username].js")
 
-	resp, err := httpSession.Do(req)
+	resp, err := ctx.Extractor.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

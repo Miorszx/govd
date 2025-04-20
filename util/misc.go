@@ -29,7 +29,7 @@ func GetLocationURL(
 		userAgent = ChromeUA
 	}
 	req.Header.Set("User-Agent", userAgent)
-	session := GetHTTPSession()
+	session := GetDefaultHTTPSession()
 	resp, err := session.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"govd/bot"
+	"govd/config"
 	"govd/database"
 	"govd/util"
 	"log"
@@ -19,6 +20,10 @@ func main() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("error loading .env file")
+	}
+	err = config.LoadExtractorConfigs()
+	if err != nil {
+		log.Fatalf("error loading extractor configs: %v", err)
 	}
 
 	profilerPort, err := strconv.Atoi(os.Getenv("PROFILER_PORT"))
