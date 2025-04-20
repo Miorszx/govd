@@ -31,7 +31,7 @@ var ShortExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		client := util.GetHTTPSession(ctx.Extractor.CodeName)
+		client := util.GetHTTPClient(ctx.Extractor.CodeName)
 		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
@@ -80,7 +80,7 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	client := util.GetHTTPSession(ctx.Extractor.CodeName)
+	client := util.GetHTTPClient(ctx.Extractor.CodeName)
 
 	host := ctx.MatchedGroups["host"]
 	slug := ctx.MatchedGroups["slug"]

@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 )
 
-var downloadHTTPSession = GetDefaultHTTPSession()
+var downloadHTTPSession = GetDefaultHTTPClient()
 
 func DefaultConfig() *models.DownloadConfig {
 	downloadsDir := os.Getenv("DOWNLOADS_DIR")

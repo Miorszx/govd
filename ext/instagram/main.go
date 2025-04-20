@@ -73,7 +73,7 @@ var ShareURLExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		client := util.GetHTTPSession(ctx.Extractor.CodeName)
+		client := util.GetHTTPClient(ctx.Extractor.CodeName)
 		req, err := http.NewRequest(
 			http.MethodGet,
 			ctx.MatchedContentURL,
@@ -98,7 +98,7 @@ func MediaListFromAPI(
 	ctx *models.DownloadContext,
 	stories bool,
 ) ([]*models.Media, error) {
-	client := util.GetHTTPSession(ctx.Extractor.CodeName)
+	client := util.GetHTTPClient(ctx.Extractor.CodeName)
 
 	var mediaList []*models.Media
 	postURL := ctx.MatchedContentURL

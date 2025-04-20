@@ -76,7 +76,7 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	client := util.GetHTTPSession(ctx.Extractor.CodeName)
+	client := util.GetHTTPClient(ctx.Extractor.CodeName)
 	var mediaList []*models.Media
 
 	details, err := GetVideoAPI(

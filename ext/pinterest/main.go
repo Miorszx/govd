@@ -86,7 +86,7 @@ var Extractor = &models.Extractor{
 func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 	pinID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
-	client := util.GetHTTPSession(ctx.Extractor.CodeName)
+	client := util.GetHTTPClient(ctx.Extractor.CodeName)
 
 	pinData, err := GetPinData(client, pinID)
 	if err != nil {
