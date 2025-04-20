@@ -12,22 +12,22 @@ import (
 
 var accessToken *Token
 
-func GetAccessToken(ctx *models.DownloadContext) (*Token, error) {
+func GetAccessToken(client models.HTTPClient) (*Token, error) {
 	if accessToken == nil || time.Now().Unix() >= accessToken.ExpiresIn {
-		if err := RefreshAccessToken(ctx); err != nil {
+		if err := RefreshAccessToken(client); err != nil {
 			return nil, err
 		}
 	}
 	return accessToken, nil
 }
 
-func RefreshAccessToken(ctx *models.DownloadContext) error {
+func RefreshAccessToken(client models.HTTPClient) error {
 	req, err := http.NewRequest(http.MethodGet, tokenEndpoint, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("User-Agent", util.ChromeUA)
-	res, err := ctx.Extractor.Client.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

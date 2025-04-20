@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 
 	"govd/models"
@@ -21,17 +22,15 @@ func LoadExtractorConfigs() error {
 	}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("errore nella lettura del file di configurazione: %w", err)
+		return fmt.Errorf("failed reading config file: %w", err)
 	}
 
 	var rawConfig map[string]*models.ExtractorConfig
 
 	if err := yaml.Unmarshal(data, &rawConfig); err != nil {
-		return fmt.Errorf("errore nella decodifica del file YAML: %w", err)
+		return fmt.Errorf("failed parsing config file: %w", err)
 	}
-	for codeName, config := range rawConfig {
-		extractorConfigs[codeName] = config
-	}
+	maps.Copy(extractorConfigs, rawConfig)
 
 	return nil
 }

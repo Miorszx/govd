@@ -44,7 +44,6 @@ var VMExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https:\/\/((?:vm|vt|www)\.)?(vx)?tiktok\.com\/(?:t\/)?(?P<id>[a-zA-Z0-9]+)`),
 	Host:       baseHost,
 	IsRedirect: true,
-	Client:     util.GetHTTPSession("tiktokvm"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		location, err := util.GetLocationURL(ctx.MatchedContentURL, "")
@@ -64,7 +63,6 @@ var Extractor = &models.Extractor{
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/((www|m)\.)?(vx)?tiktok\.com\/((?:embed|@[\w\.-]+)\/)?(v(ideo)?|p(hoto)?)\/(?P<id>[0-9]+)`),
 	Host:       baseHost,
-	Client:     util.GetHTTPSession("tiktok"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -78,9 +76,11 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
+	client := util.GetHTTPSession(ctx.Extractor.CodeName)
 	var mediaList []*models.Media
 
-	details, err := GetVideoAPI(ctx)
+	details, err := GetVideoAPI(
+		client, ctx.MatchedContentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get from api: %w", err)
 	}
@@ -138,8 +138,10 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return mediaList, nil
 }
 
-func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
-	awemeID := ctx.MatchedContentID
+func GetVideoAPI(
+	client models.HTTPClient,
+	awemeID string,
+) (*AwemeDetails, error) {
 	apiURL := fmt.Sprintf(
 		"https://%s/aweme/v1/multi/aweme/detail/",
 		apiHostname,
@@ -163,7 +165,7 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Argus", "")
 
-	resp, err := ctx.Extractor.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

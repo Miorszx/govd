@@ -29,9 +29,9 @@ var ShortExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https?://(?P<host>(?:\w+\.)?reddit(?:media)?\.com)/(?P<slug>(?:(?:r|user)/[^/]+/)?s/(?P<id>[^/?#&]+))`),
 	Host:       baseHost,
 	IsRedirect: true,
-	Client:     util.GetHTTPSession("reddit_short"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
+		client := util.GetHTTPSession(ctx.Extractor.CodeName)
 		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
@@ -46,7 +46,7 @@ var ShortExtractor = &models.Extractor{
 			req.AddCookie(cookie)
 		}
 
-		res, err := ctx.Extractor.Client.Do(req)
+		res, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -67,7 +67,6 @@ var Extractor = &models.Extractor{
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?P<host>(?:\w+\.)?reddit(?:media)?\.com)/(?P<slug>(?:(?:r|user)/[^/]+/)?comments/(?P<id>[^/?#&]+))`),
 	Host:       baseHost,
-	Client:     util.GetHTTPSession("reddit"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -81,13 +80,15 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
+	client := util.GetHTTPSession(ctx.Extractor.CodeName)
+
 	host := ctx.MatchedGroups["host"]
 	slug := ctx.MatchedGroups["slug"]
 
 	contentID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
-	manifest, err := GetRedditData(ctx, host, slug)
+	manifest, err := GetRedditData(client, host, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +225,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 }
 
 func GetRedditData(
-	ctx *models.DownloadContext,
+	client models.HTTPClient,
 	host string,
 	slug string,
 ) (RedditResponse, error) {
@@ -244,7 +245,7 @@ func GetRedditData(
 		req.AddCookie(cookie)
 	}
 
-	res, err := ctx.Extractor.Client.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -257,7 +258,7 @@ func GetRedditData(
 			altHost = "www.reddit.com"
 		}
 
-		return GetRedditData(ctx, altHost, slug)
+		return GetRedditData(client, altHost, slug)
 	}
 
 	var response RedditResponse

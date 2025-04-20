@@ -96,7 +96,7 @@ func GetCDNURL(contentURL string) (string, error) {
 }
 
 func GetPostCaption(
-	ctx *models.DownloadContext,
+	client models.HTTPClient,
 	postURL string,
 ) (string, error) {
 	req, err := http.NewRequest(
@@ -122,7 +122,7 @@ func GetPostCaption(
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("TE", "trailers")
 
-	resp, err := ctx.Extractor.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}

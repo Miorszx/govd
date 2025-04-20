@@ -44,7 +44,6 @@ var ShortExtractor = &models.Extractor{
 		return domains
 	}(),
 	IsRedirect: true,
-	Client:     util.GetHTTPSession("pinterest_short"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		shortURL := fmt.Sprintf(shortenerAPIFormat, ctx.MatchedContentID)
@@ -72,7 +71,6 @@ var Extractor = &models.Extractor{
 		}
 		return domains
 	}(),
-	Client: util.GetHTTPSession("pinterest"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		media, err := ExtractPinMedia(ctx)
@@ -88,8 +86,9 @@ var Extractor = &models.Extractor{
 func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 	pinID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
+	client := util.GetHTTPSession(ctx.Extractor.CodeName)
 
-	pinData, err := GetPinData(ctx, pinID)
+	pinData, err := GetPinData(client, pinID)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +159,7 @@ func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 }
 
 func GetPinData(
-	ctx *models.DownloadContext,
+	client models.HTTPClient,
 	pinID string,
 ) (*PinData, error) {
 	params := BuildPinRequestParams(pinID)
@@ -179,7 +178,7 @@ func GetPinData(
 	// fix 403 error
 	req.Header.Set("X-Pinterest-PWS-Handler", "www/[username].js")
 
-	resp, err := ctx.Extractor.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

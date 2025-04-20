@@ -37,7 +37,6 @@ var Extractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/(reel|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
-	Client:     util.GetHTTPSession("instagram"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx, false)
@@ -55,7 +54,6 @@ var StoriesExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/stories\/[a-zA-Z0-9._]+\/(?P<id>\d+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
-	Client:     util.GetHTTPSession("instagram_stories"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx, true)
@@ -73,9 +71,9 @@ var ShareURLExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https?:\/\/(www\.)?instagram\.com\/share\/((reels?|video|s|p)\/)?(?P<id>[^\/\?]+)`),
 	Host:       instagramHost,
 	IsRedirect: true,
-	Client:     util.GetHTTPSession("instagram_share"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
+		client := util.GetHTTPSession(ctx.Extractor.CodeName)
 		req, err := http.NewRequest(
 			http.MethodGet,
 			ctx.MatchedContentURL,
@@ -84,7 +82,7 @@ var ShareURLExtractor = &models.Extractor{
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
-		resp, err := ctx.Extractor.Client.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -100,15 +98,17 @@ func MediaListFromAPI(
 	ctx *models.DownloadContext,
 	stories bool,
 ) ([]*models.Media, error) {
+	client := util.GetHTTPSession(ctx.Extractor.CodeName)
+
 	var mediaList []*models.Media
 	postURL := ctx.MatchedContentURL
-	details, err := GetVideoAPI(ctx, postURL)
+	details, err := GetVideoAPI(client, postURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get post: %w", err)
 	}
 	var caption string
 	if !stories {
-		caption, err = GetPostCaption(ctx, postURL)
+		caption, err = GetPostCaption(client, postURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get caption: %w", err)
 		}
@@ -157,7 +157,7 @@ func MediaListFromAPI(
 }
 
 func GetVideoAPI(
-	ctx *models.DownloadContext,
+	client models.HTTPClient,
 	contentURL string,
 ) (*IGramResponse, error) {
 	apiURL := fmt.Sprintf(
@@ -175,7 +175,7 @@ func GetVideoAPI(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", util.ChromeUA)
 
-	resp, err := ctx.Extractor.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

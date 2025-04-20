@@ -26,15 +26,15 @@ var ShortExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https?://t\.co/(?P<id>\w+)`),
 	Host:       []string{"t.co"},
 	IsRedirect: true,
-	Client:     util.GetHTTPSession("twitter_short"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
+		client := util.GetHTTPSession(ctx.Extractor.CodeName)
 		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create req: %w", err)
 		}
 		req.Header.Set("User-Agent", util.ChromeUA)
-		res, err := ctx.Extractor.Client.Do(req)
+		res, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
@@ -65,7 +65,6 @@ var Extractor = &models.Extractor{
 		"vxx.com",
 		"vxtwitter.com",
 	},
-	Client: util.GetHTTPSession("twitter"),
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -80,8 +79,10 @@ var Extractor = &models.Extractor{
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	var mediaList []*models.Media
+	client := util.GetHTTPSession(ctx.Extractor.CodeName)
 
-	tweetData, err := GetTweetAPI(ctx)
+	tweetData, err := GetTweetAPI(
+		client, ctx.MatchedContentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tweet data: %w", err)
 	}
@@ -129,8 +130,10 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return mediaList, nil
 }
 
-func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
-	tweetID := ctx.MatchedContentID
+func GetTweetAPI(
+	client models.HTTPClient,
+	tweetID string,
+) (*Tweet, error) {
 	cookies, err := util.ParseCookieFile("twitter.txt")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cookies: %w", err)
@@ -160,7 +163,7 @@ func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := ctx.Extractor.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

@@ -14,7 +14,6 @@ type Extractor struct {
 	Host       []string
 	IsDRM      bool
 	IsRedirect bool
-	Client     HTTPClient
 
 	Run func(*DownloadContext) (*ExtractorResponse, error)
 }
