@@ -27,7 +27,7 @@ this project was born after the discontinuation of a highly popular bot known as
 
 # installation
 ## build
-_this method only works on linux and macos, if you want to build the bot on windows, check [docker installation](#installation-with-docker) instead._
+_this method only works on linux and macos, if you want to build the bot on windows, check [docker installation](#docker-recommended) instead._
 
 1. clone the repository
     ```bash
@@ -71,26 +71,28 @@ _this method only works on linux and macos, if you want to build the bot on wind
     ```
 
 # options
-| variable               | description                                  | default                               |
-|------------------------|----------------------------------------------|---------------------------------------|
-| DB_HOST                | database host                                | localhost                             |
-| DB_PORT                | database port                                | 3306                                  |
-| DB_NAME                | database name                                | govd                                  |
-| DB_USER                | database user                                | govd                                  |
-| DB_PASSWORD            | database password                            | password                              |
-| BOT_API_URL            | telegram bot api url                         | https://api.telegram.org              |
-| BOT_TOKEN              | telegram bot token                           | 12345678:ABC-DEF1234ghIkl-zyx57W2P0s  |
-| CONCURRENT_UPDATES     | max concurrent updates handled               | 50                                    |
-| LOG_DISPATCHER_ERRORS  | log dispatcher errors                        | 0                                     |
-| DOWNLOADS_DIR          | directory for downloaded files               | downloads                             |
-| HTTP_PROXY  [(?)](#proxying)           | http proxy (optional)                        |                                       |
-| HTTPS_PROXY [(?)](#proxying)            | https proxy (optional)                       |                                       |
-| NO_PROXY         [(?)](#proxying)      | no proxy domains (optional)                  |                                       |
-| EDGE_PROXY_URL [(?)](#proxying)         | url of your edge proxy (optional)        |                                       |
-| REPO_URL               | project repository url                       | https://github.com/govdbot/govd       |
-| PROFILER_PORT          | port for profiler http server (pprof)        | 0 _(disabled)_                        |
+| variable                      | description                                  | default                               |
+|-------------------------------|----------------------------------------------|---------------------------------------|
+| DB_HOST                       | database host                                | localhost                             |
+| DB_PORT                       | database port                                | 3306                                  |
+| DB_NAME                       | database name                                | govd                                  |
+| DB_USER                       | database user                                | govd                                  |
+| DB_PASSWORD                   | database password                            | password                              |
+| BOT_API_URL                   | telegram bot api url                         | https://api.telegram.org              |
+| BOT_TOKEN                     | telegram bot token                           | 12345678:ABC-DEF1234ghIkl-zyx57W2P0s  |
+| CONCURRENT_UPDATES            | max concurrent updates handled               | 50                                    |
+| LOG_DISPATCHER_ERRORS         | log dispatcher errors                        | 0                                     |
+| DOWNLOADS_DIR                 | directory for downloaded files               | downloads                             |
+| HTTP_PROXY [(?)](#proxying)   | http proxy (optional)                        |                                       |
+| HTTPS_PROXY [(?)](#proxying)  | https proxy (optional)                       |                                       |
+| NO_PROXY [(?)](#proxying)     | no proxy domains (optional)                  |                                       |
+| REPO_URL                      | project repository url                       | https://github.com/govdbot/govd       |
+| PROFILER_PORT                 | port for profiler http server (pprof)        | 0 _(disabled)_                        |
 
-**note:** to avoid limits on files, you should host your own telegram botapi. public bot instance is currently running under a botapi fork, [tdlight-telegram-bot-api](https://github.com/tdlight-team/tdlight-telegram-bot-api), but you can use the official botapi client too.
+you can configure specific extractors options with `ext-cfg.yaml` file. documentation is not available yet, but you can check the source code for more information.
+
+> [!IMPORTANT]  
+> to avoid limits on files, you should host your own telegram botapi and set `BOT_API_URL` variable according. public bot instance is currently running under a botapi fork, [tdlight-telegram-bot-api](https://github.com/tdlight-team/tdlight-telegram-bot-api), but you can use the official botapi client too.
 
 # proxying
 there are two types of proxying available: http and edge.
