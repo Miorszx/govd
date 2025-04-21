@@ -18,8 +18,26 @@ import (
 	"github.com/bytedance/sonic"
 )
 
-var captionPattern = regexp.MustCompile(
-	`(?s)<meta property="og:title" content=".*?: &quot;(.*?)&quot;"`,
+var (
+	captionPattern = regexp.MustCompile(
+		`(?s)<meta property="og:title" content=".*?: &quot;(.*?)&quot;"`)
+
+	igHeaders = map[string]string{
+		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+		"Accept-Language":           "en-GB,en;q=0.9",
+		"Cache-Control":             "max-age=0",
+		"Dnt":                       "1",
+		"Priority":                  "u=0, i",
+		"Sec-Ch-Ua":                 `Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99`,
+		"Sec-Ch-Ua-Mobile":          "?0",
+		"Sec-Ch-Ua-Platform":        "macOS",
+		"Sec-Fetch-Dest":            "document",
+		"Sec-Fetch-Mode":            "navigate",
+		"Sec-Fetch-Site":            "none",
+		"Sec-Fetch-User":            "?1",
+		"Upgrade-Insecure-Requests": "1",
+		"User-Agent":                util.ChromeUA,
+	}
 )
 
 func BuildSignedPayload(contentURL string) (io.Reader, error) {

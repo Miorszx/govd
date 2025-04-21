@@ -74,7 +74,11 @@ var ShareURLExtractor = &models.Extractor{
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		client := util.GetHTTPClient(ctx.Extractor.CodeName)
-		redirectURL, err := util.GetLocationURL(client, ctx.MatchedContentURL, "")
+		redirectURL, err := util.GetLocationURL(
+			client,
+			ctx.MatchedContentURL,
+			igHeaders,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get url location: %w", err)
 		}

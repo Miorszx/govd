@@ -21,7 +21,7 @@ var cookiesCache = make(map[string][]*http.Cookie)
 func GetLocationURL(
 	client models.HTTPClient,
 	url string,
-	userAgent string,
+	headers map[string]string,
 ) (string, error) {
 	if client == nil {
 		client = GetDefaultHTTPClient()
@@ -30,10 +30,12 @@ func GetLocationURL(
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
-	if userAgent == "" {
-		userAgent = ChromeUA
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
-	req.Header.Set("User-Agent", userAgent)
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", ChromeUA)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
