@@ -21,7 +21,7 @@ func getInstanceMessage() string {
 		"public instances\n" +
 		"- @govd_bot | main official instance\n" +
 		"- @govd_pingu_bot | pingu instance\n" +
-		"- @@sbrugnadlbot | sbrugna instance\n" +
+		"- @sbrugnadlbot | sbrugna instance\n" +
 		"\nwant to add your own instance? reach us on @govdsupport"
 }
 
