@@ -100,16 +100,13 @@ there are two types of proxying available: http and edge.
 **note:** by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.
 
 # authentication
-some extractors require authentication to access the content. you can easily use cookies for that; simply export cookies from your browser in netscape format and place them in cookies folder (e.g. `cookies/reddit.txt`). you can easily export cookies using _Get cookies.txt LOCALLY_ extension for your browser.
+some extractors require cookies to access the content. please refer to [this page](AUTHENTICATION.md) for more information on how to set up authentication for each extractor.
 
 # todo
-- [ ] add more extractors
-- [ ] switch to native libav
 - [ ] add tests
-- [ ] improve error handling
 - [ ] add support for telegram webhooks
-- [ ] switch to pgsql (?)
-- [ ] better api (?)
-- [ ] better docs with multiple readme
+- [ ] switch to pgsql (maybe)
+- [ ] better api
+- [ ] better docs
 
 ---
