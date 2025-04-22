@@ -88,7 +88,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	contentID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
-	manifest, err := GetRedditData(client, host, slug)
+	manifest, err := GetRedditData(client, host, slug, false)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +100,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	data := manifest[0].Data.Children[0].Data
 	title := data.Title
 	isNsfw := data.Over18
+
 	var mediaList []*models.Media
 
 	if !data.IsVideo {
@@ -228,6 +229,7 @@ func GetRedditData(
 	client models.HTTPClient,
 	host string,
 	slug string,
+	raise bool,
 ) (RedditResponse, error) {
 	url := fmt.Sprintf("https://%s/%s/.json", host, slug)
 
@@ -252,13 +254,16 @@ func GetRedditData(
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
+		if raise {
+			return nil, fmt.Errorf("failed to get reddit data: %s", res.Status)
+		}
 		// try with alternative domain
 		altHost := "old.reddit.com"
 		if host == "old.reddit.com" {
 			altHost = "www.reddit.com"
 		}
 
-		return GetRedditData(client, altHost, slug)
+		return GetRedditData(client, altHost, slug, true)
 	}
 
 	var response RedditResponse

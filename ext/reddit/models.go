@@ -1,12 +1,18 @@
 package reddit
 
-type RedditResponse []struct {
-	Data struct {
-		Children []struct {
-			Data PostData `json:"data"`
-		} `json:"children"`
-	} `json:"data"`
+type Child struct {
+	Data *PostData `json:"data"`
 }
+
+type Data struct {
+	Children []*Child `json:"children"`
+}
+
+type ResponseItem struct {
+	Data *Data `json:"data"`
+}
+
+type RedditResponse []*ResponseItem
 
 type PostData struct {
 	ID            string                   `json:"id"`
