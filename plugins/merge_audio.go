@@ -20,10 +20,22 @@ func MergeAudio(media *models.DownloadedMedia) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	audioFile, err := util.DownloadFile(
-		ctx, audioFormat.URL,
-		audioFormat.GetFileName(), nil,
-	)
+	var audioFile string
+	var err error
+
+	if len(audioFormat.Segments) == 0 {
+		audioFile, err = util.DownloadFile(
+			ctx, audioFormat.URL,
+			audioFormat.GetFileName(),
+			nil,
+		)
+	} else {
+		audioFile, err = util.DownloadFileWithSegments(
+			ctx, audioFormat.Segments,
+			audioFormat.GetFileName(),
+			nil,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to download audio file: %w", err)
 	}

@@ -36,86 +36,164 @@ func ParseM3U8Content(
 		return nil, fmt.Errorf("failed parsing m3u8: %w", err)
 	}
 
-	var formats []*models.MediaFormat
-
-	if listType == m3u8.MASTER {
-		masterpl := playlist.(*m3u8.MasterPlaylist)
-
-		for _, variant := range masterpl.Variants {
-			if variant == nil || variant.URI == "" {
-				continue
-			}
-
-			width, height := int64(0), int64(0)
-			if variant.Resolution != "" {
-				var w, h int
-				if _, err := fmt.Sscanf(variant.Resolution, "%dx%d", &w, &h); err == nil {
-					width, height = int64(w), int64(h)
-				}
-			}
-
-			format := &models.MediaFormat{
-				Type:       enums.MediaTypeVideo,
-				FormatID:   fmt.Sprintf("hls-%d", variant.Bandwidth/1000),
-				VideoCodec: getCodecFromCodecs(variant.Codecs),
-				AudioCodec: getAudioCodecFromCodecs(variant.Codecs),
-				Bitrate:    int64(variant.Bandwidth),
-				Width:      width,
-				Height:     height,
-			}
-
-			variantURL := resolveURL(baseURLObj, variant.URI)
-			format.URL = []string{variantURL}
-
-			variantContent, err := fetchContent(variantURL)
-			if err == nil {
-				variantFormats, err := ParseM3U8Content(variantContent, variantURL)
-				if err == nil && len(variantFormats) > 0 {
-					format.Segments = variantFormats[0].Segments
-					if variantFormats[0].Duration > 0 {
-						format.Duration = variantFormats[0].Duration
-					}
-				}
-			}
-
-			formats = append(formats, format)
-		}
-
-		return formats, nil
-	}
-
-	if listType == m3u8.MEDIA {
-		mediapl := playlist.(*m3u8.MediaPlaylist)
-
-		var segments []string
-		var totalDuration float64
-
-		for _, segment := range mediapl.Segments {
-			if segment != nil && segment.URI != "" {
-				segmentURL := segment.URI
-				if !strings.HasPrefix(segmentURL, "http://") && !strings.HasPrefix(segmentURL, "https://") {
-					segmentURL = resolveURL(baseURLObj, segmentURL)
-				}
-
-				segments = append(segments, segmentURL)
-				totalDuration += segment.Duration
-			}
-		}
-
-		format := &models.MediaFormat{
-			Type:       enums.MediaTypeVideo,
-			FormatID:   "hls",
-			VideoCodec: enums.MediaCodecAVC,
-			AudioCodec: enums.MediaCodecAAC,
-			Duration:   int64(totalDuration),
-			URL:        []string{baseURL},
-			Segments:   segments,
-		}
-
-		return []*models.MediaFormat{format}, nil
+	switch listType {
+	case m3u8.MASTER:
+		return parseMasterPlaylist(
+			playlist.(*m3u8.MasterPlaylist),
+			baseURLObj,
+		)
+	case m3u8.MEDIA:
+		return parseMediaPlaylist(
+			playlist.(*m3u8.MediaPlaylist),
+			baseURLObj,
+		)
 	}
 
 	return nil, errors.New("unsupported m3u8 playlist type")
+}
+
+func parseMasterPlaylist(
+	playlist *m3u8.MasterPlaylist,
+	baseURL *url.URL,
+) ([]*models.MediaFormat, error) {
+	var formats []*models.MediaFormat
+
+	seenAlternatives := make(map[string]bool)
+	for _, variant := range playlist.Variants {
+		if variant == nil || variant.URI == "" {
+			continue
+		}
+		for _, alt := range variant.Alternatives {
+			if _, ok := seenAlternatives[alt.GroupId]; ok {
+				continue
+			}
+			seenAlternatives[alt.GroupId] = true
+			format := parseAlternative(
+				playlist.Variants,
+				alt, baseURL,
+			)
+			if format == nil {
+				continue
+			}
+			formats = append(formats, format)
+		}
+		width, height := getResolution(variant.Resolution)
+		mediaType, videoCodec, audioCodec := parseVariantType(variant)
+		variantURL := resolveURL(baseURL, variant.URI)
+		if variant.Audio != "" {
+			audioCodec = ""
+		}
+		format := &models.MediaFormat{
+			FormatID:   fmt.Sprintf("hls-%d", variant.Bandwidth/1000),
+			Type:       mediaType,
+			VideoCodec: videoCodec,
+			AudioCodec: audioCodec,
+			Bitrate:    int64(variant.Bandwidth),
+			Width:      int64(width),
+			Height:     int64(height),
+			URL:        []string{variantURL},
+		}
+		variantContent, err := fetchContent(variantURL)
+		if err == nil {
+			variantFormats, err := ParseM3U8Content(variantContent, variantURL)
+			if err == nil && len(variantFormats) > 0 {
+				format.Segments = variantFormats[0].Segments
+				if variantFormats[0].Duration > 0 {
+					format.Duration = variantFormats[0].Duration
+				}
+			}
+		}
+		formats = append(formats, format)
+	}
+	return formats, nil
+}
+
+func parseMediaPlaylist(
+	playlist *m3u8.MediaPlaylist,
+	baseURL *url.URL,
+) ([]*models.MediaFormat, error) {
+	var segments []string
+	var totalDuration float64
+	initSegment := playlist.Map
+	if initSegment != nil && initSegment.URI != "" {
+		initSegmentURL := resolveURL(baseURL, initSegment.URI)
+		segments = append(segments, initSegmentURL)
+	}
+	for _, segment := range playlist.Segments {
+		if segment != nil && segment.URI != "" {
+			segmentURL := resolveURL(baseURL, segment.URI)
+			segments = append(segments, segmentURL)
+			totalDuration += segment.Duration
+			if segment.Limit > 0 {
+				// byterange not supported
+				break
+			}
+		}
+	}
+	format := &models.MediaFormat{
+		FormatID: "hls",
+		Duration: int64(totalDuration),
+		URL:      []string{baseURL.String()},
+		Segments: segments,
+	}
+	return []*models.MediaFormat{format}, nil
+}
+
+func parseAlternative(
+	variants []*m3u8.Variant,
+	alternative *m3u8.Alternative,
+	baseURL *url.URL,
+) *models.MediaFormat {
+	if alternative == nil || alternative.URI == "" {
+		return nil
+	}
+	if alternative.Type != "AUDIO" {
+		return nil
+	}
+	altURL := resolveURL(baseURL, alternative.URI)
+	audioCodec := getAudioAlternativeCodec(variants, alternative)
+	format := &models.MediaFormat{
+		FormatID:   fmt.Sprintf("hls-%s", alternative.GroupId),
+		Type:       enums.MediaTypeAudio,
+		AudioCodec: audioCodec,
+		URL:        []string{altURL},
+	}
+	altContent, err := fetchContent(altURL)
+	if err == nil {
+		altFormats, err := ParseM3U8Content(altContent, altURL)
+		if err == nil && len(altFormats) > 0 {
+			format.Segments = altFormats[0].Segments
+			if altFormats[0].Duration > 0 {
+				format.Duration = altFormats[0].Duration
+			}
+		}
+	}
+	return format
+}
+
+func getAudioAlternativeCodec(
+	variants []*m3u8.Variant,
+	alt *m3u8.Alternative,
+) enums.MediaCodec {
+	if alt == nil || alt.URI == "" {
+		return ""
+	}
+	if alt.Type != "AUDIO" {
+		return ""
+	}
+	for _, variant := range variants {
+		if variant == nil || variant.URI == "" {
+			continue
+		}
+		if variant.Audio != alt.GroupId {
+			continue
+		}
+		audioCodec := getAudioCodec(variant.Codecs)
+		if audioCodec != "" {
+			return audioCodec
+		}
+	}
+	return ""
 }
 
 func ParseM3U8FromURL(url string) ([]*models.MediaFormat, error) {
@@ -140,7 +218,35 @@ func fetchContent(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func getCodecFromCodecs(codecs string) enums.MediaCodec {
+func getResolution(
+	resolution string,
+) (int64, int64) {
+	var width, height int
+	if _, err := fmt.Sscanf(resolution, "%dx%d", &width, &height); err == nil {
+		return int64(width), int64(height)
+	}
+	return 0, 0
+}
+
+func parseVariantType(
+	variant *m3u8.Variant,
+) (enums.MediaType, enums.MediaCodec, enums.MediaCodec) {
+	var mediaType enums.MediaType
+	var videoCodec, audioCodec enums.MediaCodec
+
+	videoCodec = getVideoCodec(variant.Codecs)
+	audioCodec = getAudioCodec(variant.Codecs)
+
+	if videoCodec != "" {
+		mediaType = enums.MediaTypeVideo
+	} else if audioCodec != "" {
+		mediaType = enums.MediaTypeAudio
+	}
+
+	return mediaType, videoCodec, audioCodec
+}
+
+func getVideoCodec(codecs string) enums.MediaCodec {
 	if strings.Contains(codecs, "avc") || strings.Contains(codecs, "h264") {
 		return enums.MediaCodecAVC
 	} else if strings.Contains(codecs, "hvc") || strings.Contains(codecs, "h265") {
@@ -152,10 +258,10 @@ func getCodecFromCodecs(codecs string) enums.MediaCodec {
 	} else if strings.Contains(codecs, "vp8") {
 		return enums.MediaCodecVP8
 	}
-	return enums.MediaCodecAVC
+	return ""
 }
 
-func getAudioCodecFromCodecs(codecs string) enums.MediaCodec {
+func getAudioCodec(codecs string) enums.MediaCodec {
 	if strings.Contains(codecs, "mp4a") {
 		return enums.MediaCodecAAC
 	} else if strings.Contains(codecs, "opus") {
@@ -167,7 +273,7 @@ func getAudioCodecFromCodecs(codecs string) enums.MediaCodec {
 	} else if strings.Contains(codecs, "vorbis") {
 		return enums.MediaCodecVorbis
 	}
-	return enums.MediaCodecAAC
+	return ""
 }
 
 func resolveURL(base *url.URL, uri string) string {

@@ -18,7 +18,6 @@ func MergeVideoWithAudio(
 	if err != nil {
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
-
 	defer os.Remove(tempFileName)
 	defer os.Remove(audioFile)
 
@@ -39,6 +38,7 @@ func MergeVideoWithAudio(
 		Run()
 
 	if err != nil {
+		os.Remove(outputFile)
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 

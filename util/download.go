@@ -1,7 +1,6 @@
 package util
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -107,7 +106,7 @@ func DownloadFileWithSegments(
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to download segments: %w", err)
 	}
-	mergedFilePath, err := mergeSegmentFiles(ctx, downloadedFiles, fileName, config)
+	mergedFilePath, err := av.MergeSegments(downloadedFiles, fileName)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to merge segments: %w", err)
@@ -408,13 +407,9 @@ func downloadFile(
 	ctx context.Context,
 	fileURL string,
 	filePath string,
-	config *models.DownloadConfig,
+	timeout time.Duration,
 ) (string, error) {
-	if config == nil {
-		config = DefaultConfig()
-	}
-
-	reqCtx, cancel := context.WithTimeout(ctx, config.Timeout)
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fileURL, nil)
@@ -555,9 +550,7 @@ func downloadSegments(
 
 			filePath, err := downloadFile(
 				ctx, url, segmentPath,
-				&models.DownloadConfig{
-					Timeout: config.Timeout,
-				},
+				config.Timeout,
 			)
 
 			if err != nil {
@@ -587,81 +580,4 @@ func downloadSegments(
 	}
 
 	return downloadedFiles, nil
-}
-
-func mergeSegmentFiles(
-	ctx context.Context,
-	segmentPaths []string,
-	outputFileName string,
-	config *models.DownloadConfig,
-) (string, error) {
-	if config == nil {
-		config = DefaultConfig()
-	}
-
-	outputPath := filepath.Join(config.DownloadDir, outputFileName)
-	outputFile, err := os.Create(outputPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create output file: %w", err)
-	}
-	defer outputFile.Close()
-
-	bufferedWriter := bufio.NewWriterSize(outputFile, 1024*1024) // 1MB buffer
-
-	var totalBytes int64
-	var processedBytes int64
-
-	if config.ProgressUpdater != nil {
-		for _, segmentPath := range segmentPaths {
-			fileInfo, err := os.Stat(segmentPath)
-			if err == nil {
-				totalBytes += fileInfo.Size()
-			}
-		}
-	}
-
-	for i, segmentPath := range segmentPaths {
-		select {
-		case <-ctx.Done():
-			bufferedWriter.Flush()
-			return "", ctx.Err()
-		default:
-			segmentFile, err := os.Open(segmentPath)
-			if err != nil {
-				return "", fmt.Errorf("failed to open segment %d: %w", i, err)
-			}
-
-			buf := make([]byte, 4*1024*1024) // 4MB buffer
-			written, err := io.CopyBuffer(bufferedWriter, segmentFile, buf)
-			segmentFile.Close()
-
-			if err != nil {
-				return "", fmt.Errorf("failed to copy segment %d: %w", i, err)
-			}
-
-			if err := bufferedWriter.Flush(); err != nil {
-				return "", fmt.Errorf("failed to flush after segment %d: %w", i, err)
-			}
-
-			if config.ProgressUpdater != nil && totalBytes > 0 {
-				processedBytes += written
-				progress := float64(processedBytes) / float64(totalBytes)
-				config.ProgressUpdater(progress)
-			}
-		}
-	}
-
-	if err := bufferedWriter.Flush(); err != nil {
-		return "", fmt.Errorf("failed to flush data: %w", err)
-	}
-	outputFile.Close()
-
-	if config.Remux {
-		err := av.RemuxFile(outputPath)
-		if err != nil {
-			return "", fmt.Errorf("remuxing failed: %w", err)
-		}
-	}
-
-	return outputPath, nil
 }
