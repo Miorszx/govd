@@ -17,7 +17,7 @@ var Extractor = &models.Extractor{
 	CodeName:   "instagram",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/(reel|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
+	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/(reels?|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
 
