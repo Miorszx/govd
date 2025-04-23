@@ -3,6 +3,7 @@ package util
 import (
 	"crypto/tls"
 	"net/http"
+	"time"
 )
 
 func ChromeClientHelloSpec() *tls.ClientHelloInfo {
@@ -72,13 +73,12 @@ func NewChromeClient() *http.Client {
 		Renegotiation: tls.RenegotiateNever,
 	}
 
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-		// chrome enables HTTP/2
-		ForceAttemptHTTP2: true,
-	}
+	transport := GetBaseTransport()
+	transport.TLSClientConfig = tlsConfig
+	// chrome uses HTTP/2, but it's enabled by default in base transport
 
 	return &http.Client{
 		Transport: transport,
+		Timeout:   60 * time.Second,
 	}
 }

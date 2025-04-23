@@ -1,11 +1,8 @@
 package util
 
 import (
-	"bytes"
-	"fmt"
 	"govd/config"
 	"govd/models"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -13,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/bytedance/sonic"
 )
 
 var (
@@ -26,14 +21,14 @@ var (
 func GetDefaultHTTPClient() *http.Client {
 	defaultClientOnce.Do(func() {
 		defaultClient = &http.Client{
-			Transport: createBaseTransport(),
+			Transport: GetBaseTransport(),
 			Timeout:   60 * time.Second,
 		}
 	})
 	return defaultClient
 }
 
-func createBaseTransport() *http.Transport {
+func GetBaseTransport() *http.Transport {
 	return &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -65,26 +60,27 @@ func GetHTTPClient(extractor string) models.HTTPClient {
 	var client models.HTTPClient
 
 	if cfg.EdgeProxyURL != "" {
-		client = NewEdgeProxyClient(cfg.EdgeProxyURL)
+		client = NewEdgeProxyFromConfig(cfg)
 	} else {
-		client = createClientWithProxy(cfg)
+		client = NewClientFromConfig(cfg)
 	}
-
 	extractorClients[extractor] = client
 	return client
 }
 
-func createClientWithProxy(cfg *models.ExtractorConfig) *http.Client {
-	transport := createBaseTransport()
-
+func NewClientFromConfig(cfg *models.ExtractorConfig) *http.Client {
+	var baseClient *http.Client
+	if cfg.Impersonate {
+		baseClient = NewChromeClient()
+	} else {
+		baseClient = GetDefaultHTTPClient()
+	}
+	transport := GetBaseTransport()
 	if cfg.HTTPProxy != "" || cfg.HTTPSProxy != "" {
 		configureProxyTransport(transport, cfg)
 	}
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   60 * time.Second,
-	}
+	baseClient.Transport = transport
+	return baseClient
 }
 
 func configureProxyTransport(
@@ -100,20 +96,16 @@ func configureProxyTransport(
 			log.Printf("warning: invalid HTTP proxy URL '%s': %v\n", cfg.HTTPProxy, err)
 		}
 	}
-
 	if cfg.HTTPSProxy != "" {
 		httpsProxyURL, err = url.Parse(cfg.HTTPSProxy)
 		if err != nil {
 			log.Printf("warning: invalid HTTPS proxy URL '%s': %v\n", cfg.HTTPSProxy, err)
 		}
 	}
-
 	if httpProxyURL == nil && httpsProxyURL == nil {
 		return
 	}
-
 	noProxyList := parseNoProxyList(cfg.NoProxy)
-
 	transport.Proxy = func(req *http.Request) (*url.URL, error) {
 		if shouldBypassProxy(req.URL.Hostname(), noProxyList) {
 			return nil, nil
@@ -154,113 +146,4 @@ func shouldBypassProxy(host string, noProxyList []string) bool {
 		}
 	}
 	return false
-}
-
-type EdgeProxyClient struct {
-	client   *http.Client
-	proxyURL string
-}
-
-func NewEdgeProxyClient(proxyURL string) *EdgeProxyClient {
-	return &EdgeProxyClient{
-		client: &http.Client{
-			Transport: createBaseTransport(),
-			Timeout:   60 * time.Second,
-		},
-		proxyURL: proxyURL,
-	}
-}
-
-func (c *EdgeProxyClient) Do(req *http.Request) (*http.Response, error) {
-	if c.proxyURL == "" {
-		return nil, fmt.Errorf("proxy URL is not set")
-	}
-
-	targetURL := req.URL.String()
-	encodedURL := url.QueryEscape(targetURL)
-	proxyURLWithParam := c.proxyURL + "?url=" + encodedURL
-
-	bodyBytes, err := readRequestBody(req)
-	if err != nil {
-		return nil, err
-	}
-
-	proxyReq, err := http.NewRequest(
-		req.Method,
-		proxyURLWithParam,
-		bytes.NewBuffer(bodyBytes),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error creating proxy request: %w", err)
-	}
-
-	copyHeaders(req.Header, proxyReq.Header)
-
-	proxyResp, err := c.client.Do(proxyReq)
-	if err != nil {
-		return nil, fmt.Errorf("proxy request failed: %w", err)
-	}
-	defer proxyResp.Body.Close()
-
-	return parseProxyResponse(proxyResp, req)
-}
-
-func readRequestBody(req *http.Request) ([]byte, error) {
-	if req.Body == nil {
-		return nil, nil
-	}
-
-	bodyBytes, err := io.ReadAll(req.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading request body: %w", err)
-	}
-
-	req.Body.Close()
-	req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-	return bodyBytes, nil
-}
-
-func copyHeaders(source, destination http.Header) {
-	for name, values := range source {
-		for _, value := range values {
-			destination.Add(name, value)
-		}
-	}
-}
-
-func parseProxyResponse(proxyResp *http.Response, originalReq *http.Request) (*http.Response, error) {
-	body, err := io.ReadAll(proxyResp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading proxy response: %w", err)
-	}
-
-	var response models.ProxyResponse
-	if err := sonic.ConfigFastest.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("error parsing proxy response: %w", err)
-	}
-
-	resp := &http.Response{
-		StatusCode: response.StatusCode,
-		Status:     fmt.Sprintf("%d %s", response.StatusCode, http.StatusText(response.StatusCode)),
-		Body:       io.NopCloser(bytes.NewBufferString(response.Text)),
-		Header:     make(http.Header),
-		Request:    originalReq,
-	}
-
-	parsedResponseURL, err := url.Parse(response.URL)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing response URL: %w", err)
-	}
-	resp.Request.URL = parsedResponseURL
-
-	for name, value := range response.Headers {
-		resp.Header.Set(name, value)
-	}
-
-	for _, cookie := range response.Cookies {
-		resp.Header.Add("Set-Cookie", cookie)
-	}
-
-	return resp, nil
 }

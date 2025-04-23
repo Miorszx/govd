@@ -1,7 +1,7 @@
 # govd
-a telegram bot for downloading media from various platforms
+a telegram bot for downloading media from various platforms.
 
-this project draws significant inspiration from [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+this project draws significant inspiration from [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 - official instance: [@govd_bot](https://t.me/govd_bot)
 - support group: [govdsupport](https://t.me/govdsupport)
@@ -12,7 +12,7 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
 * [installation](#installation)
     * [build](#build)
     * [docker](#docker-recommended)
-* [options](#options)
+* [configuration](#configuration)
 * [authentication](#authentication)
 * [proxying](#proxying)
 * [todo](#todo)
@@ -30,7 +30,7 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
 > [!NOTE]
 > there's no official support for windows yet. if you want to run the bot on it, please follow [docker installation](#docker-recommended).
 
-1. clone the repository
+1. clone the repository:
     ```bash
     git clone https://github.com/govdbot/govd.git && cd govd
     ```
@@ -68,7 +68,9 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
     docker compose up -d
     ```
 
-# options
+# configuration
+you can configure the bot using the `.env` file. here are the available options:
+
 | variable                      | description                                  | default                               |
 |-------------------------------|----------------------------------------------|---------------------------------------|
 | DB_HOST                       | database host                                | localhost                             |
@@ -87,15 +89,16 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
 | REPO_URL                      | project repository url                       | https://github.com/govdbot/govd       |
 | PROFILER_PORT                 | port for profiler http server (pprof)        | 0 _(disabled)_                        |
 
-you can configure specific extractors options with `ext-cfg.yaml` file. documentation is not available yet, but you can check the source code for more information.
+you can configure specific extractors options with `ext-cfg.yaml` file ([learn more](CONFIGURATION.md)).
 
 > [!IMPORTANT]  
 > to avoid limits on files, you should host your own telegram botapi and set `BOT_API_URL` variable according. public bot instance is currently running under a botapi fork, [tdlight-telegram-bot-api](https://github.com/tdlight-team/tdlight-telegram-bot-api), but you can use the official botapi client too.
 
 # proxying
-there are two types of proxying available: http and edge.
+there are two types of proxying available:
 * **http proxy**: this is a standard http proxy that can be used to route requests through a proxy server. you can set the `HTTP_PROXY` and `HTTPS_PROXY` environment variables to use this feature. (SOCKS5 is supported too)
-* **edge proxy**: this is a custom proxy that is used to route requests through a specific url. currenrly, you can only set this proxy with `ext-cfg.yaml` file. this is useful for routing requests through a specific server or service. however, this feature is not totally implemented yet.
+* **edge proxy**: this is a custom proxy that is used to route requests through a specific url. currenrly, you can only set this proxy with `ext-cfg.yaml` file ([learn more](EDGEPROXY.md)).
+
 > [!TIP]
 > by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.
 
