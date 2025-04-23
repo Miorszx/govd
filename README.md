@@ -18,16 +18,17 @@ this project was born after the discontinuation of a highly popular bot known as
 * [todo](#todo)
 
 # dependencies
-- ffmpeg >= 7.x **(*)**
-- libheif >= 1.19.7
-- pkg-config
-- mysql or mariadb
-
-**note:** libav shared libraries must be installed on the system in order to build the bot.
+* ffmpeg >= 7.x
+    * with shared libraries
+* libheif >= 1.19.7
+* pkg-config
+* sql database
+    * mysql or mariadb 
 
 # installation
 ## build
-_this method only works on linux and macos, if you want to build the bot on windows, check [docker installation](#docker-recommended) instead._
+> [!NOTE]
+> there's no official support for windows yet. if you want to run the bot on it, please follow [docker installation](#docker-recommended)
 
 1. clone the repository
     ```bash
@@ -46,7 +47,6 @@ _this method only works on linux and macos, if you want to build the bot on wind
     ```
 
 ## docker (recommended)
-
 1. build the image using the dockerfile:
 
     ```bash
@@ -94,19 +94,17 @@ you can configure specific extractors options with `ext-cfg.yaml` file. document
 
 # proxying
 there are two types of proxying available: http and edge.
-- **http proxy**: this is a standard http proxy that can be used to route requests through a proxy server. you can set the `HTTP_PROXY` and `HTTPS_PROXY` environment variables to use this feature. (SOCKS5 is supported too)
-- **edge proxy**: this is a custom proxy that is used to route requests through a specific url. currenrly, you can only set this proxy with `ext-cfg.yaml` file. this is useful for routing requests through a specific server or service. however, this feature is not totally implemented yet.
-
-**note:** by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.
+* **http proxy**: this is a standard http proxy that can be used to route requests through a proxy server. you can set the `HTTP_PROXY` and `HTTPS_PROXY` environment variables to use this feature. (SOCKS5 is supported too)
+* **edge proxy**: this is a custom proxy that is used to route requests through a specific url. currenrly, you can only set this proxy with `ext-cfg.yaml` file. this is useful for routing requests through a specific server or service. however, this feature is not totally implemented yet.
+> [!TIP]
+> by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.
 
 # authentication
 some extractors require cookies to access the content. please refer to [this page](AUTHENTICATION.md) for more information on how to set up authentication for each extractor.
 
 # todo
-- [ ] add tests
-- [ ] add support for telegram webhooks
-- [ ] switch to pgsql (maybe)
-- [ ] better api
-- [ ] better docs
-
----
+* [ ] add tests
+* [ ] add support for telegram webhooks
+* [ ] switch to pgsql (maybe)
+* [ ] better api
+* [ ] better docs
