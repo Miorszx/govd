@@ -10,9 +10,7 @@ import (
 
 var startMessage = "govd is an open-source telegram bot " +
 	"that allows you to download medias from " +
-	"various platforms. the project born after " +
-	"the discontinuation of an " +
-	"highly popular bot, known as UVD."
+	"various platforms."
 
 func getStartKeyboard(bot *gotgbot.Bot) gotgbot.InlineKeyboardMarkup {
 	return gotgbot.InlineKeyboardMarkup{

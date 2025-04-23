@@ -10,24 +10,7 @@ import (
 	"regexp"
 )
 
-// as a public service, we can't use the official API
-// so we use igram.world API, a third-party service
-// that provides a similar functionality
-// feel free to open PR, if you want to
-// add support for the official Instagram API
-
-const (
-	apiHostname  = "api.igram.world"
-	apiKey       = "aaeaf2805cea6abef3f9d2b6a666fce62fd9d612a43ab772bb50ce81455112e0"
-	apiTimestamp = "1742201548873"
-
-	// todo: Implement a proper way
-	// to get the API key and timestamp
-)
-
-var instagramHost = []string{
-	"instagram.com",
-}
+var instagramHost = []string{"instagram.com"}
 
 var Extractor = &models.Extractor{
 	Name:       "Instagram",
@@ -39,10 +22,28 @@ var Extractor = &models.Extractor{
 	IsRedirect: false,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		mediaList, err := MediaListFromAPI(ctx, false)
-		return &models.ExtractorResponse{
-			MediaList: mediaList,
-		}, err
+		// method 1: get media from GQL web API
+		mediaList, err := GetGQLMediaList(ctx)
+		if err == nil && len(mediaList) > 0 {
+			return &models.ExtractorResponse{
+				MediaList: mediaList,
+			}, nil
+		}
+		// method 2: get media from embed page
+		mediaList, err = GetEmbedMediaList(ctx)
+		if err == nil && len(mediaList) > 0 {
+			return &models.ExtractorResponse{
+				MediaList: mediaList,
+			}, nil
+		}
+		// method 3: get media from 3rd party service (unlikely)
+		mediaList, err = GetIGramMediaList(ctx)
+		if err == nil && len(mediaList) > 0 {
+			return &models.ExtractorResponse{
+				MediaList: mediaList,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to extract media: all methods failed")
 	},
 }
 
@@ -56,7 +57,7 @@ var StoriesExtractor = &models.Extractor{
 	IsRedirect: false,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		mediaList, err := MediaListFromAPI(ctx, true)
+		mediaList, err := GetIGramMediaList(ctx)
 		return &models.ExtractorResponse{
 			MediaList: mediaList,
 		}, err
@@ -88,31 +89,63 @@ var ShareURLExtractor = &models.Extractor{
 	},
 }
 
-func MediaListFromAPI(
+func GetGQLMediaList(
 	ctx *models.DownloadContext,
-	stories bool,
 ) ([]*models.Media, error) {
-	client := util.GetHTTPClient(ctx.Extractor.CodeName)
+	graphData, err := GetGQLData(ctx, ctx.MatchedContentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get graph data: %w", err)
+	}
+	return ParseGQLMedia(ctx, graphData.ShortcodeMedia)
+}
 
+func GetEmbedMediaList(
+	ctx *models.DownloadContext,
+) ([]*models.Media, error) {
+	session := util.GetHTTPClient(ctx.Extractor.CodeName)
+	embedURL := fmt.Sprintf("https://www.instagram.com/p/%s/embed/captioned", ctx.MatchedContentID)
+	req, err := http.NewRequest(
+		http.MethodGet,
+		embedURL,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	for key, value := range igHeaders {
+		req.Header.Set(key, value)
+	}
+	resp, err := session.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get embed page: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	graphData, err := ParseEmbedGQL(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse embed page: %w", err)
+	}
+	return ParseGQLMedia(ctx, graphData)
+}
+
+func GetIGramMediaList(ctx *models.DownloadContext) ([]*models.Media, error) {
 	var mediaList []*models.Media
 	postURL := ctx.MatchedContentURL
-	details, err := GetVideoAPI(client, postURL)
+	details, err := GetFromIGram(ctx, postURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get post: %w", err)
-	}
-	var caption string
-	if !stories {
-		caption, err = GetPostCaption(client, postURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get caption: %w", err)
-		}
 	}
 	for _, item := range details.Items {
 		media := ctx.Extractor.NewMedia(
 			ctx.MatchedContentID,
 			ctx.MatchedContentURL,
 		)
-		media.SetCaption(caption)
 		urlObj := item.URL[0]
 		contentURL, err := GetCDNURL(urlObj.URL)
 		if err != nil {
@@ -150,26 +183,27 @@ func MediaListFromAPI(
 	return mediaList, nil
 }
 
-func GetVideoAPI(
-	client models.HTTPClient,
+func GetFromIGram(
+	ctx *models.DownloadContext,
 	contentURL string,
 ) (*IGramResponse, error) {
+	session := util.GetHTTPClient(ctx.Extractor.CodeName)
 	apiURL := fmt.Sprintf(
 		"https://%s/api/convert",
-		apiHostname,
+		igramHostname,
 	)
-	payload, err := BuildSignedPayload(contentURL)
+	payload, err := BuildIGramPayload(contentURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build signed payload: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, apiURL, payload)
+	req, err := http.NewRequest("POST", apiURL, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", util.ChromeUA)
 
-	resp, err := client.Do(req)
+	resp, err := session.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

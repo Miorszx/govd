@@ -1,7 +1,7 @@
 # govd
 a telegram bot for downloading media from various platforms
 
-this project was born after the discontinuation of a highly popular bot known as uvd, and draws significant inspiration from [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+this project draws significant inspiration from [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 
 - official instance: [@govd_bot](https://t.me/govd_bot)
 - support group: [govdsupport](https://t.me/govdsupport)
@@ -28,7 +28,7 @@ this project was born after the discontinuation of a highly popular bot known as
 # installation
 ## build
 > [!NOTE]
-> there's no official support for windows yet. if you want to run the bot on it, please follow [docker installation](#docker-recommended)
+> there's no official support for windows yet. if you want to run the bot on it, please follow [docker installation](#docker-recommended).
 
 1. clone the repository
     ```bash
@@ -54,7 +54,7 @@ this project was born after the discontinuation of a highly popular bot known as
     ```
 
 2. update the `.env` file to ensure the database properties match the environment variables defined for the mariadb service in the `docker-compose.yml` file.  
-   for enhanced security, it is recommended to change the `MYSQL_PASSWORD` property in `docker-compose.yaml` and ensure `DB_PASSWORD` in `.env` matches it.
+   for enhanced security, it is recommended to change the `MARIADB_PASSWORD` property in `docker-compose.yaml` and ensure `DB_PASSWORD` in `.env` matches it.
 
     the following line in the `.env` file **must** be set as:
 

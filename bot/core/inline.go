@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -238,11 +237,7 @@ func StartInlineTask(
 			IsPersonal: true,
 		},
 	)
-	if err != nil {
-		log.Println("failed to answer inline query:", err)
-	}
-	if !ok {
-		log.Println("failed to answer inline query")
+	if err != nil || !ok {
 		return nil
 	}
 	SetTask(taskID, dlCtx)

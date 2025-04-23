@@ -1,6 +1,7 @@
 package util
 
 import (
+	"crypto/rand"
 	"fmt"
 	"govd/models"
 	"net/http"
@@ -93,6 +94,44 @@ func GetLastError(err error) error {
 		lastErr = unwrapped
 	}
 	return lastErr
+}
+
+func RandomBase64(length int) string {
+	const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	const mask = 63 // 6 bits, since len(letters) == 64
+
+	result := make([]byte, length)
+	random := make([]byte, length)
+	_, err := rand.Read(random)
+	if err != nil {
+		return strings.Repeat("A", length)
+	}
+	for i, b := range random {
+		result[i] = letters[int(b)&mask]
+	}
+	return string(result)
+}
+
+func RandomAlphaString(length int) string {
+	const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	const lettersLen = byte(len(letters))
+	const maxByte = 255 - (255 % lettersLen) // 255 - (255 % 52) = 255 - 47 = 208
+
+	result := make([]byte, length)
+	i := 0
+	for i < length {
+		b := make([]byte, 1)
+		_, err := rand.Read(b)
+		if err != nil {
+			return strings.Repeat("a", length)
+		}
+		if b[0] > maxByte {
+			continue // avoid bias
+		}
+		result[i] = letters[b[0]%lettersLen]
+		i++
+	}
+	return string(result)
 }
 
 func ParseCookieFile(fileName string) ([]*http.Cookie, error) {

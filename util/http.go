@@ -2,7 +2,6 @@ package util
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"govd/config"
 	"govd/models"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bytedance/sonic"
 )
 
 var (
@@ -235,7 +236,7 @@ func parseProxyResponse(proxyResp *http.Response, originalReq *http.Request) (*h
 	}
 
 	var response models.ProxyResponse
-	if err := json.Unmarshal(body, &response); err != nil {
+	if err := sonic.ConfigFastest.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("error parsing proxy response: %w", err)
 	}
 
