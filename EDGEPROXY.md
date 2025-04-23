@@ -15,7 +15,7 @@ reddit:
 ```
 
 ## response format
-the edge proxy must respond with a JSON object in the following format (see [models.EdgeProxyResponse](models/edgeproxy.go))
+the edge proxy must respond with a JSON object in the following format (see [`models.EdgeProxyResponse`](models/edgeproxy.go)).
 
 ```json
 {
@@ -36,6 +36,6 @@ the edge proxy must respond with a JSON object in the following format (see [mod
 the main difference between http proxy and edge proxy is that http proxy is a standard proxy that forwards requests and responses, while edge proxy is a custom proxy that can modify the requests and responses in any way you want.
 
 ## notes
-* edge proxy is for advanced use ant not required for most users.
+* edge proxy is for advanced use and not required for most users.
 * this feature is experimental and may change in the future.
-* you can check full implementation of the edge proxy in the [edgeproxy](util/edgeproxy.go) package.
+* you can check full implementation of the edge proxy in the [`util/edgeproxy`](util/edgeproxy.go) package.
