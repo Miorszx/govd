@@ -12,7 +12,7 @@ type ResponseItem struct {
 	Data *Data `json:"data"`
 }
 
-type RedditResponse []*ResponseItem
+type Response []*ResponseItem
 
 type PostData struct {
 	ID            string                   `json:"id"`
@@ -27,10 +27,10 @@ type PostData struct {
 }
 
 type Media struct {
-	RedditVideo *RedditVideo `json:"reddit_video"`
+	Video *Video `json:"reddit_video"`
 }
 
-type RedditVideo struct {
+type Video struct {
 	FallbackURL      string `json:"fallback_url"`
 	HLSURL           string `json:"hls_url"`
 	DashURL          string `json:"dash_url"`
@@ -41,8 +41,8 @@ type RedditVideo struct {
 }
 
 type Preview struct {
-	Images             []Image             `json:"images"`
-	RedditVideoPreview *RedditVideoPreview `json:"reddit_video_preview"`
+	Images       []Image       `json:"images"`
+	VideoPreview *VideoPreview `json:"reddit_video_preview"`
 }
 
 type Image struct {
@@ -64,7 +64,7 @@ type MP4Variant struct {
 	Source ImageSource `json:"source"`
 }
 
-type RedditVideoPreview struct {
+type VideoPreview struct {
 	FallbackURL string `json:"fallback_url"`
 	Duration    int64  `json:"duration"`
 }

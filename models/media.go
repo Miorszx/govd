@@ -467,12 +467,13 @@ func (format *MediaFormat) GetInputMediaWithFileID(
 func (format *MediaFormat) GetFileName() string {
 	extension, _ := format.GetFormatInfo()
 	if format.Type == enums.MediaTypeAudio && format.Title != "" && format.Artist != "" {
-		return fmt.Sprintf("%s - %s.%s", format.Artist, format.Title, extension)
-	} else {
-		name := uuid.New().String()
-		name = strings.ReplaceAll(name, "-", "")
-		return fmt.Sprintf("%s.%s", name, extension)
+		artist := strings.ReplaceAll(format.Artist, "/", " ")
+		title := strings.ReplaceAll(format.Title, "/", " ")
+		return fmt.Sprintf("%s - %s.%s", artist, title, extension)
 	}
+	name := uuid.New().String()
+	name = strings.ReplaceAll(name, "-", "")
+	return fmt.Sprintf("%s.%s", name, extension)
 }
 
 func (media *Media) HasVideo() bool {

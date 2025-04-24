@@ -1,13 +1,13 @@
 package av
 
 import (
-	"errors"
 	"fmt"
 	"image/jpeg"
 	"os"
 	"time"
 
 	"github.com/asticode/go-astiav"
+	"github.com/pkg/errors"
 )
 
 func ExtractVideoThumbnail(videoPath string, imagePath string) error {
@@ -65,7 +65,7 @@ func ExtractVideoThumbnail(videoPath string, imagePath string) error {
 		err := formatCtx.ReadFrame(packet)
 		if err != nil {
 			if errors.Is(err, astiav.ErrEof) {
-				return fmt.Errorf("end of file reached before finding video frame")
+				return errors.New("end of file reached before finding video frame")
 			}
 			return fmt.Errorf("failed reading frame: %w", err)
 		}
@@ -113,5 +113,5 @@ func ExtractVideoThumbnail(videoPath string, imagePath string) error {
 		return nil
 	}
 
-	return fmt.Errorf("timeout while waiting for video frame")
+	return errors.New("timeout while waiting for video frame")
 }

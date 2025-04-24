@@ -3,14 +3,16 @@ package util
 import (
 	"bytes"
 	"fmt"
-	"govd/models"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
+	"govd/models"
+
 	"github.com/bytedance/sonic"
+	"github.com/pkg/errors"
 )
 
 type EdgeProxyClient struct {
@@ -48,7 +50,7 @@ func NewEdgeProxy(
 
 func (c *EdgeProxyClient) Do(req *http.Request) (*http.Response, error) {
 	if c.proxyURL == "" {
-		return nil, fmt.Errorf("proxy URL is not set")
+		return nil, errors.New("proxy URL is not set")
 	}
 
 	targetURL := req.URL.String()

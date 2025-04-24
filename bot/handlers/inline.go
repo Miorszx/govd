@@ -71,8 +71,7 @@ func InlineDownloadResultHandler(
 	select {
 	case media := <-mediaChan:
 		err := core.HandleInlineCachedResult(
-			bot, ctx,
-			dlCtx, media,
+			bot, ctx, media,
 		)
 		if err != nil {
 			core.HandleErrorMessage(bot, ctx, err)

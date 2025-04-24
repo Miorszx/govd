@@ -6,6 +6,8 @@ import (
 
 	"govd/enums"
 	"govd/models"
+
+	"github.com/pkg/errors"
 )
 
 func FindBestPhoto(
@@ -25,7 +27,7 @@ func FindBestPhoto(
 	}
 
 	if bestPhoto == nil {
-		return nil, fmt.Errorf("no photo found in post")
+		return nil, errors.New("no photo found in post")
 	}
 
 	return bestPhoto, nil
@@ -47,7 +49,7 @@ func ParseVideoFormats(
 		}
 	}
 	if video == nil {
-		return nil, fmt.Errorf("no video found in post")
+		return nil, errors.New("no video found in post")
 	}
 
 	codecMapping := map[string]struct {

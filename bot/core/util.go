@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
-
 	"govd/database"
 	"govd/enums"
 	"govd/models"
@@ -17,9 +15,11 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/pkg/errors"
 )
 
 func getFileThumbnail(
+	ctx context.Context,
 	format *models.MediaFormat,
 	filePath string,
 ) (string, error) {
@@ -28,9 +28,6 @@ func getFileThumbnail(
 	fileExt := filepath.Ext(fileName)
 	fileBaseName := fileName[:len(fileName)-len(fileExt)]
 	thumbnailFilePath := filepath.Join(fileDir, fileBaseName+".thumb.jpeg")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	if len(format.Thumbnail) > 0 {
 		file, err := util.DownloadFileInMemory(ctx, format.Thumbnail, nil)
@@ -109,7 +106,7 @@ func StoreMedias(
 	var storedMedias []*models.Media
 
 	if len(medias) == 0 {
-		return fmt.Errorf("no media to store")
+		return errors.New("no media to store")
 	}
 
 	for idx, msg := range msgs {
@@ -161,7 +158,6 @@ func FormatCaption(
 
 func TypingEffect(
 	bot *gotgbot.Bot,
-	ctx *ext.Context,
 	chatID int64,
 ) {
 	bot.SendChatAction(
@@ -173,7 +169,6 @@ func TypingEffect(
 
 func SendingEffect(
 	bot *gotgbot.Bot,
-	ctx *ext.Context,
 	chatID int64,
 	mediaType enums.MediaType,
 ) {

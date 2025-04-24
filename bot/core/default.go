@@ -8,6 +8,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/pkg/errors"
 )
 
 func HandleDefaultFormatDownload(
@@ -59,7 +60,7 @@ func HandleDefaultFormatDownload(
 	}
 
 	if len(medias) == 0 {
-		return fmt.Errorf("no formats downloaded")
+		return errors.New("no formats downloaded")
 	}
 
 	isCaptionEnabled := true

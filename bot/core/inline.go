@@ -100,8 +100,7 @@ func HandleInline(
 			return util.ErrInlineMediaGroup
 		}
 		err = HandleInlineCached(
-			bot, ctx,
-			dlCtx, cached[0],
+			bot, ctx, cached[0],
 		)
 		if err != nil {
 			return err
@@ -118,7 +117,6 @@ func HandleInline(
 func HandleInlineCached(
 	bot *gotgbot.Bot,
 	ctx *ext.Context,
-	dlCtx *models.DownloadContext,
 	media *models.Media,
 ) error {
 	var result gotgbot.InlineQueryResult
@@ -177,7 +175,6 @@ func HandleInlineCached(
 func HandleInlineCachedResult(
 	bot *gotgbot.Bot,
 	ctx *ext.Context,
-	dlCtx *models.DownloadContext,
 	media *models.Media,
 ) error {
 	format := media.Format

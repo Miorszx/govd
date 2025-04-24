@@ -5,9 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"govd/enums"
-	"govd/models"
-	"govd/util"
 	"io"
 	"math/big"
 	"net/http"
@@ -17,7 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"govd/enums"
+	"govd/models"
+	"govd/util"
+
 	"github.com/bytedance/sonic"
+	"github.com/pkg/errors"
 	"github.com/titanous/json5"
 )
 
@@ -63,11 +65,10 @@ func ParseGQLMedia(
 		caption = data.EdgeMediaToCaption.Edges[0].Node.Text
 	}
 
-	mediaType := data.Typename
 	contentID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
-	switch mediaType {
+	switch data.Typename {
 	case "GraphVideo", "XDTGraphVideo":
 		media := ctx.Extractor.NewMedia(contentID, contentURL)
 		media.SetCaption(caption)
@@ -139,17 +140,17 @@ func ParseEmbedGQL(
 ) (*Media, error) {
 	match := embedPattern.FindStringSubmatch(string(body))
 	if len(match) < 2 {
-		return nil, fmt.Errorf("failed to find JSON in response")
+		return nil, errors.New("failed to find JSON in response")
 	}
 	jsonData := match[1]
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json5.Unmarshal([]byte(jsonData), &data); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
 	igCtx := util.TraverseJSON(data, "contextJSON")
 	if igCtx == nil {
-		return nil, fmt.Errorf("contextJSON not found in data")
+		return nil, errors.New("contextJSON not found in data")
 	}
 	var ctxJSON ContextJSON
 	switch v := igCtx.(type) {
@@ -158,13 +159,13 @@ func ParseEmbedGQL(
 			return nil, fmt.Errorf("failed to unmarshal contextJSON: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("contextJSON is not a string")
+		return nil, errors.New("contextJSON is not a string")
 	}
 	if ctxJSON.GqlData == nil {
-		return nil, fmt.Errorf("gql_data is nil")
+		return nil, errors.New("gql_data is nil")
 	}
 	if ctxJSON.GqlData.ShortcodeMedia == nil {
-		return nil, fmt.Errorf("media is nil")
+		return nil, errors.New("media is nil")
 	}
 	return ctxJSON.GqlData.ShortcodeMedia, nil
 }
@@ -297,13 +298,13 @@ func GetGQLData(
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 	if response.Data == nil {
-		return nil, fmt.Errorf("data is nil")
+		return nil, errors.New("data is nil")
 	}
 	if response.Status != "ok" {
 		return nil, fmt.Errorf("status is not ok: %s", response.Status)
 	}
 	if response.Data.ShortcodeMedia == nil {
-		return nil, fmt.Errorf("media is nil")
+		return nil, errors.New("media is nil")
 	}
 	return response.Data, nil
 }

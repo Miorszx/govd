@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
@@ -12,7 +13,7 @@ func MergeSegments(
 	outputPath string,
 ) (string, error) {
 	if len(segmentPaths) == 0 {
-		return "", fmt.Errorf("no segments to merge")
+		return "", errors.New("no segments to merge")
 	}
 	listFilePath := outputPath + ".segments.txt"
 	listFile, err := os.Create(listFilePath)

@@ -1,8 +1,6 @@
 package util
 
 import (
-	"govd/config"
-	"govd/models"
 	"log"
 	"net"
 	"net/http"
@@ -10,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"govd/config"
+	"govd/models"
 )
 
 var (

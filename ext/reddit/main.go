@@ -10,6 +10,7 @@ import (
 	"govd/util"
 
 	"github.com/bytedance/sonic"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -94,7 +95,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	}
 
 	if len(manifest) == 0 || len(manifest[0].Data.Children) == 0 {
-		return nil, fmt.Errorf("no data found in response")
+		return nil, errors.New("no data found in response")
 	}
 
 	data := manifest[0].Data.Children[0].Data
@@ -115,11 +116,11 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 			image := data.Preview.Images[0]
 
 			// check for video preview (GIF)
-			if data.Preview.RedditVideoPreview != nil {
+			if data.Preview.VideoPreview != nil {
 				formats, err := GetHLSFormats(
-					data.Preview.RedditVideoPreview.FallbackURL,
+					data.Preview.VideoPreview.FallbackURL,
 					image.Source.URL,
-					data.Preview.RedditVideoPreview.Duration,
+					data.Preview.VideoPreview.Duration,
 				)
 				if err != nil {
 					return nil, err
@@ -189,12 +190,12 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 			media.NSFW = true
 		}
 
-		var redditVideo *RedditVideo
+		var redditVideo *Video
 
-		if data.Media != nil && data.Media.RedditVideo != nil {
-			redditVideo = data.Media.RedditVideo
-		} else if data.SecureMedia != nil && data.SecureMedia.RedditVideo != nil {
-			redditVideo = data.SecureMedia.RedditVideo
+		if data.Media != nil && data.Media.Video != nil {
+			redditVideo = data.Media.Video
+		} else if data.SecureMedia != nil && data.SecureMedia.Video != nil {
+			redditVideo = data.SecureMedia.Video
 		}
 
 		if redditVideo != nil {
@@ -230,7 +231,7 @@ func GetRedditData(
 	host string,
 	slug string,
 	raise bool,
-) (RedditResponse, error) {
+) (Response, error) {
 	url := fmt.Sprintf("https://%s/%s/.json", host, slug)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -266,7 +267,7 @@ func GetRedditData(
 		return GetRedditData(client, altHost, slug, true)
 	}
 
-	var response RedditResponse
+	var response Response
 	decoder := sonic.ConfigFastest.NewDecoder(res.Body)
 	err = decoder.Decode(&response)
 	if err != nil {

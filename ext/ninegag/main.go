@@ -10,6 +10,7 @@ import (
 	"govd/util"
 
 	"github.com/bytedance/sonic"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -125,7 +126,7 @@ func GetPostData(postID string) (*Post, error) {
 	}
 
 	if response.Data == nil || response.Data.Post == nil {
-		return nil, fmt.Errorf("no post data found")
+		return nil, errors.New("no post data found")
 	}
 
 	return response.Data.Post, nil

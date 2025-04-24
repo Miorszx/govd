@@ -2,10 +2,13 @@ package ext
 
 import (
 	"fmt"
-	"govd/models"
 	"net/url"
 	"strings"
 	"sync"
+
+	"govd/models"
+
+	"github.com/pkg/errors"
 )
 
 var (
@@ -37,7 +40,7 @@ func CtxByURL(urlStr string) (*models.DownloadContext, error) {
 	for redirectCount <= maxRedirects {
 		parsedURL, err := url.Parse(currentURL)
 		if err != nil {
-			return nil, fmt.Errorf("invalid URL: %v", err)
+			return nil, fmt.Errorf("invalid URL: %w", err)
 		}
 
 		host := strings.TrimPrefix(parsedURL.Host, "www.")
@@ -87,7 +90,7 @@ func CtxByURL(urlStr string) (*models.DownloadContext, error) {
 			return nil, err
 		}
 		if response.URL == "" {
-			return nil, fmt.Errorf("no URL found in response")
+			return nil, errors.New("no URL found in response")
 		}
 
 		currentURL = response.URL

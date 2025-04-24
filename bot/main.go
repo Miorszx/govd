@@ -46,13 +46,13 @@ func Start() {
 		logDispatcherErrors = false
 	}
 	dispatcher := ext.NewDispatcher(&ext.DispatcherOpts{
-		Error: func(b *gotgbot.Bot, ctx *ext.Context, err error) ext.DispatcherAction {
+		Error: func(_ *gotgbot.Bot, _ *ext.Context, err error) ext.DispatcherAction {
 			if logDispatcherErrors {
 				log.Printf("an error occurred while handling update: %v", err)
 			}
 			return ext.DispatcherActionNoop
 		},
-		Panic: func(b *gotgbot.Bot, ctx *ext.Context, r interface{}) {
+		Panic: func(_ *gotgbot.Bot, _ *ext.Context, r any) {
 			if logDispatcherErrors {
 				log.Printf("panic occurred while handling update: %v\n", r)
 				log.Printf("stack trace:\n%s\n", debug.Stack())

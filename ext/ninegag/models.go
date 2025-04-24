@@ -25,17 +25,13 @@ type Media struct {
 }
 
 type Post struct {
-	ID               string            `json:"id"`
-	URL              string            `json:"url"`
-	Title            string            `json:"title"`
-	Description      string            `json:"description"`
-	Type             string            `json:"type"`
-	Nsfw             int               `json:"nsfw"`
-	CreationTs       int               `json:"creationTs"`
-	GamFlagged       bool              `json:"gamFlagged"`
-	IsVoteMasked     int               `json:"isVoteMasked"`
-	HasLongPostCover int               `json:"hasLongPostCover"`
-	Images           map[string]*Media `json:"images"`
+	ID          string            `json:"id"`
+	URL         string            `json:"url"`
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	Type        string            `json:"type"`
+	Nsfw        int               `json:"nsfw"`
+	Images      map[string]*Media `json:"images"`
 }
 
 type Data struct {

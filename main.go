@@ -11,7 +11,7 @@ import (
 	"os"
 	"strconv"
 
-	_ "net/http/pprof"
+	_ "net/http/pprof" // profiling
 
 	"github.com/joho/godotenv"
 )

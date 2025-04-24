@@ -11,6 +11,7 @@ import (
 	"govd/util"
 
 	"github.com/bytedance/sonic"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -45,7 +46,7 @@ var ShortExtractor = &models.Extractor{
 		}
 		matchedURL := Extractor.URLPattern.FindStringSubmatch(string(body))
 		if matchedURL == nil {
-			return nil, fmt.Errorf("failed to find url in body")
+			return nil, errors.New("failed to find url in body")
 		}
 		return &models.ExtractorResponse{
 			URL: matchedURL[0],
@@ -62,7 +63,6 @@ var Extractor = &models.Extractor{
 	Host: []string{
 		"twitter.com",
 		"x.com",
-		"vxx.com",
 		"vxtwitter.com",
 	},
 
@@ -95,7 +95,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	} else if tweetData.Entities != nil && len(tweetData.Entities.Media) > 0 {
 		mediaEntities = tweetData.Entities.Media
 	} else {
-		return nil, fmt.Errorf("no media found in tweet")
+		return nil, nil
 	}
 
 	for _, mediaEntity := range mediaEntities {
@@ -140,7 +140,7 @@ func GetTweetAPI(
 	}
 	headers := BuildAPIHeaders(cookies)
 	if headers == nil {
-		return nil, fmt.Errorf("failed to build headers. check cookies")
+		return nil, errors.New("failed to build headers. check cookies")
 	}
 	query := BuildAPIQuery(tweetID)
 

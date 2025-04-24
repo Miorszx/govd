@@ -85,7 +85,7 @@ func EscapeCaption(str string) string {
 }
 
 func GetLastError(err error) error {
-	var lastErr error = err
+	var lastErr = err
 	for {
 		unwrapped := errors.Unwrap(lastErr)
 		if unwrapped == nil {

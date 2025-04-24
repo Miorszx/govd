@@ -11,6 +11,8 @@ import (
 	"govd/enums"
 	"govd/models"
 	"govd/util"
+
+	"github.com/pkg/errors"
 )
 
 func downloadMediaItem(
@@ -25,7 +27,7 @@ func downloadMediaItem(
 
 	format := media.Format
 	if format == nil {
-		return nil, fmt.Errorf("media format is nil")
+		return nil, errors.New("media format is nil")
 	}
 
 	fileName := format.GetFileName()
@@ -79,7 +81,7 @@ func downloadMediaItem(
 	}
 
 	if format.Type == enums.MediaTypeVideo || format.Type == enums.MediaTypeAudio {
-		path, err := getFileThumbnail(format, filePath)
+		path, err := getFileThumbnail(ctx, format, filePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get thumbnail: %w", err)
 		}

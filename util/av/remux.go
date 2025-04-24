@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/asticode/go-astiav"
+	"github.com/pkg/errors"
 )
 
 func RemuxFile(inputFile string) error {
@@ -29,7 +30,7 @@ func RemuxFile(inputFile string) error {
 
 	inputCtx := astiav.AllocFormatContext()
 	if inputCtx == nil {
-		return fmt.Errorf("failed to alloc input format context")
+		return errors.New("failed to alloc input format context")
 	}
 	defer inputCtx.Free()
 
@@ -59,7 +60,7 @@ func RemuxFile(inputFile string) error {
 		}
 		outStream := outCtx.NewStream(nil)
 		if outStream == nil {
-			return fmt.Errorf("failed to create new stream in output context")
+			return errors.New("failed to create new stream in output context")
 		}
 		if err := inCP.Copy(outStream.CodecParameters()); err != nil {
 			return fmt.Errorf("failed to copy codec parameters: %w", err)
@@ -69,7 +70,7 @@ func RemuxFile(inputFile string) error {
 		inToOutIdx[inIdx] = len(inToOutIdx)
 	}
 	if len(inToOutIdx) == 0 {
-		return fmt.Errorf("no supported streams to remux")
+		return errors.New("no supported streams to remux")
 	}
 
 	if !outCtx.OutputFormat().Flags().Has(astiav.IOFormatFlagNofile) {
@@ -89,7 +90,7 @@ func RemuxFile(inputFile string) error {
 	defer packet.Free()
 	for {
 		if err := inputCtx.ReadFrame(packet); err != nil {
-			if err == astiav.ErrEof {
+			if errors.Is(err, astiav.ErrEof) {
 				break
 			}
 			return fmt.Errorf("error reading frame: %w", err)

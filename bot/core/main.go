@@ -25,7 +25,7 @@ func HandleDownloadRequest(
 ) error {
 	chatID := ctx.EffectiveMessage.Chat.Id
 	if dlCtx.Extractor.Type == enums.ExtractorTypeSingle {
-		TypingEffect(bot, ctx, chatID)
+		TypingEffect(bot, chatID)
 		err := HandleDefaultFormatDownload(bot, ctx, taskCtx, dlCtx)
 		if err != nil {
 			return err
@@ -115,7 +115,7 @@ func SendMedias(
 			inputMediaList = append(inputMediaList, inputMedia)
 		}
 		mediaType := chunk[0].Media.Format.Type
-		SendingEffect(bot, ctx, chatID, mediaType)
+		SendingEffect(bot, chatID, mediaType)
 		msgs, err := bot.SendMediaGroup(
 			chatID,
 			inputMediaList,

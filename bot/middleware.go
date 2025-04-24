@@ -13,11 +13,11 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 )
 
-type BotClient struct {
+type Client struct {
 	gotgbot.BotClient
 }
 
-func (b BotClient) RequestWithContext(
+func (b Client) RequestWithContext(
 	ctx context.Context,
 	token string,
 	method string,
@@ -38,18 +38,18 @@ func (b BotClient) RequestWithContext(
 	return val, err
 }
 
-func NewBotClient() BotClient {
+func NewBotClient() Client {
 	botAPIURL := os.Getenv("BOT_API_URL")
 	if botAPIURL == "" {
 		log.Println("BOT_API_URL is not provided, using default")
 		botAPIURL = gotgbot.DefaultAPIURL
 	}
-	return BotClient{
+	return Client{
 		BotClient: &gotgbot.BaseBotClient{
 			Client: http.Client{
 				Transport: &http.Transport{
 					// avoid using proxy for telegram
-					Proxy: func(r *http.Request) (*url.URL, error) {
+					Proxy: func(_ *http.Request) (*url.URL, error) {
 						return nil, nil
 					},
 				},

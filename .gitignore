@@ -3,6 +3,7 @@
 *.txt
 *.py
 *.html
+main_test.go
 
 old/
 

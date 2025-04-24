@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	baseApiHeaders = map[string]string{
+	baseAPIHeaders = map[string]string{
 		"referer":      "https://www.redgifs.com/",
 		"origin":       "https://www.redgifs.com",
 		"content-type": "application/json",
@@ -132,7 +132,7 @@ func GetVideo(
 	req.Header.Set("authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("user-agent", token.Agent)
 	req.Header.Set("x-customheader", "https://www.redgifs.com/watch/"+videoID)
-	for k, v := range baseApiHeaders {
+	for k, v := range baseAPIHeaders {
 		req.Header.Set(k, v)
 	}
 	res, err := client.Do(req)

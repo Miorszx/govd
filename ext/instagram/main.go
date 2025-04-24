@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+
+	"github.com/pkg/errors"
 )
 
 var instagramHost = []string{"instagram.com"}
@@ -43,7 +45,7 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
-		return nil, fmt.Errorf("failed to extract media: all methods failed")
+		return nil, errors.New("failed to extract media: all methods failed")
 	},
 }
 
@@ -196,7 +198,7 @@ func GetFromIGram(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build signed payload: %w", err)
 	}
-	req, err := http.NewRequest("POST", apiURL, payload)
+	req, err := http.NewRequest(http.MethodPost, apiURL, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

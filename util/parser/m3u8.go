@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"govd/enums"
 	"govd/models"
 
 	"github.com/grafov/m3u8"
+	"github.com/pkg/errors"
 )
 
 var httpClient = &http.Client{
@@ -89,8 +88,8 @@ func parseMasterPlaylist(
 			VideoCodec: videoCodec,
 			AudioCodec: audioCodec,
 			Bitrate:    int64(variant.Bandwidth),
-			Width:      int64(width),
-			Height:     int64(height),
+			Width:      width,
+			Height:     height,
 			URL:        []string{variantURL},
 		}
 		variantContent, err := fetchContent(variantURL)
@@ -153,7 +152,7 @@ func parseAlternative(
 	altURL := resolveURL(baseURL, alternative.URI)
 	audioCodec := getAudioAlternativeCodec(variants, alternative)
 	format := &models.MediaFormat{
-		FormatID:   fmt.Sprintf("hls-%s", alternative.GroupId),
+		FormatID:   "hls" + alternative.GroupId,
 		Type:       enums.MediaTypeAudio,
 		AudioCodec: audioCodec,
 		URL:        []string{altURL},

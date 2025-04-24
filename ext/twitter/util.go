@@ -2,15 +2,17 @@ package twitter
 
 import (
 	"fmt"
-	"govd/enums"
-	"govd/models"
-	"govd/util"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"govd/enums"
+	"govd/models"
+	"govd/util"
+
 	"github.com/bytedance/sonic"
+	"github.com/pkg/errors"
 )
 
 const authToken = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
@@ -137,7 +139,7 @@ func extractResolution(url string) (int64, int64) {
 func FindTweetData(resp *APIResponse, tweetID string) (*Tweet, error) {
 	instructions := resp.Data.ThreadedConversationWithInjectionsV2.Instructions
 	if len(instructions) == 0 {
-		return nil, fmt.Errorf("tweet data missing")
+		return nil, errors.New("tweet data missing")
 	}
 
 	entries := instructions[0].Entries
@@ -155,9 +157,9 @@ func FindTweetData(resp *APIResponse, tweetID string) (*Tweet, error) {
 				return result.Legacy, nil
 			}
 
-			return nil, fmt.Errorf("invalid tweet data")
+			return nil, errors.New("invalid tweet data")
 		}
 	}
 
-	return nil, fmt.Errorf("tweet not found")
+	return nil, errors.New("tweet not found")
 }
