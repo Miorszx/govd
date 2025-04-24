@@ -42,7 +42,7 @@ func ParseEmbedMedia(
 	contentURL := ctx.MatchedContentURL
 
 	var caption string
-	doc.Find(".BodyContainerNoThreadLine .BodyTextContainer span").Each(func(i int, c *goquery.Selection) {
+	doc.Find(".BodyTextContainer").Each(func(i int, c *goquery.Selection) {
 		caption = c.Text()
 	})
 
