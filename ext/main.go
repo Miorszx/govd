@@ -6,6 +6,7 @@ import (
 	"govd/ext/pinterest"
 	"govd/ext/reddit"
 	"govd/ext/redgifs"
+	"govd/ext/threads"
 	"govd/ext/tiktok"
 	"govd/ext/twitter"
 	"govd/models"
@@ -17,6 +18,7 @@ var List = []*models.Extractor{
 	instagram.Extractor,
 	instagram.StoriesExtractor,
 	instagram.ShareURLExtractor,
+	threads.Extractor,
 	twitter.Extractor,
 	twitter.ShortExtractor,
 	pinterest.Extractor,
@@ -25,5 +27,4 @@ var List = []*models.Extractor{
 	reddit.ShortExtractor,
 	ninegag.Extractor,
 	redgifs.Extractor,
-	// todo: add every ext lol
 }
