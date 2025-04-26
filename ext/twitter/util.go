@@ -33,6 +33,7 @@ func BuildAPIHeaders(cookies []*http.Cookie) map[string]string {
 	headers := map[string]string{
 		"authorization":             "Bearer " + authToken,
 		"user-agent":                util.ChromeUA,
+		"x-client-transaction-id":   transactionID,
 		"x-twitter-auth-type":       "OAuth2Session",
 		"x-twitter-client-language": "en",
 		"x-twitter-active-user":     "yes",

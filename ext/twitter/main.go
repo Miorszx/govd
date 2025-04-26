@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	apiHostname = "x.com"
-	apiEndpoint = "https://x.com/i/api/graphql/zZXycP0V6H7m-2r0mOnFcA/TweetDetail"
+	apiHostname   = "x.com"
+	apiEndpoint   = "https://x.com/i/api/graphql/zZXycP0V6H7m-2r0mOnFcA/TweetDetail"
+	transactionID = "H/HJB3naILIqzncBBvY50XFL36IYeol67HU4ZlUe8wYvWdn9q7KJf7k2UBKOMwliRmCnohzCodsUCuvWOl9t0Z/wVY3QHA"
 )
 
 var ShortExtractor = &models.Extractor{

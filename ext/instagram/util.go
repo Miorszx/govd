@@ -119,7 +119,6 @@ func ParseGQLMedia(
 					})
 
 				case "GraphImage", "XDTGraphImage":
-
 					media.AddFormat(&models.MediaFormat{
 						FormatID: "image",
 						Type:     enums.MediaTypePhoto,
