@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	apiHostname   = "x.com"
-	apiEndpoint   = "https://x.com/i/api/graphql/zZXycP0V6H7m-2r0mOnFcA/TweetDetail"
-	transactionID = "H/HJB3naILIqzncBBvY50XFL36IYeol67HU4ZlUe8wYvWdn9q7KJf7k2UBKOMwliRmCnohzCodsUCuvWOl9t0Z/wVY3QHA"
+	apiHostname = "x.com"
+	apiBase     = "https://" + apiHostname + "/i/api/graphql/"
+	apiEndpoint = apiBase + "2ICDjqPd81tulZcYrtpTuQ/TweetResultByRestId"
 )
 
 var ShortExtractor = &models.Extractor{
@@ -180,11 +180,17 @@ func GetTweetAPI(
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
-
-	tweet, err := FindTweetData(&apiResponse, tweetID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tweet data: %w", err)
+	result := apiResponse.Data.TweetResult.Result
+	if result == nil {
+		return nil, errors.New("failed to get tweet result")
 	}
-
+	var tweet *Tweet
+	if result.Tweet != nil {
+		tweet = result.Tweet
+	} else if result.Legacy != nil {
+		tweet = result.Legacy
+	} else {
+		return nil, errors.New("failed to get tweet data")
+	}
 	return tweet, nil
 }

@@ -12,7 +12,6 @@ import (
 	"govd/util"
 
 	"github.com/bytedance/sonic"
-	"github.com/pkg/errors"
 )
 
 const authToken = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
@@ -33,7 +32,6 @@ func BuildAPIHeaders(cookies []*http.Cookie) map[string]string {
 	headers := map[string]string{
 		"authorization":             "Bearer " + authToken,
 		"user-agent":                util.ChromeUA,
-		"x-client-transaction-id":   transactionID,
 		"x-twitter-auth-type":       "OAuth2Session",
 		"x-twitter-client-language": "en",
 		"x-twitter-active-user":     "yes",
@@ -47,44 +45,47 @@ func BuildAPIHeaders(cookies []*http.Cookie) map[string]string {
 }
 
 func BuildAPIQuery(tweetID string) map[string]string {
-	variables := map[string]interface{}{
-		"focalTweetId":                           tweetID,
-		"includePromotedContent":                 true,
-		"with_rux_injections":                    false,
-		"withBirdwatchNotes":                     true,
-		"withCommunity":                          true,
-		"withDownvotePerspective":                false,
-		"withQuickPromoteEligibilityTweetFields": true,
-		"withReactionsMetadata":                  false,
-		"withReactionsPerspective":               false,
-		"withSuperFollowsTweetFields":            true,
-		"withSuperFollowsUserFields":             true,
-		"withV2Timeline":                         true,
-		"withVoice":                              true,
+	variables := map[string]any{
+		"tweetId":                tweetID,
+		"withCommunity":          false,
+		"includePromotedContent": false,
+		"withVoice":              false,
 	}
 
-	features := map[string]interface{}{
-		"graphql_is_translatable_rweb_tweet_is_translatable_enabled":              false,
-		"interactive_text_enabled":                                                true,
-		"responsive_web_edit_tweet_api_enabled":                                   true,
-		"responsive_web_enhance_cards_enabled":                                    true,
-		"responsive_web_graphql_timeline_navigation_enabled":                      false,
-		"responsive_web_text_conversations_enabled":                               false,
-		"responsive_web_uc_gql_enabled":                                           true,
-		"standardized_nudges_misinfo":                                             true,
-		"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": false,
+	features := map[string]any{
+		"creator_subscriptions_tweet_preview_api_enabled":                         true,
 		"tweetypie_unmention_optimization_enabled":                                true,
-		"unified_cards_ad_metadata_container_dynamic_card_content_query_enabled":  true,
+		"responsive_web_edit_tweet_api_enabled":                                   true,
+		"graphql_is_translatable_rweb_tweet_is_translatable_enabled":              true,
+		"view_counts_everywhere_api_enabled":                                      true,
+		"longform_notetweets_consumption_enabled":                                 true,
+		"responsive_web_twitter_article_tweet_consumption_enabled":                false,
+		"tweet_awards_web_tipping_enabled":                                        false,
+		"freedom_of_speech_not_reach_fetch_enabled":                               true,
+		"standardized_nudges_misinfo":                                             true,
+		"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": true,
+		"longform_notetweets_rich_text_read_enabled":                              true,
+		"longform_notetweets_inline_media_enabled":                                true,
+		"responsive_web_graphql_exclude_directive_enabled":                        true,
 		"verified_phone_label_enabled":                                            false,
-		"vibe_api_enabled":                                                        true,
+		"responsive_web_media_download_video_enabled":                             false,
+		"responsive_web_graphql_skip_user_profile_image_extensions_enabled":       false,
+		"responsive_web_graphql_timeline_navigation_enabled":                      true,
+		"responsive_web_enhance_cards_enabled":                                    false,
+	}
+
+	fieldToggles := map[string]any{
+		"withArticleRichContentState": false,
 	}
 
 	variablesJSON, _ := sonic.ConfigFastest.Marshal(variables)
 	featuresJSON, _ := sonic.ConfigFastest.Marshal(features)
+	fieldTogglesJSON, _ := sonic.ConfigFastest.Marshal(fieldToggles)
 
 	return map[string]string{
-		"variables": string(variablesJSON),
-		"features":  string(featuresJSON),
+		"variables":    string(variablesJSON),
+		"features":     string(featuresJSON),
+		"fieldToggles": string(fieldTogglesJSON),
 	}
 }
 
@@ -135,32 +136,4 @@ func extractResolution(url string) (int64, int64) {
 		return width, height
 	}
 	return 0, 0
-}
-
-func FindTweetData(resp *APIResponse, tweetID string) (*Tweet, error) {
-	instructions := resp.Data.ThreadedConversationWithInjectionsV2.Instructions
-	if len(instructions) == 0 {
-		return nil, errors.New("tweet data missing")
-	}
-
-	entries := instructions[0].Entries
-	entryID := "tweet-" + tweetID
-
-	for _, entry := range entries {
-		if entry.EntryID == entryID {
-			result := entry.Content.ItemContent.TweetResults.Result
-
-			if result.Tweet != nil {
-				return result.Tweet, nil
-			}
-
-			if result.Legacy != nil {
-				return result.Legacy, nil
-			}
-
-			return nil, errors.New("invalid tweet data")
-		}
-	}
-
-	return nil, errors.New("tweet not found")
 }
