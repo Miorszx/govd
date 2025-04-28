@@ -81,7 +81,7 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	client := util.GetHTTPClient(ctx.Extractor.CodeName)
+	session := util.GetHTTPClient(ctx.Extractor.CodeName)
 
 	host := ctx.MatchedGroups["host"]
 	slug := ctx.MatchedGroups["slug"]
@@ -89,7 +89,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	contentID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
-	manifest, err := GetRedditData(client, host, slug, false)
+	manifest, err := GetRedditData(session, host, slug, false)
 	if err != nil {
 		return nil, err
 	}
@@ -102,16 +102,12 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	title := data.Title
 	isNsfw := data.Over18
 
-	var mediaList []*models.Media
-
 	if !data.IsVideo {
 		// check for single photo
 		if data.Preview != nil && len(data.Preview.Images) > 0 {
 			media := ctx.Extractor.NewMedia(contentID, contentURL)
 			media.SetCaption(title)
-			if isNsfw {
-				media.NSFW = true
-			}
+			media.NSFW = isNsfw
 
 			image := data.Preview.Images[0]
 
@@ -130,8 +126,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 					media.AddFormat(format)
 				}
 
-				mediaList = append(mediaList, media)
-				return mediaList, nil
+				return []*models.Media{media}, nil
 			}
 
 			// check for MP4 variant (animated GIF)
@@ -145,8 +140,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 					Thumbnail:  []string{util.FixURL(image.Source.URL)},
 				})
 
-				mediaList = append(mediaList, media)
-				return mediaList, nil
+				return []*models.Media{media}, nil
 			}
 
 			// regular photo
@@ -156,39 +150,45 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 				URL:      []string{util.FixURL(image.Source.URL)},
 			})
 
-			mediaList = append(mediaList, media)
-			return mediaList, nil
+			return []*models.Media{media}, nil
 		}
 
 		// check for gallery/collection
 		if len(data.MediaMetadata) > 0 {
-			for key, obj := range data.MediaMetadata {
-				if obj.E == "Image" {
-					media := ctx.Extractor.NewMedia(key, contentURL)
-					media.SetCaption(title)
-					if isNsfw {
-						media.NSFW = true
-					}
+			// known issue: collection is unordered
+			collection := data.MediaMetadata
+			mediaList := make([]*models.Media, 0, len(collection))
 
+			for _, obj := range collection {
+				media := ctx.Extractor.NewMedia(contentID, contentURL)
+				media.SetCaption(title)
+				media.NSFW = isNsfw
+
+				switch obj.Type {
+				case "Image":
 					media.AddFormat(&models.MediaFormat{
 						FormatID: "photo",
 						Type:     enums.MediaTypePhoto,
-						URL:      []string{util.FixURL(obj.S.U)},
+						URL:      []string{util.FixURL(obj.Media.URL)},
 					})
-
-					mediaList = append(mediaList, media)
+				case "AnimatedImage":
+					media.AddFormat(&models.MediaFormat{
+						FormatID:   "video",
+						Type:       enums.MediaTypeVideo,
+						VideoCodec: enums.MediaCodecAVC,
+						AudioCodec: enums.MediaCodecAAC,
+						URL:        []string{util.FixURL(obj.Media.MP4)},
+					})
 				}
+				mediaList = append(mediaList, media)
 			}
-
 			return mediaList, nil
 		}
 	} else {
 		// video
 		media := ctx.Extractor.NewMedia(contentID, contentURL)
 		media.SetCaption(title)
-		if isNsfw {
-			media.NSFW = true
-		}
+		media.NSFW = isNsfw
 
 		var redditVideo *Video
 
@@ -218,16 +218,16 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 				media.AddFormat(format)
 			}
 
-			mediaList = append(mediaList, media)
-			return mediaList, nil
+			return []*models.Media{media}, nil
 		}
 	}
 
-	return mediaList, nil
+	// no media found
+	return nil, nil
 }
 
 func GetRedditData(
-	client models.HTTPClient,
+	session models.HTTPClient,
 	host string,
 	slug string,
 	raise bool,
@@ -248,7 +248,7 @@ func GetRedditData(
 		req.AddCookie(cookie)
 	}
 
-	res, err := client.Do(req)
+	res, err := session.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -264,7 +264,7 @@ func GetRedditData(
 			altHost = "www.reddit.com"
 		}
 
-		return GetRedditData(client, altHost, slug, true)
+		return GetRedditData(session, altHost, slug, true)
 	}
 
 	var response Response

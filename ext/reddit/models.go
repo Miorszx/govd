@@ -71,10 +71,11 @@ type VideoPreview struct {
 
 type MediaMetadata struct {
 	Status string `json:"status"`
-	E      string `json:"e"`
-	S      struct {
-		U string `json:"u"`
-		X int64  `json:"x"`
-		Y int64  `json:"y"`
+	Type   string `json:"e"`
+	Media  struct {
+		MP4    string `json:"mp4"`
+		URL    string `json:"u"`
+		Width  int64  `json:"x"`
+		Height int64  `json:"y"`
 	} `json:"s"`
 }

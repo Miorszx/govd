@@ -48,7 +48,6 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	var mediaList []*models.Media
 	client := util.GetHTTPClient(ctx.Extractor.CodeName)
 
 	response, err := GetVideo(
@@ -109,11 +108,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 		}
 	}
 
-	if len(media.Formats) > 0 {
-		mediaList = append(mediaList, media)
-	}
-
-	return mediaList, nil
+	return []*models.Media{media}, nil
 }
 
 func GetVideo(

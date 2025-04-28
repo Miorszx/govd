@@ -42,8 +42,6 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	var mediaList []*models.Media
-
 	contentID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
@@ -84,12 +82,12 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 			media.AddFormat(format)
 		}
 	}
-
 	if len(media.Formats) > 0 {
-		mediaList = append(mediaList, media)
+		return []*models.Media{media}, nil
 	}
 
-	return mediaList, nil
+	// no media found
+	return nil, nil
 }
 
 func GetPostData(postID string) (*Post, error) {

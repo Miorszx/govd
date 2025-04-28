@@ -12,22 +12,22 @@ import (
 
 var accessToken *Token
 
-func GetAccessToken(client models.HTTPClient) (*Token, error) {
+func GetAccessToken(session models.HTTPClient) (*Token, error) {
 	if accessToken == nil || time.Now().Unix() >= accessToken.ExpiresIn {
-		if err := RefreshAccessToken(client); err != nil {
+		if err := RefreshAccessToken(session); err != nil {
 			return nil, err
 		}
 	}
 	return accessToken, nil
 }
 
-func RefreshAccessToken(client models.HTTPClient) error {
+func RefreshAccessToken(session models.HTTPClient) error {
 	req, err := http.NewRequest(http.MethodGet, tokenEndpoint, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("User-Agent", util.ChromeUA)
-	res, err := client.Do(req)
+	res, err := session.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

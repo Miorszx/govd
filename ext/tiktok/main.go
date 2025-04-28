@@ -78,8 +78,6 @@ var Extractor = &models.Extractor{
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	client := util.GetHTTPClient(ctx.Extractor.CodeName)
-	var mediaList []*models.Media
-
 	details, err := GetVideoAPI(
 		client, ctx.MatchedContentID)
 	if err != nil {
@@ -119,10 +117,12 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 			}
 			media.AddFormat(format)
 		}
-		mediaList = append(mediaList, media)
+		return []*models.Media{media}, nil
 	} else {
 		images := details.ImagePostInfo.Images
-		for _, image := range images {
+		mediaList := make([]*models.Media, 0, len(images))
+		for i := range images {
+			image := images[i]
 			media := ctx.Extractor.NewMedia(
 				ctx.MatchedContentID,
 				ctx.MatchedContentURL,
@@ -135,8 +135,8 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 			})
 			mediaList = append(mediaList, media)
 		}
+		return mediaList, nil
 	}
-	return mediaList, nil
 }
 
 func GetVideoAPI(

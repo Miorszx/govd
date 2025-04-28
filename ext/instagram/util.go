@@ -58,8 +58,6 @@ func ParseGQLMedia(
 	ctx *models.DownloadContext,
 	data *Media,
 ) ([]*models.Media, error) {
-	var mediaList []*models.Media
-
 	var caption string
 	if data.EdgeMediaToCaption != nil && len(data.EdgeMediaToCaption.Edges) > 0 {
 		caption = data.EdgeMediaToCaption.Edges[0].Node.Text
@@ -84,8 +82,7 @@ func ParseGQLMedia(
 			Height:     int64(data.Dimensions.Height),
 		})
 
-		mediaList = append(mediaList, media)
-
+		return []*models.Media{media}, nil
 	case "GraphImage", "XDTGraphImage":
 		media := ctx.Extractor.NewMedia(contentID, contentURL)
 		media.SetCaption(caption)
@@ -96,12 +93,14 @@ func ParseGQLMedia(
 			URL:      []string{data.DisplayURL},
 		})
 
-		mediaList = append(mediaList, media)
-
+		return []*models.Media{media}, nil
 	case "GraphSidecar", "XDTGraphSidecar":
 		if data.EdgeSidecarToChildren != nil && len(data.EdgeSidecarToChildren.Edges) > 0 {
-			for _, edge := range data.EdgeSidecarToChildren.Edges {
-				node := edge.Node
+			edges := data.EdgeSidecarToChildren.Edges
+			mediaList := make([]*models.Media, 0, len(edges))
+
+			for i := range edges {
+				node := edges[i].Node
 				media := ctx.Extractor.NewMedia(contentID, contentURL)
 				media.SetCaption(caption)
 
@@ -128,10 +127,11 @@ func ParseGQLMedia(
 
 				mediaList = append(mediaList, media)
 			}
+			return mediaList, nil
 		}
 	}
 
-	return mediaList, nil
+	return nil, fmt.Errorf("unknown media type: %s", data.Typename)
 }
 
 func ParseEmbedGQL(
