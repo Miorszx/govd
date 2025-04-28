@@ -246,33 +246,37 @@ func parseVariantType(
 }
 
 func getVideoCodec(codecs string) enums.MediaCodec {
-	if strings.Contains(codecs, "avc") || strings.Contains(codecs, "h264") {
+	switch {
+	case strings.Contains(codecs, "avc"), strings.Contains(codecs, "h264"):
 		return enums.MediaCodecAVC
-	} else if strings.Contains(codecs, "hvc") || strings.Contains(codecs, "h265") {
+	case strings.Contains(codecs, "hvc"), strings.Contains(codecs, "h265"):
 		return enums.MediaCodecHEVC
-	} else if strings.Contains(codecs, "av01") {
+	case strings.Contains(codecs, "av01"):
 		return enums.MediaCodecAV1
-	} else if strings.Contains(codecs, "vp9") {
+	case strings.Contains(codecs, "vp9"):
 		return enums.MediaCodecVP9
-	} else if strings.Contains(codecs, "vp8") {
+	case strings.Contains(codecs, "vp8"):
 		return enums.MediaCodecVP8
+	default:
+		return ""
 	}
-	return ""
 }
 
 func getAudioCodec(codecs string) enums.MediaCodec {
-	if strings.Contains(codecs, "mp4a") {
+	switch {
+	case strings.Contains(codecs, "mp4a"):
 		return enums.MediaCodecAAC
-	} else if strings.Contains(codecs, "opus") {
+	case strings.Contains(codecs, "opus"):
 		return enums.MediaCodecOpus
-	} else if strings.Contains(codecs, "mp3") {
+	case strings.Contains(codecs, "mp3"):
 		return enums.MediaCodecMP3
-	} else if strings.Contains(codecs, "flac") {
+	case strings.Contains(codecs, "flac"):
 		return enums.MediaCodecFLAC
-	} else if strings.Contains(codecs, "vorbis") {
+	case strings.Contains(codecs, "vorbis"):
 		return enums.MediaCodecVorbis
+	default:
+		return ""
 	}
-	return ""
 }
 
 func resolveURL(base *url.URL, uri string) string {

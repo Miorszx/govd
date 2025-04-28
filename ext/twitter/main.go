@@ -91,11 +91,12 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	caption := CleanCaption(tweetData.FullText)
 
 	var mediaEntities []MediaEntity
-	if tweetData.ExtendedEntities != nil && len(tweetData.ExtendedEntities.Media) > 0 {
+	switch {
+	case tweetData.ExtendedEntities != nil && len(tweetData.ExtendedEntities.Media) > 0:
 		mediaEntities = tweetData.ExtendedEntities.Media
-	} else if tweetData.Entities != nil && len(tweetData.Entities.Media) > 0 {
+	case tweetData.Entities != nil && len(tweetData.Entities.Media) > 0:
 		mediaEntities = tweetData.Entities.Media
-	} else {
+	default:
 		return nil, nil
 	}
 
@@ -190,11 +191,12 @@ func GetTweetAPI(
 	}
 
 	var tweet *Tweet
-	if result.Tweet != nil {
+	switch {
+	case result.Tweet != nil:
 		tweet = result.Tweet
-	} else if result.Legacy != nil {
+	case result.Legacy != nil:
 		tweet = result.Legacy
-	} else {
+	default:
 		return nil, errors.New("failed to get tweet data")
 	}
 	return tweet, nil
