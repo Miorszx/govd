@@ -17,6 +17,28 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	fileTypeDocument = "document"
+	fileTypePhoto    = "photo"
+	fileTypeVideo    = "video"
+	fileTypeAudio    = "audio"
+
+	fileExtMP4  = "mp4"
+	fileExtWebM = "webm"
+	fileExtMP3  = "mp3"
+	fileExtM4A  = "m4a"
+	fileExtFLAC = "flac"
+	fileExtOGG  = "oga"
+	fileExtJPEG = "jpeg"
+	fileExtWebP = "webp"
+	fileExtJPG  = "jpg"
+	fileExtGIF  = "gif"
+	fileExtOGV  = "ogv"
+	fileExtAVI  = "avi"
+	fileExtMKV  = "mkv"
+	fileExtMOV  = "mov"
+)
+
 type Media struct {
 	ID                uint           `json:"-"`
 	ContentID         string         `gorm:"not null;index" json:"content_id"`
@@ -305,7 +327,7 @@ func getTypePriority(mediaType enums.MediaType) int64 {
 // getFormatInfo returns the file extension and the InputMedia type.
 func (format *MediaFormat) GetFormatInfo() (string, string) {
 	if format.Type == enums.MediaTypePhoto {
-		return "jpeg", "photo"
+		return fileExtJPEG, fileTypePhoto
 	}
 
 	videoCodec := format.VideoCodec
@@ -313,45 +335,30 @@ func (format *MediaFormat) GetFormatInfo() (string, string) {
 
 	switch {
 	case videoCodec == enums.MediaCodecAVC && audioCodec == enums.MediaCodecAAC:
-		return "mp4", "video"
+		return fileExtMP4, fileTypeVideo
 	case videoCodec == enums.MediaCodecAVC && audioCodec == enums.MediaCodecMP3:
-		return "mp4", "video"
+		return fileExtMP4, fileTypeVideo
 	case videoCodec == enums.MediaCodecHEVC && audioCodec == enums.MediaCodecAAC:
-		return "mp4", "document"
+		return fileExtMP4, fileTypeDocument
 	case videoCodec == enums.MediaCodecHEVC && audioCodec == enums.MediaCodecMP3:
-		return "mp4", "document"
-	case videoCodec == enums.MediaCodecAV1 && audioCodec == enums.MediaCodecOpus:
-		return "webm", "document"
-	case videoCodec == enums.MediaCodecAV1 && audioCodec == enums.MediaCodecFLAC:
-		return "webm", "document"
-	case videoCodec == enums.MediaCodecVP9 && audioCodec == enums.MediaCodecOpus:
-		return "webm", "document"
-	case videoCodec == enums.MediaCodecVP9 && audioCodec == enums.MediaCodecFLAC:
-		return "webm", "document"
+		return fileExtMP4, fileTypeDocument
 	case videoCodec == enums.MediaCodecAVC && audioCodec == "":
-		return "mp4", "video"
+		return fileExtMP4, fileTypeVideo
 	case videoCodec == enums.MediaCodecHEVC && audioCodec == "":
-		return "mp4", "document"
-	case videoCodec == enums.MediaCodecAV1 && audioCodec == "":
-		return "webm", "document"
-	case videoCodec == enums.MediaCodecVP9 && audioCodec == "":
-		return "webm", "document"
-	case videoCodec == enums.MediaCodecVP8 && audioCodec == "":
-		return "webm", "document"
+		return fileExtMP4, fileTypeDocument
 	case videoCodec == enums.MediaCodecWebP && audioCodec == "":
-		return "webp", "video"
+		return fileExtWebP, fileTypeVideo
 	case videoCodec == "" && audioCodec == enums.MediaCodecMP3:
-		return "mp3", "audio"
+		return fileExtMP3, fileTypeAudio
 	case videoCodec == "" && audioCodec == enums.MediaCodecAAC:
-		return "m4a", "audio"
-	case videoCodec == "" && audioCodec == enums.MediaCodecOpus:
-		return "webm", "document"
+		return fileExtM4A, fileTypeAudio
 	case videoCodec == "" && audioCodec == enums.MediaCodecFLAC:
-		return "flac", "document"
+		return fileExtFLAC, fileTypeDocument
 	case videoCodec == "" && audioCodec == enums.MediaCodecVorbis:
-		return "oga", "document"
+		return fileExtOGG, fileTypeDocument
 	default:
-		return "webm", "document"
+		// all other cases, we return webm as document
+		return fileExtWebM, fileTypeDocument
 	}
 }
 
@@ -387,7 +394,8 @@ func (format *MediaFormat) GetInputMedia(
 		)
 	}
 
-	if inputMediaType == "video" {
+	switch inputMediaType {
+	case fileTypeVideo:
 		return &gotgbot.InputMediaVideo{
 			Media:             fileInputMedia,
 			Thumbnail:         thumbnailFileInputMedia,
@@ -396,10 +404,9 @@ func (format *MediaFormat) GetInputMedia(
 			Duration:          format.Duration,
 			Caption:           messageCaption,
 			SupportsStreaming: true,
-			ParseMode:         "HTML",
+			ParseMode:         gotgbot.ParseModeHTML,
 		}, nil
-	}
-	if inputMediaType == "audio" {
+	case fileTypeAudio:
 		return &gotgbot.InputMediaAudio{
 			Media:     fileInputMedia,
 			Thumbnail: thumbnailFileInputMedia,
@@ -407,25 +414,24 @@ func (format *MediaFormat) GetInputMedia(
 			Performer: format.Artist,
 			Title:     format.Title,
 			Caption:   messageCaption,
-			ParseMode: "HTML",
+			ParseMode: gotgbot.ParseModeHTML,
 		}, nil
-	}
-	if inputMediaType == "photo" {
+	case fileTypePhoto:
 		return &gotgbot.InputMediaPhoto{
 			Media:     fileInputMedia,
 			Caption:   messageCaption,
-			ParseMode: "HTML",
+			ParseMode: gotgbot.ParseModeHTML,
 		}, nil
-	}
-	if inputMediaType == "document" {
+	case fileTypeDocument:
 		return &gotgbot.InputMediaDocument{
 			Media:     fileInputMedia,
 			Thumbnail: thumbnailFileInputMedia,
 			Caption:   messageCaption,
-			ParseMode: "HTML",
+			ParseMode: gotgbot.ParseModeHTML,
 		}, nil
+	default:
+		return nil, fmt.Errorf("unknown input type: %s", inputMediaType)
 	}
-	return nil, fmt.Errorf("unknown input type: %s", inputMediaType)
 }
 
 func (format *MediaFormat) GetInputMediaWithFileID(
@@ -433,35 +439,34 @@ func (format *MediaFormat) GetInputMediaWithFileID(
 ) (gotgbot.InputMedia, error) {
 	_, inputMediaType := format.GetFormatInfo()
 	fileInputMedia := gotgbot.InputFileByID(format.FileID)
-	if inputMediaType == "video" {
+	switch inputMediaType {
+	case fileTypeVideo:
 		return &gotgbot.InputMediaVideo{
 			Media:     fileInputMedia,
 			Caption:   messageCaption,
-			ParseMode: "HTML",
+			ParseMode: gotgbot.ParseModeHTML,
 		}, nil
-	}
-	if inputMediaType == "audio" {
+	case fileTypeAudio:
 		return &gotgbot.InputMediaAudio{
 			Media:     fileInputMedia,
 			Caption:   messageCaption,
-			ParseMode: "HTML",
+			ParseMode: gotgbot.ParseModeHTML,
 		}, nil
-	}
-	if inputMediaType == "photo" {
+	case fileTypePhoto:
 		return &gotgbot.InputMediaPhoto{
 			Media:     fileInputMedia,
 			Caption:   messageCaption,
-			ParseMode: "HTML",
+			ParseMode: gotgbot.ParseModeHTML,
 		}, nil
-	}
-	if inputMediaType == "document" {
+	case fileTypeDocument:
 		return &gotgbot.InputMediaDocument{
 			Media:     fileInputMedia,
 			Caption:   messageCaption,
-			ParseMode: "HTML",
+			ParseMode: gotgbot.ParseModeHTML,
 		}, nil
+	default:
+		return nil, fmt.Errorf("unknown input type: %s", inputMediaType)
 	}
-	return nil, fmt.Errorf("unknown input type: %s", inputMediaType)
 }
 
 func (format *MediaFormat) GetFileName() string {

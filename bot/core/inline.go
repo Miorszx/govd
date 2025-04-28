@@ -134,7 +134,7 @@ func HandleInlineCached(
 			PhotoFileId: format.FileID,
 			Title:       resultTitle,
 			Caption:     mediaCaption,
-			ParseMode:   "HTML",
+			ParseMode:   gotgbot.ParseModeHTML,
 		}
 	case "video":
 		result = &gotgbot.InlineQueryResultCachedVideo{
@@ -142,14 +142,14 @@ func HandleInlineCached(
 			VideoFileId: format.FileID,
 			Title:       resultTitle,
 			Caption:     mediaCaption,
-			ParseMode:   "HTML",
+			ParseMode:   gotgbot.ParseModeHTML,
 		}
 	case "audio":
 		result = &gotgbot.InlineQueryResultCachedAudio{
 			Id:          resultID,
 			AudioFileId: format.FileID,
 			Caption:     mediaCaption,
-			ParseMode:   "HTML",
+			ParseMode:   gotgbot.ParseModeHTML,
 		}
 	case "document":
 		result = &gotgbot.InlineQueryResultCachedDocument{
@@ -157,7 +157,7 @@ func HandleInlineCached(
 			DocumentFileId: format.FileID,
 			Title:          resultTitle,
 			Caption:        mediaCaption,
-			ParseMode:      "HTML",
+			ParseMode:      gotgbot.ParseModeHTML,
 		}
 	default:
 		return errors.New("unsupported input file type")
@@ -211,7 +211,7 @@ func StartInlineTask(
 		Title: "share",
 		InputMessageContent: &gotgbot.InputTextMessageContent{
 			MessageText: "loading media plese wait...",
-			ParseMode:   "HTML",
+			ParseMode:   gotgbot.ParseModeHTML,
 			LinkPreviewOptions: &gotgbot.LinkPreviewOptions{
 				IsDisabled: true,
 			},

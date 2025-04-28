@@ -41,7 +41,7 @@ func DefaultConfig() *models.DownloadConfig {
 
 func DownloadFile(
 	ctx context.Context,
-	URLList []string,
+	urlList []string,
 	fileName string,
 	config *models.DownloadConfig,
 ) (string, error) {
@@ -50,7 +50,7 @@ func DownloadFile(
 	}
 
 	var errs []error
-	for _, fileURL := range URLList {
+	for _, fileURL := range urlList {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
@@ -118,7 +118,7 @@ func DownloadFileWithSegments(
 
 func DownloadFileInMemory(
 	ctx context.Context,
-	URLList []string,
+	urlList []string,
 	config *models.DownloadConfig,
 ) (*bytes.Reader, error) {
 	if config == nil {
@@ -126,7 +126,7 @@ func DownloadFileInMemory(
 	}
 
 	var errs []error
-	for _, fileURL := range URLList {
+	for _, fileURL := range urlList {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()

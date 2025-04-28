@@ -29,7 +29,7 @@ func (b Client) RequestWithContext(
 		params["allow_sending_without_reply"] = "true"
 	}
 	if strings.HasPrefix(method, "send") || strings.HasPrefix(method, "edit") {
-		params["parse_mode"] = "HTML"
+		params["parse_mode"] = gotgbot.ParseModeHTML
 	}
 	val, err := b.BotClient.RequestWithContext(ctx, token, method, params, data, opts)
 	if err != nil {
