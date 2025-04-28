@@ -173,17 +173,22 @@ func GetTweetAPI(
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("invalid response code: %s", resp.Status)
 	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read body: %w", err)
+	}
 
 	var apiResponse APIResponse
-	decoder := sonic.ConfigFastest.NewDecoder(resp.Body)
-	err = decoder.Decode(&apiResponse)
+	err = sonic.ConfigFastest.Unmarshal(body, &apiResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
+
 	result := apiResponse.Data.TweetResult.Result
 	if result == nil {
 		return nil, errors.New("failed to get tweet result")
 	}
+
 	var tweet *Tweet
 	if result.Tweet != nil {
 		tweet = result.Tweet
