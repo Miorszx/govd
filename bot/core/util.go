@@ -12,6 +12,7 @@ import (
 	"govd/plugins"
 	"govd/util"
 	"govd/util/av"
+	"govd/util/mp4box"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -54,7 +55,10 @@ func insertVideoInfo(
 	format *models.MediaFormat,
 	filePath string,
 ) {
-	duration, width, height := av.GetVideoInfo(filePath)
+	duration, width, height := mp4box.ExtractBoxMetadata(filePath)
+	if duration == 0 && width == 0 && height == 0 {
+		duration, width, height = av.GetVideoInfo(filePath)
+	}
 	format.Duration = duration
 	format.Width = width
 	format.Height = height

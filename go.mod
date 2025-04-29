@@ -7,11 +7,13 @@ toolchain go1.24.2
 require (
 	github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.31
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/abema/go-mp4 v1.4.1
 	github.com/bytedance/sonic v1.13.2
 	github.com/google/uuid v1.6.0
 	github.com/guregu/null/v6 v6.0.0
 	github.com/joho/godotenv v1.5.1
 	github.com/strukturag/libheif v1.19.7
+	github.com/sunfish-shogi/bufseekio v0.1.0
 	github.com/u2takey/ffmpeg-go v0.5.0
 	golang.org/x/image v0.26.0
 	gopkg.in/yaml.v3 v3.0.1
