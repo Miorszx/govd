@@ -28,16 +28,16 @@ var cleanupActive sync.Once
 
 const taskTimeout = 5 * time.Minute
 
-func GetTask(id string) (*models.DownloadContext, bool) {
+func GetTask(id string) (*models.DownloadContext, error) {
 	value, ok := InlineTasks.Load(id)
 	if !ok {
-		return nil, false
+		return nil, errors.New("task not found")
 	}
 	entry, ok := value.(TaskEntry)
 	if !ok {
-		return nil, false
+		return nil, errors.New("invalid task entry")
 	}
-	return entry.Task, true
+	return entry.Task, nil
 }
 
 func SetTask(id string, task *models.DownloadContext) {
@@ -235,7 +235,7 @@ func StartInlineTask(
 		},
 	)
 	if err != nil || !ok {
-		return nil
+		return err
 	}
 	SetTask(taskID, dlCtx)
 	return nil

@@ -55,7 +55,11 @@ func parseMasterPlaylist(
 	playlist *m3u8.MasterPlaylist,
 	baseURL *url.URL,
 ) ([]*models.MediaFormat, error) {
-	var formats []*models.MediaFormat
+	// preallocate formats with a capacity based
+	// on the number of variants. each variant can
+	// potentially create one format, and some
+	// alternatives might add more
+	formats := make([]*models.MediaFormat, 0, len(playlist.Variants)*2)
 
 	seenAlternatives := make(map[string]bool)
 	for _, variant := range playlist.Variants {
@@ -111,7 +115,12 @@ func parseMediaPlaylist(
 	playlist *m3u8.MediaPlaylist,
 	baseURL *url.URL,
 ) ([]*models.MediaFormat, error) {
-	var segments []string
+	initialCapacity := len(playlist.Segments)
+	if playlist.Map != nil && playlist.Map.URI != "" {
+		initialCapacity++
+	}
+	segments := make([]string, 0, initialCapacity)
+
 	var totalDuration float64
 	initSegment := playlist.Map
 	if initSegment != nil && initSegment.URI != "" {

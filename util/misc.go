@@ -171,7 +171,7 @@ func CleanupDownloadsDir() {
 	}
 	filepath.Walk(downloadsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if path == downloadsDir {
 			return nil

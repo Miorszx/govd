@@ -70,7 +70,7 @@ func CaptionsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 			fmt.Sprintf("invalid value (%s), use true or false", userInput),
 			nil,
 		)
-		return nil
+		return err
 	}
 	settings, err := database.GetGroupSettings(chatID)
 	if err != nil {
@@ -128,7 +128,7 @@ func NSFWHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 			fmt.Sprintf("invalid value (%s), use true or false", userInput),
 			nil,
 		)
-		return nil
+		return err
 	}
 	settings, err := database.GetGroupSettings(chatID)
 	if err != nil {
@@ -185,7 +185,7 @@ func MediaGroupLimitHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 			fmt.Sprintf("invalid value (%s), use a number", args[1]),
 			nil,
 		)
-		return nil
+		return err
 	}
 	if value < 1 || value > 20 {
 		ctx.EffectiveMessage.Reply(

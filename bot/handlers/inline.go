@@ -32,7 +32,7 @@ func InlineDownloadHandler(
 			CacheTime:  1,
 			IsPersonal: true,
 		})
-		return nil
+		return err
 	}
 
 	return core.HandleInline(bot, ctx, dlCtx)
@@ -43,9 +43,9 @@ func InlineDownloadResultHandler(
 	ctx *ext.Context,
 ) error {
 	taskID := ctx.ChosenInlineResult.ResultId
-	dlCtx, ok := core.GetTask(taskID)
-	if !ok {
-		return nil
+	dlCtx, err := core.GetTask(taskID)
+	if err != nil {
+		return err
 	}
 	defer core.DeleteTask(taskID)
 
