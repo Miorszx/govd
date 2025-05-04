@@ -23,10 +23,10 @@ func ExtractBoxMetadata(file string) (int64, int64, int64) {
 		if track.AVC == nil {
 			continue
 		}
+		seconds := int64(track.Duration / uint64(track.Timescale))
 		width := int64(track.AVC.Width)
 		height := int64(track.AVC.Height)
-		seconds := int64(track.Duration / uint64(track.Timescale))
-		return width, height, seconds
+		return seconds, width, height
 	}
 	return 0, 0, 0
 }

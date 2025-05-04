@@ -48,10 +48,12 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	client := util.GetHTTPClient(ctx.Extractor.CodeName)
+	session := util.GetHTTPClient(ctx.Extractor.CodeName)
 
 	response, err := GetVideo(
-		client, ctx.MatchedContentID)
+		session,
+		ctx.MatchedContentID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get from api: %w", err)
 	}
@@ -112,7 +114,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 }
 
 func GetVideo(
-	client models.HTTPClient,
+	session models.HTTPClient,
 	videoID string,
 ) (*Response, error) {
 	url := videoEndpoint + videoID + "?views=true"
@@ -120,7 +122,7 @@ func GetVideo(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	token, err := GetAccessToken(client)
+	token, err := GetAccessToken(session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
@@ -130,7 +132,7 @@ func GetVideo(
 	for k, v := range baseAPIHeaders {
 		req.Header.Set(k, v)
 	}
-	res, err := client.Do(req)
+	res, err := session.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
