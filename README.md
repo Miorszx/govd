@@ -47,7 +47,7 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
     ```
 
 ## docker (recommended)
-1. Create or update the `.env` file to ensure the database properties match the environment variables defined for the mariadb service in the `docker-compose.yml` file.  
+1. create or update the `.env` file to ensure the database properties match the environment variables defined for the mariadb service in the `docker-compose.yml` file.  
    for enhanced security, it is recommended to change the `MARIADB_PASSWORD` property in `docker-compose.yaml` and ensure `DB_PASSWORD` in `.env` matches it.
 
     the following line in the `.env` file **must** be set as:
@@ -68,11 +68,8 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
     docker compose up -d
     ```
 
-> [!NOTE]
-> if you update your .env file, you don't need to rebuild the image, you only need to restart the containers to apply the changes using 
-> ```bash
->    docker compose restart
->    ``` 
+> [!TIP]
+> after updating your `.env` file, rebuilding the image is not necessary. simply restart the containers with the `docker compose restart` command to apply the changes.
 
 
 # configuration
