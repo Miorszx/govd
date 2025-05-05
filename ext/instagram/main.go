@@ -12,7 +12,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var instagramHost = []string{"instagram.com"}
+var instagramHost = []string{"instagram"}
 
 var Extractor = &models.Extractor{
 	Name:       "Instagram",

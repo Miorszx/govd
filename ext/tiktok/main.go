@@ -23,18 +23,10 @@ const (
 	appUserAgent       = packageID + " (Linux; U; Android 13; en_US; Pixel 7; Build/TD1A.220804.031; Cronet/58.0.2991.0)"
 )
 
-var (
-	baseHost = []string{
-		"tiktok.com",
-		"vxtiktok.com",
-		"vm.tiktok.com",
-		"vt.tiktok.com",
-		"vt.vxtiktok.com",
-		"vm.vxtiktok.com",
-		"m.tiktok.com",
-		"m.vxtiktok.com",
-	}
-)
+var baseHost = []string{
+	"tiktok",
+	"vxtiktok",
+}
 
 var VMExtractor = &models.Extractor{
 	Name:       "TikTok VM",

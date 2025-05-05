@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strings"
 
 	"govd/enums"
 	"govd/models"
@@ -18,31 +17,13 @@ const (
 	shortenerAPIFormat  = "https://api.pinterest.com/url_shortener/%s/redirect/"
 )
 
-var (
-	validHost = []string{
-		"com", "fr", "de", "ch", "jp", "cl", "ca", "it", "co\\.uk", "nz", "ru", "com\\.au",
-		"at", "pt", "co\\.kr", "es", "com\\.mx", "dk", "ph", "th", "com\\.uy", "co", "nl",
-		"info", "kr", "ie", "vn", "com\\.vn", "ec", "mx", "in", "pe", "co\\.at", "hu",
-		"co\\.in", "co\\.nz", "id", "com\\.ec", "com\\.py", "tw", "be", "uk", "com\\.bo", "com\\.pe",
-	}
-	validHostRegex     = strings.Join(validHost, "|")
-	validURLPattern    = `https?://(?:[^/]+\.)?pinterest\.(` + validHostRegex + `)/pin/(?:[\w-]+--)?(?P<id>\d+)`
-	pinValidURLPattern = `https?://(www\.)?pin\.(` + validHostRegex + `)/(?P<id>\w+)`
-)
-
 var ShortExtractor = &models.Extractor{
 	Name:       "Pinterest (Short)",
 	CodeName:   "pinterest_short",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(pinValidURLPattern),
-	Host: func() []string {
-		var domains []string
-		for _, domain := range validHost {
-			domains = append(domains, "pin."+domain)
-		}
-		return domains
-	}(),
+	URLPattern: regexp.MustCompile(`https?://(www\.)?pin\.[^/]+/(?P<id>\w+)`),
+	Host:       []string{"pin"},
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
@@ -63,15 +44,8 @@ var Extractor = &models.Extractor{
 	CodeName:   "pinterest",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(validURLPattern),
-	Host: func() []string {
-		var domains []string
-		for _, domain := range validHost {
-			domains = append(domains, "pinterest."+domain)
-			domains = append(domains, domain+".pinterest.com")
-		}
-		return domains
-	}(),
+	URLPattern: regexp.MustCompile(`https?://(?:[^/]+\.)?pinterest\.[^/]+/pin/(?:[\w-]+--)?(?P<id>\d+)`),
+	Host:       []string{"pinterest"},
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		media, err := ExtractPinMedia(ctx)

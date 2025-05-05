@@ -2,11 +2,10 @@ package ext
 
 import (
 	"fmt"
-	"net/url"
-	"strings"
 	"sync"
 
 	"govd/models"
+	"govd/util"
 
 	"github.com/pkg/errors"
 )
@@ -38,18 +37,14 @@ func CtxByURL(urlStr string) (*models.DownloadContext, error) {
 	currentURL := urlStr
 
 	for redirectCount <= maxRedirects {
-		parsedURL, err := url.Parse(currentURL)
+		host, err := util.ExtractBaseHost(currentURL)
 		if err != nil {
-			return nil, fmt.Errorf("invalid URL: %w", err)
+			return nil, fmt.Errorf("failed to extract host: %w", err)
 		}
-
-		host := strings.TrimPrefix(parsedURL.Host, "www.")
-
 		extractors := extractorsByHost[host]
 		if len(extractors) == 0 {
 			return nil, nil
 		}
-
 		var extractor *models.Extractor
 		var matches []string
 		var groups map[string]string

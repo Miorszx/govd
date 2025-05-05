@@ -13,14 +13,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-var (
-	baseHost = []string{
-		"reddit.com",
-		"redditmedia.com",
-		"old.reddit.com",
-		"old.redditmedia.com",
-	}
-)
+var baseHost = []string{
+	"reddit",
+	"redditmedia.com",
+}
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Reddit (Short)",

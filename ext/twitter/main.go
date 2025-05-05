@@ -26,7 +26,7 @@ var ShortExtractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://t\.co/(?P<id>\w+)`),
-	Host:       []string{"t.co"},
+	Host:       []string{"t"},
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
@@ -62,9 +62,9 @@ var Extractor = &models.Extractor{
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/(vx)?(twitter|x)\.com\/([^\/]+)\/status\/(?P<id>\d+)`),
 	Host: []string{
-		"twitter.com",
-		"x.com",
-		"vxtwitter.com",
+		"x",
+		"twitter",
+		"vxtwitter",
 	},
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {

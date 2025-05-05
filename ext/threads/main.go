@@ -10,15 +10,13 @@ import (
 	"regexp"
 )
 
-var threadsHost = []string{"threads.net"}
-
 var Extractor = &models.Extractor{
 	Name:       "Threads",
 	CodeName:   "threads",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?threads\.net\/(?:@[^\/]+)\/p(?:ost)?\/(?P<id>[a-zA-Z0-9_-]+)`),
-	Host:       threadsHost,
+	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?threads\.[^/]+\/(?:@[^\/]+)\/p(?:ost)?\/(?P<id>[a-zA-Z0-9_-]+)`),
+	Host:       []string{"threads"},
 	IsRedirect: false,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {

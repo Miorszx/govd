@@ -28,7 +28,7 @@ var Extractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?:www\.)?9gag\.com/gag/(?P<id>[^/?&#]+)`),
-	Host:       []string{"9gag.com"},
+	Host:       []string{"9gag"},
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)

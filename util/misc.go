@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"govd/models"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/aki237/nscjar"
@@ -185,6 +187,23 @@ func CleanupDownloadsDir() {
 		}
 		return nil
 	})
+}
+
+func ExtractBaseHost(rawURL string) (string, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse URL: %w", err)
+	}
+	host := parsedURL.Hostname()
+	etld, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil {
+		return "", fmt.Errorf("failed to get eTLD+1: %w", err)
+	}
+	parts := strings.Split(etld, ".")
+	if len(parts) == 0 {
+		return "", errors.New("invalid domain structure")
+	}
+	return parts[0], nil
 }
 
 func StartDownloadsCleanup() {
