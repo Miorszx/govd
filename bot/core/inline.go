@@ -210,7 +210,7 @@ func StartInlineTask(
 		Id:    taskID,
 		Title: "share",
 		InputMessageContent: &gotgbot.InputTextMessageContent{
-			MessageText: "loading media plese wait...",
+			MessageText: "loading media please wait...",
 			ParseMode:   gotgbot.ParseModeHTML,
 			LinkPreviewOptions: &gotgbot.LinkPreviewOptions{
 				IsDisabled: true,

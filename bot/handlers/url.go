@@ -27,7 +27,7 @@ func URLHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 		return nil
 	}
 	userID := ctx.EffectiveMessage.From.Id
-	if ctx.EffectiveMessage.Chat.Type != "private" {
+	if ctx.EffectiveMessage.Chat.Type != gotgbot.ChatTypePrivate {
 		settings, err := database.GetGroupSettings(ctx.EffectiveMessage.Chat.Id)
 		if err != nil {
 			return err

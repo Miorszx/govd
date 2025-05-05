@@ -12,7 +12,7 @@ import (
 )
 
 func SettingsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
-	if ctx.EffectiveMessage.Chat.Type == "private" {
+	if ctx.EffectiveMessage.Chat.Type == gotgbot.ChatTypePrivate {
 		ctx.EffectiveMessage.Reply(
 			bot,
 			"use this command in group chats only",
@@ -38,7 +38,7 @@ func SettingsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 }
 
 func CaptionsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
-	if ctx.EffectiveMessage.Chat.Type == "private" {
+	if ctx.EffectiveMessage.Chat.Type == gotgbot.ChatTypePrivate {
 		return nil
 	}
 
@@ -96,7 +96,7 @@ func CaptionsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 }
 
 func NSFWHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
-	if ctx.EffectiveMessage.Chat.Type == "private" {
+	if ctx.EffectiveMessage.Chat.Type == gotgbot.ChatTypePrivate {
 		return nil
 	}
 
@@ -154,7 +154,7 @@ func NSFWHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 }
 
 func MediaGroupLimitHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
-	if ctx.EffectiveMessage.Chat.Type == "private" {
+	if ctx.EffectiveMessage.Chat.Type == gotgbot.ChatTypePrivate {
 		return nil
 	}
 

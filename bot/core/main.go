@@ -126,7 +126,7 @@ func SendMedias(
 		}
 
 		sentMessages = append(sentMessages, msgs...)
-		if sentMessages[0].Chat.Type != "private" {
+		if sentMessages[0].Chat.Type != gotgbot.ChatTypePrivate {
 			if len(mediaGroupChunks) > 1 {
 				time.Sleep(3 * time.Second)
 			} // avoid floodwait?

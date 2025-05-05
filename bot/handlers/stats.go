@@ -22,7 +22,7 @@ var lastSavedStats *Stats
 var statsMessage = "users: %d\nusers today: %d\ngroups: %d\ndownloads: %d\n\nupdates every 10 minutes"
 
 func StatsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
-	if ctx.EffectiveMessage.Chat.Type != "private" {
+	if ctx.EffectiveMessage.Chat.Type != gotgbot.ChatTypePrivate {
 		return nil
 	}
 	ctx.CallbackQuery.Answer(bot, nil)

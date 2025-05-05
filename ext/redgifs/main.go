@@ -17,13 +17,11 @@ const (
 	videoEndpoint = baseAPI + "gifs/"
 )
 
-var (
-	baseAPIHeaders = map[string]string{
-		"referer":      "https://www.redgifs.com/",
-		"origin":       "https://www.redgifs.com",
-		"content-type": "application/json",
-	}
-)
+var baseAPIHeaders = map[string]string{
+	"Referer":      "https://www.redgifs.com/",
+	"Origin":       "https://www.redgifs.com",
+	"Content-Type": "application/json",
+}
 
 var Extractor = &models.Extractor{
 	Name:       "RedGifs",
@@ -31,7 +29,7 @@ var Extractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?:(?:www\.)?redgifs\.com/(?:watch|ifr)/|thumbs2\.redgifs\.com/)(?P<id>[^-/?#\.]+)`),
-	Host:       []string{"redgifs.com"},
+	Host:       []string{"redgifs"},
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		mediaList, err := MediaListFromAPI(ctx)
@@ -123,9 +121,9 @@ func GetVideo(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
-	req.Header.Set("authorization", "Bearer "+token.AccessToken)
-	req.Header.Set("user-agent", token.Agent)
-	req.Header.Set("x-customheader", "https://www.redgifs.com/watch/"+videoID)
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("User-Agent", token.Agent)
+	req.Header.Set("X-Customheader", "https://www.redgifs.com/watch/"+videoID)
 	for k, v := range baseAPIHeaders {
 		req.Header.Set(k, v)
 	}

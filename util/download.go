@@ -585,7 +585,10 @@ func downloadSegments(
 	wg.Wait()
 
 	if err := firstErr.Load(); err != nil {
-		return nil, err.(error)
+		if e, ok := err.(error); ok {
+			return nil, e
+		}
+		return nil, fmt.Errorf("unknown error: %v", err)
 	}
 
 	for i, file := range downloadedFiles {

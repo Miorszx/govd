@@ -37,15 +37,17 @@ func ParseM3U8Content(
 
 	switch listType {
 	case m3u8.MASTER:
-		return parseMasterPlaylist(
-			playlist.(*m3u8.MasterPlaylist),
-			baseURLObj,
-		)
+		master, ok := playlist.(*m3u8.MasterPlaylist)
+		if !ok {
+			return nil, errors.New("failed to cast to master playlist")
+		}
+		return parseMasterPlaylist(master, baseURLObj)
 	case m3u8.MEDIA:
-		return parseMediaPlaylist(
-			playlist.(*m3u8.MediaPlaylist),
-			baseURLObj,
-		)
+		media, ok := playlist.(*m3u8.MediaPlaylist)
+		if !ok {
+			return nil, errors.New("failed to cast to media playlist")
+		}
+		return parseMediaPlaylist(media, baseURLObj)
 	}
 
 	return nil, errors.New("unsupported m3u8 playlist type")

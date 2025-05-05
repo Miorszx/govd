@@ -151,7 +151,7 @@ func GetPinData(
 	req.Header.Set("User-Agent", util.ChromeUA)
 
 	// fix 403 error
-	req.Header.Set("X-Pinterest-PWS-Handler", "www/[username].js")
+	req.Header.Set("X-Pinterest-Pws-Handler", "www/[username].js")
 
 	resp, err := session.Do(req)
 	if err != nil {
