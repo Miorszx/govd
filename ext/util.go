@@ -39,7 +39,7 @@ func CtxByURL(urlStr string) (*models.DownloadContext, error) {
 	for redirectCount <= maxRedirects {
 		host, err := util.ExtractBaseHost(currentURL)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract host: %w", err)
+			return nil, nil // nolint:nilerr
 		}
 		extractors := extractorsByHost[host]
 		if len(extractors) == 0 {
