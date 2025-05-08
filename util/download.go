@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"net/http"
 	"os"
@@ -363,7 +362,6 @@ func getFileSize(
 		req.Header.Set(key, value)
 	}
 	for _, cookie := range config.Cookies {
-		log.Println(cookie.Name, cookie.Value)
 		req.AddCookie(cookie)
 	}
 
