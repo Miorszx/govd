@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/pkg/errors"
 
 	"govd/enums"
@@ -16,6 +18,10 @@ import (
 	"govd/util"
 
 	"github.com/google/uuid"
+)
+
+var (
+	universalDataPattern = regexp.MustCompile(`<script[^>]+\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)<\/script>`)
 )
 
 func BuildAPIQuery() (url.Values, error) {
@@ -174,4 +180,35 @@ func FindVideoData(
 		}
 	}
 	return nil, errors.New("matching aweme_id not found")
+}
+
+func ParseUniversalData(body []byte) (*WebItemStruct, error) {
+	matches := universalDataPattern.FindSubmatch(body)
+	if len(matches) < 2 {
+		return nil, errors.New("universal data not found")
+	}
+	var data any
+	err := sonic.ConfigFastest.Unmarshal(matches[1], &data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal universal data: %w", err)
+	}
+	defaultScope := util.TraverseJSON(data, "__DEFAULT_SCOPE__")
+	if defaultScope == nil {
+		return nil, errors.New("default scope not found")
+	}
+	itemStruct := util.TraverseJSON(defaultScope, "itemStruct")
+	if itemStruct == nil {
+		return nil, errors.New("item struct not found")
+	}
+	itemStructBytes, err := sonic.ConfigFastest.Marshal(itemStruct)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal item struct: %w", err)
+	}
+
+	var webItem WebItemStruct
+	err = sonic.ConfigFastest.Unmarshal(itemStructBytes, &webItem)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal item struct: %w", err)
+	}
+	return &webItem, nil
 }

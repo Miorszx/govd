@@ -83,6 +83,8 @@ type MediaFormat struct {
 	Thumbnail []string `gorm:"-" json:"thumbnail"`
 
 	Media *Media `gorm:"foreignKey:MediaID" json:"-"`
+
+	DownloadConfig *DownloadConfig `gorm:"-" json:"-"`
 }
 
 type DownloadedMedia struct {

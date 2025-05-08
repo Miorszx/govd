@@ -45,7 +45,6 @@ type ImagePostInfo struct {
 }
 
 type Video struct {
-	CdnURLExpired   int64     `json:"cdn_url_expired"`
 	Cover           Cover     `json:"cover"`
 	Duration        int64     `json:"duration"`
 	HasWatermark    bool      `json:"has_watermark"`
@@ -62,4 +61,31 @@ type AwemeDetails struct {
 	Desc          string         `json:"desc"`
 	Video         *Video         `json:"video"`
 	ImagePostInfo *ImagePostInfo `json:"image_post_info"`
+}
+
+type WebItemStruct struct {
+	ID        string        `json:"id"`
+	Desc      string        `json:"desc"`
+	Video     *WebVideo     `json:"video"`
+	ImagePost *WebImagePost `json:"imagePost"`
+}
+
+type WebImagePost struct {
+	Images []*WebImage `json:"images"`
+	Title  string      `json:"title"`
+}
+
+type WebVideo struct {
+	Duration int64  `json:"duration"`
+	Height   int64  `json:"height"`
+	PlayAddr string `json:"playAddr"`
+	Width    int64  `json:"width"`
+}
+
+type WebImageURL struct {
+	URLList []string `json:"urlList"`
+}
+
+type WebImage struct {
+	URL *WebImageURL `json:"imageURL"`
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -22,33 +23,12 @@ import (
 
 var downloadHTTPSession = GetDefaultHTTPClient()
 
-func DefaultConfig() *models.DownloadConfig {
-	downloadsDir := os.Getenv("DOWNLOADS_DIR")
-	if downloadsDir == "" {
-		downloadsDir = "downloads"
-	}
-	return &models.DownloadConfig{
-		ChunkSize:     10 * 1024 * 1024, // 10MB
-		Concurrency:   4,
-		Timeout:       30 * time.Second,
-		DownloadDir:   downloadsDir,
-		RetryAttempts: 3,
-		RetryDelay:    2 * time.Second,
-		Remux:         true,
-		MaxInMemory:   50 * 1024 * 1024, // 50MB
-	}
-}
-
 func DownloadFile(
 	ctx context.Context,
 	urlList []string,
 	fileName string,
 	config *models.DownloadConfig,
 ) (string, error) {
-	if config == nil {
-		config = DefaultConfig()
-	}
-
 	var errs []error
 	for _, fileURL := range urlList {
 		select {
@@ -86,9 +66,6 @@ func DownloadFileWithSegments(
 	fileName string,
 	config *models.DownloadConfig,
 ) (string, error) {
-	if config == nil {
-		config = DefaultConfig()
-	}
 	if err := EnsureDownloadDir(config.DownloadDir); err != nil {
 		return "", err
 	}
@@ -121,10 +98,6 @@ func DownloadFileInMemory(
 	urlList []string,
 	config *models.DownloadConfig,
 ) (*bytes.Reader, error) {
-	if config == nil {
-		config = DefaultConfig()
-	}
-
 	var errs []error
 	for _, fileURL := range urlList {
 		select {
@@ -167,6 +140,12 @@ func downloadInMemory(
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	for key, value := range config.Headers {
+		req.Header.Set(key, value)
+	}
+	for _, cookie := range config.Cookies {
+		req.AddCookie(cookie)
 	}
 
 	resp, err := downloadHTTPSession.Do(req)
@@ -242,7 +221,7 @@ func runChunkedDownload(
 		config.Concurrency = optimalConcurrency
 	}
 
-	fileSize, err := getFileSize(ctx, fileURL, config.Timeout)
+	fileSize, err := getFileSize(ctx, fileURL, config)
 	if err != nil {
 		return err
 	}
@@ -371,14 +350,21 @@ func runChunkedDownload(
 func getFileSize(
 	ctx context.Context,
 	fileURL string,
-	timeout time.Duration,
+	config *models.DownloadConfig,
 ) (int, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	reqCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodHead, fileURL, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+	for key, value := range config.Headers {
+		req.Header.Set(key, value)
+	}
+	for _, cookie := range config.Cookies {
+		log.Println(cookie.Name, cookie.Value)
+		req.AddCookie(cookie)
 	}
 
 	resp, err := downloadHTTPSession.Do(req)
@@ -388,7 +374,7 @@ func getFileSize(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("failed to get file info: status code %d", resp.StatusCode)
+		return 0, fmt.Errorf("failed to get file size: status code %d", resp.StatusCode)
 	}
 
 	return int(resp.ContentLength), nil
@@ -417,7 +403,7 @@ func downloadChunkToFile(
 
 		err := downloadAndWriteChunk(
 			ctx, fileURL, file,
-			start, end, config.Timeout,
+			start, end, config,
 			fileMutex,
 		)
 		if err == nil {
@@ -436,17 +422,24 @@ func downloadAndWriteChunk(
 	file *os.File,
 	start int,
 	end int,
-	timeout time.Duration,
+	config *models.DownloadConfig,
 	fileMutex *sync.Mutex,
 ) error {
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	reqCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
+	for key, value := range config.Headers {
+		req.Header.Set(key, value)
+	}
+	for _, cookie := range config.Cookies {
+		req.AddCookie(cookie)
+	}
 
+	// set the range header for partial content
 	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
 	resp, err := downloadHTTPSession.Do(req)
@@ -482,14 +475,20 @@ func downloadFile(
 	ctx context.Context,
 	fileURL string,
 	filePath string,
-	timeout time.Duration,
+	config *models.DownloadConfig,
 ) (string, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	reqCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	for key, value := range config.Headers {
+		req.Header.Set(key, value)
+	}
+	for _, cookie := range config.Cookies {
+		req.AddCookie(cookie)
 	}
 	resp, err := downloadHTTPSession.Do(req)
 	if err != nil {
@@ -524,10 +523,6 @@ func downloadSegments(
 	segmentURLs []string,
 	config *models.DownloadConfig,
 ) ([]string, error) {
-	if config == nil {
-		config = DefaultConfig()
-	}
-
 	semaphore := make(chan struct{}, config.Concurrency)
 	var wg sync.WaitGroup
 
@@ -567,8 +562,9 @@ func downloadSegments(
 			segmentPath := filepath.Join(path, segmentFileName)
 
 			filePath, err := downloadFile(
-				ctx, url, segmentPath,
-				config.Timeout,
+				ctx, url,
+				segmentPath,
+				config,
 			)
 
 			if err != nil {

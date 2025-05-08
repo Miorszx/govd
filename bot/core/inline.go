@@ -278,7 +278,7 @@ func GetInlineFormat(
 		mediaList[i].Format = defaultFormat
 	}
 	messageCaption := FormatCaption(mediaList[0], true)
-	medias, err := DownloadMedias(taskCtx, mediaList, nil)
+	medias, err := DownloadMedias(taskCtx, mediaList)
 	if err != nil {
 		errChan <- fmt.Errorf("failed to download medias: %w", err)
 		return

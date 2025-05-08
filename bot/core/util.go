@@ -23,6 +23,7 @@ func getFileThumbnail(
 	ctx context.Context,
 	format *models.MediaFormat,
 	filePath string,
+	config *models.DownloadConfig,
 ) (string, error) {
 	fileDir := filepath.Dir(filePath)
 	fileName := filepath.Base(filePath)
@@ -31,7 +32,7 @@ func getFileThumbnail(
 	thumbnailFilePath := filepath.Join(fileDir, fileBaseName+".thumb.jpeg")
 
 	if len(format.Thumbnail) > 0 {
-		file, err := util.DownloadFileInMemory(ctx, format.Thumbnail, nil)
+		file, err := util.DownloadFileInMemory(ctx, format.Thumbnail, config)
 		if err != nil {
 			return "", fmt.Errorf("failed to download file in memory: %w", err)
 		}

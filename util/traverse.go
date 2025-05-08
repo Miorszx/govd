@@ -1,9 +1,9 @@
 package util
 
 func TraverseJSON(
-	data interface{},
-	keys interface{},
-) interface{} {
+	data any,
+	keys any,
+) any {
 	var keySlice []string
 	switch k := keys.(type) {
 	case string:
@@ -17,7 +17,7 @@ func TraverseJSON(
 	return traverseObject(data, keySlice)
 }
 
-func traverseObject(data interface{}, keys []string) interface{} {
+func traverseObject(data any, keys []string) any {
 	if len(keys) == 0 {
 		return data
 	}
@@ -26,7 +26,7 @@ func traverseObject(data interface{}, keys []string) interface{} {
 	remainingKeys := keys[1:]
 
 	switch d := data.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if value, exists := d[key]; exists {
 			return traverseObject(value, remainingKeys)
 		}
@@ -37,7 +37,7 @@ func traverseObject(data interface{}, keys []string) interface{} {
 				return result
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, item := range d {
 			result := traverseObject(item, keys)
 			if result != nil {

@@ -15,7 +15,7 @@ var Extractor = &models.Extractor{
 	CodeName:   "threads",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?threads\.[^/]+\/(?:@[^\/]+)\/p(?:ost)?\/(?P<id>[a-zA-Z0-9_-]+)`),
+	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?threads\.[^\/]+\/(?:(?:@[^\/]+)\/)?p(?:ost)?\/(?P<id>[a-zA-Z0-9_-]+)`),
 	Host:       []string{"threads"},
 	IsRedirect: false,
 

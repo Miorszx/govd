@@ -54,7 +54,7 @@ func HandleDefaultFormatDownload(
 		mediaList[i].Format = defaultFormat
 	}
 
-	medias, err := DownloadMedias(taskCtx, mediaList, nil)
+	medias, err := DownloadMedias(taskCtx, mediaList)
 	if err != nil {
 		return fmt.Errorf("failed to download media list: %w", err)
 	}

@@ -18,17 +18,14 @@ import (
 func downloadMediaItem(
 	ctx context.Context,
 	media *models.Media,
-	config *models.DownloadConfig,
 	idx int,
 ) (*models.DownloadedMedia, error) {
-	if config == nil {
-		config = util.DefaultConfig()
-	}
-
 	format := media.Format
 	if format == nil {
 		return nil, errors.New("media format is nil")
 	}
+
+	config := models.GetDownloadConfig(format.DownloadConfig)
 
 	fileName := format.GetFileName()
 	var filePath string
@@ -81,7 +78,7 @@ func downloadMediaItem(
 	}
 
 	if format.Type == enums.MediaTypeVideo || format.Type == enums.MediaTypeAudio {
-		path, err := getFileThumbnail(ctx, format, filePath)
+		path, err := getFileThumbnail(ctx, format, filePath, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get thumbnail: %w", err)
 		}
@@ -105,23 +102,21 @@ func StartDownloadTask(
 	ctx context.Context,
 	media *models.Media,
 	idx int,
-	config *models.DownloadConfig,
 ) (*models.DownloadedMedia, error) {
-	return downloadMediaItem(ctx, media, config, idx)
+	return downloadMediaItem(ctx, media, idx)
 }
 
 func StartConcurrentDownload(
 	ctx context.Context,
 	media *models.Media,
 	resultsChan chan<- models.DownloadedMedia,
-	config *models.DownloadConfig,
 	errChan chan<- error,
 	wg *sync.WaitGroup,
 	idx int,
 ) {
 	defer wg.Done()
 
-	result, err := downloadMediaItem(ctx, media, config, idx)
+	result, err := downloadMediaItem(ctx, media, idx)
 	if err != nil {
 		errChan <- err
 		return
@@ -133,22 +128,20 @@ func StartConcurrentDownload(
 func DownloadMedia(
 	ctx context.Context,
 	media *models.Media,
-	config *models.DownloadConfig,
 ) (*models.DownloadedMedia, error) {
-	return StartDownloadTask(ctx, media, 0, config)
+	return StartDownloadTask(ctx, media, 0)
 }
 
 func DownloadMedias(
 	ctx context.Context,
 	medias []*models.Media,
-	config *models.DownloadConfig,
 ) ([]*models.DownloadedMedia, error) {
 	if len(medias) == 0 {
 		return []*models.DownloadedMedia{}, nil
 	}
 
 	if len(medias) == 1 {
-		result, err := DownloadMedia(ctx, medias[0], config)
+		result, err := DownloadMedia(ctx, medias[0])
 		if err != nil {
 			return nil, err
 		}
@@ -161,7 +154,10 @@ func DownloadMedias(
 
 	for idx, media := range medias {
 		wg.Add(1)
-		go StartConcurrentDownload(ctx, media, resultsChan, config, errChan, &wg, idx)
+		go StartConcurrentDownload(
+			ctx, media, resultsChan,
+			errChan, &wg, idx,
+		)
 	}
 
 	go func() {
