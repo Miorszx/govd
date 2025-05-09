@@ -40,26 +40,17 @@ func Start() {
 		zap.S().Warn("failed to parse CONCURRENT_UPDATES env, using 50")
 		concurrentUpdates = 50
 	}
-	logDispatcherErrors, err := strconv.ParseBool(os.Getenv("LOG_DISPATCHER_ERRORS"))
-	if err != nil {
-		zap.S().Warn("failed to parse LOG_DISPATCHER_ERRORS env, using false")
-		logDispatcherErrors = false
-	}
 	dispatcher := ext.NewDispatcher(&ext.DispatcherOpts{
 		Error: func(_ *gotgbot.Bot, _ *ext.Context, err error) ext.DispatcherAction {
-			if logDispatcherErrors {
-				zap.S().Errorf("an error occurred while handling update: %v", err)
-			}
+			zap.S().Errorf("an error occurred while handling update: %v", err)
 			return ext.DispatcherActionNoop
 		},
 		Panic: func(_ *gotgbot.Bot, _ *ext.Context, r any) {
-			if logDispatcherErrors {
-				zap.S().Errorf(
-					"panic occurred while handling update: %v\n%s",
-					r,
-					debug.Stack(),
-				)
-			}
+			zap.S().Errorf(
+				"panic occurred while handling update: %v\n%s",
+				r,
+				debug.Stack(),
+			)
 		},
 		MaxRoutines: concurrentUpdates,
 	})

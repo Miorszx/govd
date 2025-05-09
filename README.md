@@ -85,13 +85,14 @@ you can configure the bot using the `.env` file. here are the available options:
 | BOT_API_URL                   | telegram bot api url                         | https://api.telegram.org              |
 | BOT_TOKEN                     | telegram bot token                           | 12345678:ABC-DEF1234ghIkl-zyx57W2P0s  |
 | CONCURRENT_UPDATES            | max concurrent updates handled               | 50                                    |
-| LOG_DISPATCHER_ERRORS         | log dispatcher errors                        | 0                                     |
 | DOWNLOADS_DIR                 | directory for downloaded files               | downloads                             |
-| HTTP_PROXY [(?)](#proxying)   | http proxy (optional)                        |                                       |
-| HTTPS_PROXY [(?)](#proxying)  | https proxy (optional)                       |                                       |
-| NO_PROXY [(?)](#proxying)     | no proxy domains (optional)                  |                                       |
+| HTTP_PROXY [(?)](#proxying)   | http proxy (optional)                        | none _(disabled)_                     |
+| HTTPS_PROXY [(?)](#proxying)  | https proxy (optional)                       | none _(disabled)_                     |
+| NO_PROXY [(?)](#proxying)     | no proxy domains (optional)                  | none _(disabled)_                     |
 | REPO_URL                      | project repository url                       | https://github.com/govdbot/govd       |
 | PROFILER_PORT                 | port for profiler http server (pprof)        | 0 _(disabled)_                        |
+| LOG_LEVEL                     | log level (debug, info, warn, error)         | info                                  |
+| LOG_FILE                      | whether to enable file logging               | false                                 |
 
 you can configure specific extractors options with `ext-cfg.yaml` file ([learn more](CONFIGURATION.md)).
 

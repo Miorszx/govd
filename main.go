@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"govd/bot"
 	"govd/config"
@@ -21,18 +20,16 @@ import (
 	"go.uber.org/zap"
 )
 
-var logLevel string
-var allowLogFile bool
-
 func main() {
-	parseFlags()
-	logger.Init(logLevel, allowLogFile)
-	defer logger.Sync()
-
 	loadEnv()
 	loadExtractorsConfig()
 	startProfiler()
 	checkFFmpeg()
+
+	logLevel, allowLogFile := parseLogLevel()
+	logger.Init(logLevel, allowLogFile)
+	defer logger.Sync()
+
 	util.StartDownloadsCleanup()
 	database.Start()
 
@@ -49,6 +46,18 @@ func loadEnv() {
 	if err != nil {
 		zap.S().Fatal("error loading .env file")
 	}
+}
+
+func parseLogLevel() (string, bool) {
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	allowLogFile, err := strconv.ParseBool(os.Getenv("LOG_FILE"))
+	if err != nil {
+		return logLevel, false
+	}
+	return logLevel, allowLogFile
 }
 
 func checkFFmpeg() {
@@ -73,10 +82,4 @@ func startProfiler() {
 			http.ListenAndServe(fmt.Sprintf(":%d", profilerPort), nil)
 		}()
 	}
-}
-
-func parseFlags() {
-	flag.StringVar(&logLevel, "log", "info", "log level (debug, info, warn, error)")
-	flag.BoolVar(&allowLogFile, "logfile", false, "allow writing log files")
-	flag.Parse()
 }
