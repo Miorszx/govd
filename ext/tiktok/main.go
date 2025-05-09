@@ -8,6 +8,7 @@ import (
 	"govd/enums"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -32,7 +33,7 @@ var baseHost = []string{
 
 var VMExtractor = &models.Extractor{
 	Name:       "TikTok VM",
-	CodeName:   "tiktokvm",
+	CodeName:   "tiktok",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https:\/\/((?:vm|vt|www)\.)?(vx)?tiktok\.com\/(?:t\/)?(?P<id>[a-zA-Z0-9]+)`),
@@ -40,12 +41,13 @@ var VMExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		client := util.GetHTTPClient(ctx.Extractor.CodeName)
+		client := networking.GetExtractorHTTPClient(ctx.Extractor)
+		cookies := util.GetExtractorCookies(ctx.Extractor)
 		redirectURL, err := util.GetLocationURL(
 			client,
 			ctx.MatchedContentURL,
 			webHeaders,
-			GetCookies(),
+			cookies,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get url location: %w", err)
@@ -72,10 +74,7 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
-		zap.S().Debugf(
-			"failed to get media from web: %v",
-			err,
-		)
+		zap.S().Debugf("failed to get media from web: %v", err)
 		// method 2: get media from api
 		mediaList, err = MediaListFromAPI(ctx)
 		if err == nil {
@@ -83,18 +82,13 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
-		zap.S().Debugf(
-			"failed to get media from api: %v",
-			err,
-		)
+		zap.S().Debugf("failed to get media from api: %v", err)
 		return nil, errors.New("failed to extract media: all methods failed")
 	},
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	client := util.GetHTTPClient(ctx.Extractor.CodeName)
-	details, err := GetVideoAPI(
-		client, ctx.MatchedContentID)
+	details, err := GetVideoAPI(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get from api: %w", err)
 	}
@@ -155,8 +149,6 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 }
 
 func MediaListFromWeb(ctx *models.DownloadContext) ([]*models.Media, error) {
-	client := util.GetHTTPClient(ctx.Extractor.CodeName)
-
 	var details *WebItemStruct
 	var cookies []*http.Cookie
 	var err error
@@ -165,8 +157,7 @@ func MediaListFromWeb(ctx *models.DownloadContext) ([]*models.Media, error) {
 	// login page, so we need to retry
 	// a few times to get the correct page
 	for range 5 {
-		details, cookies, err = GetVideoWeb(
-			client, ctx.MatchedContentID)
+		details, cookies, err = GetVideoWeb(ctx)
 		if err == nil {
 			break
 		}

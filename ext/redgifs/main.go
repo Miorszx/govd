@@ -6,6 +6,8 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
+	"maps"
 	"net/http"
 	"regexp"
 
@@ -44,12 +46,7 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	session := util.GetHTTPClient(ctx.Extractor.CodeName)
-
-	response, err := GetVideo(
-		session,
-		ctx.MatchedContentID,
-	)
+	response, err := GetVideo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get from api: %w", err)
 	}
@@ -109,44 +106,49 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return []*models.Media{media}, nil
 }
 
-func GetVideo(
-	session models.HTTPClient,
-	videoID string,
-) (*Response, error) {
+func GetVideo(ctx *models.DownloadContext) (*Response, error) {
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
+
+	videoID := ctx.MatchedContentID
 	url := videoEndpoint + videoID + "?views=true"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	token, err := GetAccessToken(session)
+	token, err := GetAccessToken(client, cookies)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
-	req.Header.Set("User-Agent", token.Agent)
-	req.Header.Set("X-Customheader", "https://www.redgifs.com/watch/"+videoID)
-	for k, v := range baseAPIHeaders {
-		req.Header.Set(k, v)
+	headers := map[string]string{
+		"User-Agent":     token.Agent,
+		"Authorization":  "Bearer " + token.AccessToken,
+		"X-Customheader": "https://www.redgifs.com/watch/" + videoID,
 	}
-	res, err := session.Do(req)
+	maps.Copy(headers, baseAPIHeaders)
+	resp, err := util.FetchPage(
+		client,
+		http.MethodGet,
+		url,
+		nil,
+		headers,
+		cookies,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get video: %s", res.Status)
-	}
+	defer resp.Body.Close()
 
 	// debugging
-	logger.WriteFile("redgifs_api_response", res)
+	logger.WriteFile("redgifs_api_response", resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get video: %s", resp.Status)
+	}
 
 	var response Response
-	err = sonic.ConfigFastest.NewDecoder(res.Body).Decode(&response)
+	err = sonic.ConfigFastest.NewDecoder(resp.Body).Decode(&response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 	if response.Gif == nil {
-		return nil, fmt.Errorf("failed to get video: %s", res.Status)
+		return nil, fmt.Errorf("failed to get video: %s", resp.Status)
 	}
 	return &response, nil
 }

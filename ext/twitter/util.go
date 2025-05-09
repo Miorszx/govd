@@ -3,6 +3,7 @@ package twitter
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ func BuildAPIHeaders(cookies []*http.Cookie) map[string]string {
 	headers := map[string]string{
 		"authorization":             "Bearer " + authToken,
 		"user-agent":                util.ChromeUA,
-		"x-twitter-auth-type":       "OAuth2Session",
+		"x-twitter-auth-type":       "OAuth2Client",
 		"x-twitter-client-language": "en",
 		"x-twitter-active-user":     "yes",
 	}
@@ -44,7 +45,7 @@ func BuildAPIHeaders(cookies []*http.Cookie) map[string]string {
 	return headers
 }
 
-func BuildAPIQuery(tweetID string) map[string]string {
+func BuildAPIQuery(tweetID string) string {
 	variables := map[string]any{
 		"tweetId":                tweetID,
 		"withCommunity":          false,
@@ -82,11 +83,17 @@ func BuildAPIQuery(tweetID string) map[string]string {
 	featuresJSON, _ := sonic.ConfigFastest.Marshal(features)
 	fieldTogglesJSON, _ := sonic.ConfigFastest.Marshal(fieldToggles)
 
-	return map[string]string{
+	params := map[string]string{
 		"variables":    string(variablesJSON),
 		"features":     string(featuresJSON),
 		"fieldToggles": string(fieldTogglesJSON),
 	}
+
+	query := url.Values{}
+	for key, value := range params {
+		query.Add(key, value)
+	}
+	return query.Encode()
 }
 
 func CleanCaption(caption string) string {

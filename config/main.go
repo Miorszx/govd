@@ -35,8 +35,8 @@ func LoadExtractorConfigs() error {
 	return nil
 }
 
-func GetExtractorConfig(codeName string) *models.ExtractorConfig {
-	if config, exists := extractorConfigs[codeName]; exists {
+func GetExtractorConfig(extractor *models.Extractor) *models.ExtractorConfig {
+	if config, exists := extractorConfigs[extractor.CodeName]; exists {
 		return config
 	}
 	return nil

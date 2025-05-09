@@ -11,7 +11,7 @@ import (
 	"govd/models"
 	"govd/plugins"
 	"govd/util"
-	"govd/util/av"
+	"govd/util/libav"
 	"govd/util/mp4box"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -46,7 +46,7 @@ func getFileThumbnail(
 	}
 	if format.Type == enums.MediaTypeVideo {
 		zap.S().Debug("extracting video thumbnail with libav")
-		err := av.ExtractVideoThumbnail(filePath, thumbnailFilePath)
+		err := libav.ExtractVideoThumbnail(filePath, thumbnailFilePath)
 		if err != nil {
 			return "", fmt.Errorf("failed to extract video thumbnail: %w", err)
 		}
@@ -63,7 +63,7 @@ func insertVideoInfo(
 	duration, width, height := mp4box.ExtractBoxMetadata(filePath)
 	if duration == 0 && width == 0 && height == 0 {
 		zap.S().Debug("extracting video info with libav")
-		duration, width, height = av.GetVideoInfo(filePath)
+		duration, width, height = libav.GetVideoInfo(filePath)
 	}
 	format.Duration = duration
 	format.Width = width

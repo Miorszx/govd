@@ -9,6 +9,7 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
 	"github.com/pkg/errors"
@@ -21,7 +22,7 @@ var baseHost = []string{
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Reddit (Short)",
-	CodeName:   "reddit_short",
+	CodeName:   "reddit",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(?P<host>(?:\w+\.)?reddit(?:media)?\.com)/(?P<slug>(?:(?:r|user)/[^/]+/)?s/(?P<id>[^/?#&]+))`),
@@ -29,28 +30,26 @@ var ShortExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		client := util.GetHTTPClient(ctx.Extractor.CodeName)
-		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+		client := networking.GetExtractorHTTPClient(ctx.Extractor)
+		cookies := util.GetExtractorCookies(ctx.Extractor)
+		if cookies == nil {
+			return nil, errors.New("cookies not found")
 		}
 
-		req.Header.Set("User-Agent", util.ChromeUA)
-		cookies, err := util.ParseCookieFile("reddit.txt")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get cookies: %w", err)
-		}
-		for _, cookie := range cookies {
-			req.AddCookie(cookie)
-		}
-
-		res, err := client.Do(req)
+		resp, err := util.FetchPage(
+			client,
+			http.MethodGet,
+			ctx.MatchedContentURL,
+			nil,
+			nil,
+			cookies,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
-		defer res.Body.Close()
+		defer resp.Body.Close()
 
-		location := res.Request.URL.String()
+		location := resp.Request.URL.String()
 
 		return &models.ExtractorResponse{
 			URL: location,
@@ -78,15 +77,13 @@ var Extractor = &models.Extractor{
 }
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
-	session := util.GetHTTPClient(ctx.Extractor.CodeName)
-
 	host := ctx.MatchedGroups["host"]
 	slug := ctx.MatchedGroups["slug"]
 
 	contentID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
 
-	manifest, err := GetRedditData(session, host, slug, false)
+	manifest, err := GetRedditData(ctx, host, slug, false)
 	if err != nil {
 		return nil, err
 	}
@@ -224,36 +221,32 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 }
 
 func GetRedditData(
-	session models.HTTPClient,
+	ctx *models.DownloadContext,
 	host string,
 	slug string,
 	raise bool,
 ) (Response, error) {
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
+
 	url := fmt.Sprintf("https://%s/%s/.json", host, slug)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("User-Agent", util.ChromeUA)
-	cookies, err := util.ParseCookieFile("reddit.txt")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cookies: %w", err)
-	}
-	for _, cookie := range cookies {
-		req.AddCookie(cookie)
-	}
-
-	res, err := session.Do(req)
+	resp, err := util.FetchPage(
+		client,
+		http.MethodGet,
+		url,
+		nil,
+		nil,
+		cookies,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer res.Body.Close()
+	defer resp.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK {
 		if raise {
-			return nil, fmt.Errorf("failed to get reddit data: %s", res.Status)
+			return nil, fmt.Errorf("failed to get reddit data: %s", resp.Status)
 		}
 		// try with alternative domain
 		altHost := "old.reddit.com"
@@ -261,14 +254,14 @@ func GetRedditData(
 			altHost = "www.reddit.com"
 		}
 
-		return GetRedditData(session, altHost, slug, true)
+		return GetRedditData(ctx, altHost, slug, true)
 	}
 
 	// debugging
-	logger.WriteFile("reddit_api_response", res)
+	logger.WriteFile("reddit_api_response", resp)
 
 	var response Response
-	decoder := sonic.ConfigFastest.NewDecoder(res.Body)
+	decoder := sonic.ConfigFastest.NewDecoder(resp.Body)
 	err = decoder.Decode(&response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)

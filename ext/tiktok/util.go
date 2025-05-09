@@ -19,13 +19,20 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 
 	"github.com/google/uuid"
 )
 
 var (
 	universalDataPattern = regexp.MustCompile(`<script[^>]+\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)<\/script>`)
-	webHeaders           = map[string]string{
+
+	appHeaders = map[string]string{
+		"User-Agent": appUserAgent,
+		"Accept":     "application/json",
+		"X-Argus":    "",
+	}
+	webHeaders = map[string]string{
 		"Host":            "www.tiktok.com",
 		"Connection":      "keep-alive",
 		"User-Agent":      "Mozilla/5.0",
@@ -35,32 +42,23 @@ var (
 	}
 )
 
-func GetVideoWeb(
-	client models.HTTPClient,
-	awemeID string,
-) (*WebItemStruct, []*http.Cookie, error) {
+func GetVideoWeb(ctx *models.DownloadContext) (*WebItemStruct, []*http.Cookie, error) {
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
+	awemeID := ctx.MatchedContentID
 	url := fmt.Sprintf(webBase, awemeID)
-	req, err := http.NewRequest(
+	resp, err := util.FetchPage(
+		client,
 		http.MethodGet,
 		url,
 		nil,
+		webHeaders,
+		cookies,
 	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	for key, value := range webHeaders {
-		req.Header.Set(key, value)
-	}
-	for _, cookie := range GetCookies() {
-		req.AddCookie(cookie)
-	}
-
-	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
@@ -73,10 +71,11 @@ func GetVideoWeb(
 	return itemStruct, resp.Cookies(), nil
 }
 
-func GetVideoAPI(
-	client models.HTTPClient,
-	awemeID string,
-) (*AwemeDetails, error) {
+func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
+
+	awemeID := ctx.MatchedContentID
 	apiURL := fmt.Sprintf(
 		"https://%s/aweme/v1/multi/aweme/detail/",
 		apiHostname,
@@ -85,22 +84,17 @@ func GetVideoAPI(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build api query: %w", err)
 	}
+	reqURL := apiURL + "?" + queryParams
 	postData := BuildPostData(awemeID)
 
-	req, err := http.NewRequest(
+	resp, err := util.FetchPage(
+		client,
 		http.MethodPost,
-		apiURL,
+		reqURL,
 		postData,
+		appHeaders,
+		cookies,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.URL.RawQuery = queryParams.Encode()
-	req.Header.Set("User-Agent", appUserAgent)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Argus", "")
-
-	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -122,12 +116,12 @@ func GetVideoAPI(
 	return videoData, nil
 }
 
-func BuildAPIQuery() (url.Values, error) {
+func BuildAPIQuery() (string, error) {
 	requestTicket := strconv.Itoa(int(time.Now().Unix()) * 1000)
 	clientDeviceID := uuid.New().String()
 	versionCode, err := GetAppVersionCode(appVersion)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get app version code: %w", err)
+		return "", fmt.Errorf("failed to get app version code: %w", err)
 	}
 	return url.Values{
 		"device_platform":       []string{"android"},
@@ -170,7 +164,7 @@ func BuildAPIQuery() (url.Values, error) {
 		"iid":                   []string{installationID},
 		"device_id":             []string{GetRandomDeviceID()},
 		"openudid":              []string{GetRandomUdid()},
-	}, nil
+	}.Encode(), nil
 }
 
 func ParsePlayAddr(

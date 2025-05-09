@@ -2,6 +2,7 @@ package pinterest
 
 import (
 	"fmt"
+	"net/url"
 
 	"govd/enums"
 	"govd/models"
@@ -9,6 +10,11 @@ import (
 
 	"github.com/bytedance/sonic"
 )
+
+var headers = map[string]string{
+	// fix 403 error
+	"X-Pinterest-Pws-Handler": "www/[username].js",
+}
 
 func ParseVideoObject(videoObj *Videos) ([]*models.MediaFormat, error) {
 	var formats []*models.MediaFormat
@@ -43,16 +49,20 @@ func ParseVideoObject(videoObj *Videos) ([]*models.MediaFormat, error) {
 	return formats, nil
 }
 
-func BuildPinRequestParams(pinID string) map[string]string {
-	options := map[string]interface{}{
-		"options": map[string]interface{}{
+func BuildPinRequestParams(pinID string) string {
+	options := map[string]any{
+		"options": map[string]any{
 			"field_set_key": "unauth_react_main_pin",
 			"id":            pinID,
 		},
 	}
-
 	jsonData, _ := sonic.ConfigFastest.Marshal(options)
-	return map[string]string{
+	params := map[string]string{
 		"data": string(jsonData),
 	}
+	values := url.Values{}
+	for key, value := range params {
+		values.Set(key, value)
+	}
+	return values.Encode()
 }

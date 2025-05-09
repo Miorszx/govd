@@ -15,13 +15,14 @@ import (
 	"time"
 
 	"govd/models"
-	"govd/util/av"
+	"govd/util/libav"
+	"govd/util/networking"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
-var downloadHTTPSession = GetDefaultHTTPClient()
+var downloadHTTPClient = networking.GetDefaultHTTPClient()
 
 func DownloadFile(
 	ctx context.Context,
@@ -49,7 +50,7 @@ func DownloadFile(
 			}
 
 			if config.Remux {
-				err := av.RemuxFile(filePath)
+				err := libav.RemuxFile(filePath)
 				if err != nil {
 					os.Remove(filePath)
 					return "", fmt.Errorf("remuxing failed: %w", err)
@@ -87,7 +88,7 @@ func DownloadFileWithSegments(
 		return "", fmt.Errorf("failed to download segments: %w", err)
 	}
 	zap.S().Debugf("merging segments %d segments", len(downloadedFiles))
-	mergedFilePath, err := av.MergeSegments(downloadedFiles, fileName)
+	mergedFilePath, err := libav.MergeSegments(downloadedFiles, fileName)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to merge segments: %w", err)
@@ -155,7 +156,7 @@ func downloadInMemory(
 		req.AddCookie(cookie)
 	}
 
-	resp, err := downloadHTTPSession.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file: %w", err)
 	}
@@ -374,7 +375,7 @@ func getFileSize(
 		req.AddCookie(cookie)
 	}
 
-	resp, err := downloadHTTPSession.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get file size: %w", err)
 	}
@@ -455,7 +456,7 @@ func downloadAndWriteChunk(
 	// set the range header for partial content
 	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 
-	resp, err := downloadHTTPSession.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
@@ -503,7 +504,7 @@ func downloadFile(
 	for _, cookie := range config.Cookies {
 		req.AddCookie(cookie)
 	}
-	resp, err := downloadHTTPSession.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to download file: %w", err)
 	}

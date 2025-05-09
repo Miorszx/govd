@@ -9,6 +9,7 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
 )
@@ -20,7 +21,7 @@ const (
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Pinterest (Short)",
-	CodeName:   "pinterest_short",
+	CodeName:   "pinterest",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://(www\.)?pin\.[^/]+/(?P<id>\w+)`),
@@ -28,9 +29,10 @@ var ShortExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		client := util.GetHTTPClient(ctx.Extractor.CodeName)
+		client := networking.GetExtractorHTTPClient(ctx.Extractor)
+		cookies := util.GetExtractorCookies(ctx.Extractor)
 		shortURL := fmt.Sprintf(shortenerAPIFormat, ctx.MatchedContentID)
-		location, err := util.GetLocationURL(client, shortURL, nil, nil)
+		location, err := util.GetLocationURL(client, shortURL, nil, cookies)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get real url: %w", err)
 		}
@@ -62,9 +64,8 @@ var Extractor = &models.Extractor{
 func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 	pinID := ctx.MatchedContentID
 	contentURL := ctx.MatchedContentURL
-	session := util.GetHTTPClient(ctx.Extractor.CodeName)
 
-	pinData, err := GetPinData(session, pinID)
+	pinData, err := GetPinData(ctx, pinID)
 	if err != nil {
 		return nil, err
 	}
@@ -135,26 +136,22 @@ func ExtractPinMedia(ctx *models.DownloadContext) ([]*models.Media, error) {
 }
 
 func GetPinData(
-	session models.HTTPClient,
+	ctx *models.DownloadContext,
 	pinID string,
 ) (*PinData, error) {
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
 	params := BuildPinRequestParams(pinID)
+	reqURL := pinResourceEndpoint + "?" + params
 
-	req, err := http.NewRequest(http.MethodGet, pinResourceEndpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	q := req.URL.Query()
-	for key, value := range params {
-		q.Add(key, value)
-	}
-	req.URL.RawQuery = q.Encode()
-	req.Header.Set("User-Agent", util.ChromeUA)
-
-	// fix 403 error
-	req.Header.Set("X-Pinterest-Pws-Handler", "www/[username].js")
-
-	resp, err := session.Do(req)
+	resp, err := util.FetchPage(
+		client,
+		http.MethodGet,
+		reqURL,
+		nil,
+		headers,
+		cookies,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

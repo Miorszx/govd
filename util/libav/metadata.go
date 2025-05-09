@@ -1,4 +1,4 @@
-package av
+package libav
 
 import "github.com/asticode/go-astiav"
 

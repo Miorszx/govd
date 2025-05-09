@@ -12,31 +12,39 @@ import (
 
 var accessToken *Token
 
-func GetAccessToken(session models.HTTPClient) (*Token, error) {
+func GetAccessToken(
+	client models.HTTPClient,
+	cookies []*http.Cookie,
+) (*Token, error) {
 	if accessToken == nil || time.Now().Unix() >= accessToken.ExpiresIn {
-		if err := RefreshAccessToken(session); err != nil {
+		if err := RefreshAccessToken(client, cookies); err != nil {
 			return nil, err
 		}
 	}
 	return accessToken, nil
 }
 
-func RefreshAccessToken(session models.HTTPClient) error {
-	req, err := http.NewRequest(http.MethodGet, tokenEndpoint, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("User-Agent", util.ChromeUA)
-	res, err := session.Do(req)
+func RefreshAccessToken(
+	client models.HTTPClient,
+	cookies []*http.Cookie,
+) error {
+	resp, err := util.FetchPage(
+		client,
+		http.MethodGet,
+		tokenEndpoint,
+		nil,
+		nil,
+		cookies,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to get access token: %s", res.Status)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get access token: %s", resp.Status)
 	}
 	var token Token
-	err = sonic.ConfigFastest.NewDecoder(res.Body).Decode(&token)
+	err = sonic.ConfigFastest.NewDecoder(resp.Body).Decode(&token)
 	if err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}

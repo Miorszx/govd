@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"fmt"
 	"govd/models"
+	"govd/util/networking"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +23,37 @@ import (
 
 var cookiesCache = make(map[string][]*http.Cookie)
 
+func FetchPage(
+	client models.HTTPClient,
+	method string,
+	url string,
+	body io.Reader,
+	headers map[string]string,
+	cookies []*http.Cookie,
+) (*http.Response, error) {
+	if client == nil {
+		client = networking.GetDefaultHTTPClient()
+	}
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", ChromeUA)
+	}
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	return resp, nil
+}
+
 func GetLocationURL(
 	client models.HTTPClient,
 	url string,
@@ -28,9 +61,8 @@ func GetLocationURL(
 	cookies []*http.Cookie,
 ) (string, error) {
 	if client == nil {
-		client = GetDefaultHTTPClient()
+		client = networking.GetDefaultHTTPClient()
 	}
-
 	setupRequest := func(method, url string) (*http.Request, error) {
 		req, err := http.NewRequest(method, url, nil)
 		if err != nil {
@@ -163,6 +195,18 @@ func RandomAlphaString(length int) string {
 		i++
 	}
 	return string(result)
+}
+
+func GetExtractorCookies(extractor *models.Extractor) []*http.Cookie {
+	if extractor == nil {
+		return nil
+	}
+	cookieFile := extractor.CodeName + ".txt"
+	cookies, err := ParseCookieFile(cookieFile)
+	if err != nil {
+		return nil
+	}
+	return cookies
 }
 
 func ParseCookieFile(fileName string) ([]*http.Cookie, error) {

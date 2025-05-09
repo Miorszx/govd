@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"govd/models"
 	"govd/util"
-	"govd/util/av"
+	"govd/util/libav"
 
 	"github.com/pkg/errors"
 )
@@ -40,7 +40,7 @@ func MergeAudio(media *models.DownloadedMedia) error {
 		return fmt.Errorf("failed to download audio file: %w", err)
 	}
 
-	err = av.MergeVideoWithAudio(
+	err = libav.MergeVideoWithAudio(
 		media.FilePath,
 		audioFile,
 	)

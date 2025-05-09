@@ -1,4 +1,4 @@
-package util
+package networking
 
 import (
 	"crypto/tls"

@@ -19,6 +19,7 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
 	"github.com/pkg/errors"
@@ -38,7 +39,7 @@ var (
 	embedPattern = regexp.MustCompile(
 		`new ServerJS\(\)\);s\.handle\(({.*})\);requireLazy`)
 
-	igHeaders = map[string]string{
+	webHeaders = map[string]string{
 		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 		"Accept-Language":           "en-GB,en;q=0.9",
 		"Cache-Control":             "max-age=0",
@@ -53,6 +54,10 @@ var (
 		"Sec-Fetch-User":            "?1",
 		"Upgrade-Insecure-Requests": "1",
 		"User-Agent":                util.ChromeUA,
+	}
+
+	igramHeaders = map[string]string{
+		"Content-Type": "application/json",
 	}
 )
 
@@ -235,7 +240,8 @@ func GetGQLData(
 	ctx *models.DownloadContext,
 	shortcode string,
 ) (*GraphQLData, error) {
-	session := util.GetHTTPClient(ctx.Extractor.CodeName)
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
 	graphHeaders, body, err := BuildGQLData()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build GQL data: %w", err)
@@ -259,21 +265,18 @@ func GetGQLData(
 	formData.Set("variables", string(variablesJSON))
 	formData.Set("server_timestamps", "true")
 	formData.Set("doc_id", "8845758582119845") // idk what this is
-	req, err := http.NewRequest(
+
+	for key, value := range webHeaders {
+		graphHeaders[key] = value
+	}
+	resp, err := util.FetchPage(
+		client,
 		http.MethodPost,
 		graphQLEndpoint,
 		strings.NewReader(formData.Encode()),
+		graphHeaders,
+		cookies,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	for key, value := range igHeaders {
-		req.Header.Set(key, value)
-	}
-	for key, value := range graphHeaders {
-		req.Header.Set(key, value)
-	}
-	resp, err := session.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -307,7 +310,7 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 		domain                = "www"
 		requestID             = "b"
 		clientCapabilityGrade = "EXCELLENT"
-		sessionInternalID     = "7436540909012459023"
+		clientInternalID      = "7436540909012459023"
 		apiVersion            = "1"
 		rolloutHash           = "1019933358"
 		appID                 = "936619743392459"
@@ -320,13 +323,13 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 		pixelRatio            = "2"
 		buildType             = "trunk"
 	)
-	session := "::" + util.RandomAlphaString(6)
-	sessionData := util.RandomBase64(8)
+	client := "::" + util.RandomAlphaString(6)
+	clientData := util.RandomBase64(8)
 	csrfToken := util.RandomBase64(32)
 	deviceID := util.RandomBase64(24)
 	machineID := util.RandomBase64(24)
 	dynamicFlags := util.RandomBase64(154)
-	clientSessionRnd := util.RandomBase64(154)
+	clientClientRnd := util.RandomBase64(154)
 	jazoestBig, err := rand.Int(rand.Reader, big.NewInt(10000))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate jazoest: %w", err)
@@ -343,7 +346,7 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 	}
 	headers := map[string]string{
 		"x-ig-app-id":        appID,
-		"X-FB-LSD":           sessionData,
+		"X-FB-LSD":           clientData,
 		"X-CSRFToken":        csrfToken,
 		"X-Bloks-Version-Id": bloksVersionID,
 		"x-asbd-id":          asbdID,
@@ -354,19 +357,19 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 	body := map[string]string{
 		"__d":         domain,
 		"__a":         apiVersion,
-		"__s":         session,
+		"__s":         client,
 		"__hs":        hiddenState,
 		"__req":       requestID,
 		"__ccg":       clientCapabilityGrade,
 		"__rev":       rolloutHash,
-		"__hsi":       sessionInternalID,
+		"__hsi":       clientInternalID,
 		"__dyn":       dynamicFlags,
-		"__csr":       clientSessionRnd,
+		"__csr":       clientClientRnd,
 		"__user":      loggedIn,
 		"__comet_req": cometRequestID,
-		"av":          appVersion,
+		"libav":       appVersion,
 		"dpr":         pixelRatio,
-		"lsd":         sessionData,
+		"lsd":         clientData,
 		"jazoest":     jazoest,
 		"__spin_r":    rolloutHash,
 		"__spin_b":    buildType,

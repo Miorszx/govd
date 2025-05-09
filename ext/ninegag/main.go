@@ -9,6 +9,7 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
 	"github.com/pkg/errors"
@@ -21,7 +22,7 @@ const (
 
 // 9gag gives 403 unless you use
 // real browser TLS fingerprint
-var httpSession = util.NewChromeClient()
+var httpClient = networking.NewChromeClient()
 
 var Extractor = &models.Extractor{
 	Name:       "9GAG",
@@ -99,7 +100,7 @@ func GetPostData(postID string) (*Post, error) {
 	}
 	req.Header.Set("User-Agent", util.ChromeUA)
 
-	resp, err := httpSession.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

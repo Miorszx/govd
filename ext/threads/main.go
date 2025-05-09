@@ -6,6 +6,7 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 	"io"
 	"net/http"
 	"regexp"
@@ -32,35 +33,33 @@ var Extractor = &models.Extractor{
 }
 
 func GetEmbedMediaList(ctx *models.DownloadContext) ([]*models.Media, error) {
-	session := util.GetHTTPClient(ctx.Extractor.CodeName)
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
 	embedURL := fmt.Sprintf(
 		"https://www.threads.net/@_/post/%s/embed",
 		ctx.MatchedContentID,
 	)
-	req, err := http.NewRequest(
+
+	resp, err := util.FetchPage(
+		client,
 		http.MethodGet,
 		embedURL,
 		nil,
+		headers,
+		cookies,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	res, err := session.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer res.Body.Close()
+	defer resp.Body.Close()
 
 	// debugging
-	logger.WriteFile("threads_embed", res)
+	logger.WriteFile("threads_embed", resp)
 
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get embed media: %s", res.Status)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get embed media: %s", resp.Status)
 	}
-	body, err := io.ReadAll(res.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}

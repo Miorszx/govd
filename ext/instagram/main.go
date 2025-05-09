@@ -6,6 +6,7 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 	"io"
 	"net/http"
 	"regexp"
@@ -65,7 +66,7 @@ var Extractor = &models.Extractor{
 
 var StoriesExtractor = &models.Extractor{
 	Name:       "Instagram Stories",
-	CodeName:   "instagram_stories",
+	CodeName:   "instagram",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?instagram\.com\/stories\/[a-zA-Z0-9._]+\/(?P<id>\d+)`),
@@ -82,7 +83,7 @@ var StoriesExtractor = &models.Extractor{
 
 var ShareURLExtractor = &models.Extractor{
 	Name:       "Instagram Share URL",
-	CodeName:   "instagram_share",
+	CodeName:   "instagram",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?:\/\/(www\.)?instagram\.com\/share\/((reels?|video|s|p)\/)?(?P<id>[^\/\?]+)`),
@@ -90,12 +91,13 @@ var ShareURLExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		client := util.GetHTTPClient(ctx.Extractor.CodeName)
+		client := networking.GetExtractorHTTPClient(ctx.Extractor)
+		cookies := util.GetExtractorCookies(ctx.Extractor)
 		redirectURL, err := util.GetLocationURL(
 			client,
 			ctx.MatchedContentURL,
-			igHeaders,
-			nil,
+			webHeaders,
+			cookies,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get url location: %w", err)
@@ -119,20 +121,21 @@ func GetGQLMediaList(
 func GetEmbedMediaList(
 	ctx *models.DownloadContext,
 ) ([]*models.Media, error) {
-	session := util.GetHTTPClient(ctx.Extractor.CodeName)
-	embedURL := fmt.Sprintf("https://www.instagram.com/p/%s/embed/captioned", ctx.MatchedContentID)
-	req, err := http.NewRequest(
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
+
+	embedURL := fmt.Sprintf(
+		"https://www.instagram.com/p/%s/embed/captioned",
+		ctx.MatchedContentID,
+	)
+	resp, err := util.FetchPage(
+		client,
 		http.MethodGet,
 		embedURL,
 		nil,
+		webHeaders,
+		cookies,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	for key, value := range igHeaders {
-		req.Header.Set(key, value)
-	}
-	resp, err := session.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -208,7 +211,9 @@ func GetFromIGram(
 	ctx *models.DownloadContext,
 	contentURL string,
 ) (*IGramResponse, error) {
-	session := util.GetHTTPClient(ctx.Extractor.CodeName)
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
+
 	apiURL := fmt.Sprintf(
 		"https://%s/api/convert",
 		igramHostname,
@@ -217,14 +222,14 @@ func GetFromIGram(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build signed payload: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, apiURL, payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", util.ChromeUA)
-
-	resp, err := session.Do(req)
+	resp, err := util.FetchPage(
+		client,
+		http.MethodPost,
+		apiURL,
+		payload,
+		igramHeaders,
+		cookies,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

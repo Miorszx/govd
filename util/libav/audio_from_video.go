@@ -1,4 +1,4 @@
-package av
+package libav
 
 import (
 	ffmpeg "github.com/u2takey/ffmpeg-go"

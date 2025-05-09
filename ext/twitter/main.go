@@ -10,6 +10,7 @@ import (
 	"govd/logger"
 	"govd/models"
 	"govd/util"
+	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
 	"github.com/pkg/errors"
@@ -23,7 +24,7 @@ const (
 
 var ShortExtractor = &models.Extractor{
 	Name:       "Twitter (Short)",
-	CodeName:   "twitter_short",
+	CodeName:   "twitter",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
 	URLPattern: regexp.MustCompile(`https?://t\.co/(?P<id>\w+)`),
@@ -31,18 +32,21 @@ var ShortExtractor = &models.Extractor{
 	IsRedirect: true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		client := util.GetHTTPClient(ctx.Extractor.CodeName)
-		req, err := http.NewRequest(http.MethodGet, ctx.MatchedContentURL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create req: %w", err)
-		}
-		req.Header.Set("User-Agent", util.ChromeUA)
-		res, err := client.Do(req)
+		client := networking.GetExtractorHTTPClient(ctx.Extractor)
+		cookies := util.GetExtractorCookies(ctx.Extractor)
+		resp, err := util.FetchPage(
+			client,
+			http.MethodGet,
+			ctx.MatchedContentURL,
+			nil,
+			nil,
+			cookies,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to send request: %w", err)
 		}
-		defer res.Body.Close()
-		body, err := io.ReadAll(res.Body)
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read body: %w", err)
 		}
@@ -81,10 +85,7 @@ var Extractor = &models.Extractor{
 
 func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	var mediaList []*models.Media
-	client := util.GetHTTPClient(ctx.Extractor.CodeName)
-
-	tweetData, err := GetTweetAPI(
-		client, ctx.MatchedContentID)
+	tweetData, err := GetTweetAPI(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tweet data: %w", err)
 	}
@@ -133,13 +134,12 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	return mediaList, nil
 }
 
-func GetTweetAPI(
-	client models.HTTPClient,
-	tweetID string,
-) (*Tweet, error) {
-	cookies, err := util.ParseCookieFile("twitter.txt")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cookies: %w", err)
+func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
+	client := networking.GetExtractorHTTPClient(ctx.Extractor)
+	cookies := util.GetExtractorCookies(ctx.Extractor)
+	tweetID := ctx.MatchedGroups["id"]
+	if cookies == nil {
+		return nil, errors.New("cookies not found")
 	}
 	headers := BuildAPIHeaders(cookies)
 	if headers == nil {
@@ -147,28 +147,17 @@ func GetTweetAPI(
 	}
 	query := BuildAPIQuery(tweetID)
 
-	req, err := http.NewRequest(http.MethodGet, apiEndpoint, nil)
+	reqURL := apiEndpoint + "?" + query
+	resp, err := util.FetchPage(
+		client,
+		http.MethodGet,
+		reqURL,
+		nil,
+		headers,
+		cookies,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create req: %w", err)
-	}
-
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	for _, cookie := range cookies {
-		req.AddCookie(cookie)
-	}
-
-	q := req.URL.Query()
-	for key, value := range query {
-		q.Add(key, value)
-	}
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to fetch page: %w", err)
 	}
 	defer resp.Body.Close()
 
