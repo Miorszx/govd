@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"govd/enums"
 	"govd/models"
-	"govd/util"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -24,7 +23,6 @@ var headers = map[string]string{
 	"Sec-Fetch-Site":            "none",
 	"Sec-Fetch-User":            "?1",
 	"Upgrade-Insecure-Requests": "1",
-	"User-Agent":                util.ChromeUA,
 }
 
 func ParseEmbedMedia(

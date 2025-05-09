@@ -53,7 +53,6 @@ var (
 		"Sec-Fetch-Site":            "none",
 		"Sec-Fetch-User":            "?1",
 		"Upgrade-Insecure-Requests": "1",
-		"User-Agent":                util.ChromeUA,
 	}
 
 	igramHeaders = map[string]string{
@@ -310,7 +309,7 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 		domain                = "www"
 		requestID             = "b"
 		clientCapabilityGrade = "EXCELLENT"
-		clientInternalID      = "7436540909012459023"
+		sessionInternalID     = "7436540909012459023"
 		apiVersion            = "1"
 		rolloutHash           = "1019933358"
 		appID                 = "936619743392459"
@@ -323,13 +322,13 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 		pixelRatio            = "2"
 		buildType             = "trunk"
 	)
-	client := "::" + util.RandomAlphaString(6)
-	clientData := util.RandomBase64(8)
+	session := "::" + util.RandomAlphaString(6)
+	sessionData := util.RandomBase64(8)
 	csrfToken := util.RandomBase64(32)
 	deviceID := util.RandomBase64(24)
 	machineID := util.RandomBase64(24)
 	dynamicFlags := util.RandomBase64(154)
-	clientClientRnd := util.RandomBase64(154)
+	clientSessionRnd := util.RandomBase64(154)
 	jazoestBig, err := rand.Int(rand.Reader, big.NewInt(10000))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate jazoest: %w", err)
@@ -346,7 +345,7 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 	}
 	headers := map[string]string{
 		"x-ig-app-id":        appID,
-		"X-FB-LSD":           clientData,
+		"X-FB-LSD":           sessionData,
 		"X-CSRFToken":        csrfToken,
 		"X-Bloks-Version-Id": bloksVersionID,
 		"x-asbd-id":          asbdID,
@@ -357,19 +356,19 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 	body := map[string]string{
 		"__d":         domain,
 		"__a":         apiVersion,
-		"__s":         client,
+		"__s":         session,
 		"__hs":        hiddenState,
 		"__req":       requestID,
 		"__ccg":       clientCapabilityGrade,
 		"__rev":       rolloutHash,
-		"__hsi":       clientInternalID,
+		"__hsi":       sessionInternalID,
 		"__dyn":       dynamicFlags,
-		"__csr":       clientClientRnd,
+		"__csr":       clientSessionRnd,
 		"__user":      loggedIn,
 		"__comet_req": cometRequestID,
 		"libav":       appVersion,
 		"dpr":         pixelRatio,
-		"lsd":         clientData,
+		"lsd":         sessionData,
 		"jazoest":     jazoest,
 		"__spin_r":    rolloutHash,
 		"__spin_b":    buildType,
