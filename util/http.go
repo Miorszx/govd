@@ -67,6 +67,7 @@ func GetHTTPClient(extractor string) models.HTTPClient {
 		client = NewClientFromConfig(cfg)
 	}
 	extractorClients[extractor] = client
+
 	return client
 }
 

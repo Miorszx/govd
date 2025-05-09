@@ -30,7 +30,7 @@ var ShortExtractor = &models.Extractor{
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		client := util.GetHTTPClient(ctx.Extractor.CodeName)
 		shortURL := fmt.Sprintf(shortenerAPIFormat, ctx.MatchedContentID)
-		location, err := util.GetLocationURL(client, shortURL, nil)
+		location, err := util.GetLocationURL(client, shortURL, nil, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get real url: %w", err)
 		}

@@ -51,6 +51,9 @@ func GetVideoWeb(
 	for key, value := range webHeaders {
 		req.Header.Set(key, value)
 	}
+	for _, cookie := range GetCookies() {
+		req.AddCookie(cookie)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -310,4 +313,12 @@ func ParseUniversalData(body []byte) (*WebItemStruct, error) {
 		return nil, fmt.Errorf("failed to unmarshal item struct: %w", err)
 	}
 	return &webItem, nil
+}
+
+func GetCookies() []*http.Cookie {
+	cookies, err := util.ParseCookieFile("tiktok.txt")
+	if err != nil {
+		return nil
+	}
+	return cookies
 }

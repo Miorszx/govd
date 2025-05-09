@@ -95,6 +95,7 @@ var ShareURLExtractor = &models.Extractor{
 			client,
 			ctx.MatchedContentURL,
 			igHeaders,
+			nil,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get url location: %w", err)

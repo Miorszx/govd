@@ -25,6 +25,7 @@ func GetLocationURL(
 	client models.HTTPClient,
 	url string,
 	headers map[string]string,
+	cookies []*http.Cookie,
 ) (string, error) {
 	if client == nil {
 		client = GetDefaultHTTPClient()
@@ -40,6 +41,9 @@ func GetLocationURL(
 		}
 		if req.Header.Get("User-Agent") == "" {
 			req.Header.Set("User-Agent", ChromeUA)
+		}
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
 		}
 		return req, nil
 	}

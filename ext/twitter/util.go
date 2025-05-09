@@ -108,7 +108,7 @@ func ExtractVideoFormats(media *MediaEntity) ([]*models.MediaFormat, error) {
 
 	for _, variant := range media.VideoInfo.Variants {
 		if variant.ContentType == "video/mp4" {
-			width, height := extractResolution(variant.URL)
+			width, height := ResolutionFromURL(variant.URL)
 
 			formats = append(formats, &models.MediaFormat{
 				Type:       enums.MediaTypeVideo,
@@ -128,7 +128,7 @@ func ExtractVideoFormats(media *MediaEntity) ([]*models.MediaFormat, error) {
 	return formats, nil
 }
 
-func extractResolution(url string) (int64, int64) {
+func ResolutionFromURL(url string) (int64, int64) {
 	matches := resolutionRegex.FindStringSubmatch(url)
 	if len(matches) >= 3 {
 		width, _ := strconv.ParseInt(matches[1], 10, 64)
