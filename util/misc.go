@@ -29,17 +29,38 @@ func GetLocationURL(
 	if client == nil {
 		client = GetDefaultHTTPClient()
 	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+
+	setupRequest := func(method, url string) (*http.Request, error) {
+		req, err := http.NewRequest(method, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		if req.Header.Get("User-Agent") == "" {
+			req.Header.Set("User-Agent", ChromeUA)
+		}
+		return req, nil
+	}
+
+	// try HEAD first
+	req, err := setupRequest(http.MethodHead, url)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", ChromeUA)
+		return "", err
 	}
 	resp, err := client.Do(req)
+	if err == nil {
+		defer resp.Body.Close()
+		return resp.Request.URL.String(), nil
+	}
+
+	// fallback to GET
+	req, err = setupRequest(http.MethodGet, url)
+	if err != nil {
+		return "", err
+	}
+	resp, err = client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}

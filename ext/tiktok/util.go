@@ -3,7 +3,9 @@ package tiktok
 import (
 	"crypto/rand"
 	"fmt"
+	"io"
 	"math/big"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -22,7 +24,96 @@ import (
 
 var (
 	universalDataPattern = regexp.MustCompile(`<script[^>]+\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)<\/script>`)
+	webHeaders           = map[string]string{
+		"Host":            "www.tiktok.com",
+		"Connection":      "keep-alive",
+		"User-Agent":      "Mozilla/5.0",
+		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+		"Accept-Language": "en-us,en;q=0.5",
+		"Sec-Fetch-Mode":  "navigate",
+	}
 )
+
+func GetVideoWeb(
+	client models.HTTPClient,
+	awemeID string,
+) (*WebItemStruct, []*http.Cookie, error) {
+	url := fmt.Sprintf(webBase, awemeID)
+	req, err := http.NewRequest(
+		http.MethodGet,
+		url,
+		nil,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	for key, value := range webHeaders {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	itemStruct, err := ParseUniversalData(body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse universal data: %w", err)
+	}
+	return itemStruct, resp.Cookies(), nil
+}
+
+func GetVideoAPI(
+	client models.HTTPClient,
+	awemeID string,
+) (*AwemeDetails, error) {
+	apiURL := fmt.Sprintf(
+		"https://%s/aweme/v1/multi/aweme/detail/",
+		apiHostname,
+	)
+	queryParams, err := BuildAPIQuery()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build api query: %w", err)
+	}
+	postData := BuildPostData(awemeID)
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		apiURL,
+		postData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.URL.RawQuery = queryParams.Encode()
+	req.Header.Set("User-Agent", appUserAgent)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Argus", "")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var data *Response
+	decoder := sonic.ConfigFastest.NewDecoder(resp.Body)
+	err = decoder.Decode(&data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	videoData, err := FindVideoData(data, awemeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find video data: %w", err)
+	}
+	return videoData, nil
+}
 
 func BuildAPIQuery() (url.Values, error) {
 	requestTicket := strconv.Itoa(int(time.Now().Unix()) * 1000)
