@@ -3,6 +3,7 @@ package threads
 import (
 	"fmt"
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 	"io"
@@ -52,6 +53,10 @@ func GetEmbedMediaList(ctx *models.DownloadContext) ([]*models.Media, error) {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer res.Body.Close()
+
+	// debugging
+	logger.WriteFile("threads_embed", res)
+
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get embed media: %s", res.Status)
 	}

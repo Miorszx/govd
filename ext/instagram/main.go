@@ -3,6 +3,7 @@ package instagram
 import (
 	"fmt"
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 	"io"
@@ -135,6 +136,10 @@ func GetEmbedMediaList(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// debugging
+	logger.WriteFile("ig_embed_response", resp)
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get embed page: %s", resp.Status)
 	}
@@ -223,6 +228,10 @@ func GetFromIGram(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// debugging
+	logger.WriteFile("ig_3party_response", resp)
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get response: %s", resp.Status)
 	}

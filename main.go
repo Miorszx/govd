@@ -8,6 +8,7 @@ import (
 	"govd/database"
 	"govd/ext"
 	"govd/logger"
+	"govd/plugins"
 	"govd/util"
 	"os"
 	"os/exec"
@@ -21,10 +22,11 @@ import (
 )
 
 var logLevel string
+var allowLogFile bool
 
 func main() {
 	parseFlags()
-	logger.Init(logLevel)
+	logger.Init(logLevel, allowLogFile)
 	defer logger.Sync()
 
 	loadEnv()
@@ -35,6 +37,7 @@ func main() {
 	database.Start()
 
 	zap.S().Debugf("loaded %d extractors", len(ext.List))
+	zap.S().Debugf("loaded %d plugins", len(plugins.List))
 
 	go bot.Start()
 
@@ -74,5 +77,6 @@ func startProfiler() {
 
 func parseFlags() {
 	flag.StringVar(&logLevel, "log", "info", "log level (debug, info, warn, error)")
+	flag.BoolVar(&allowLogFile, "logfile", false, "allow writing log files")
 	flag.Parse()
 }

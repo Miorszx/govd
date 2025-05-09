@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 
@@ -211,7 +212,7 @@ func ParseIGramResponse(body []byte) (*IGramResponse, error) {
 		return &IGramResponse{
 			Items: mediaList,
 		}, nil
-		}
+	}
 	return &IGramResponse{
 		Items: []*IGramMedia{&media},
 	}, nil
@@ -277,6 +278,10 @@ func GetGQLData(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// debugging
+	logger.WriteFile("iggql_api_response", resp)
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("invalid response code: %s", resp.Status)
 	}

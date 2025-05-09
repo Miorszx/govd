@@ -16,6 +16,7 @@ import (
 	"github.com/pkg/errors"
 
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 
@@ -101,6 +102,9 @@ func GetVideoAPI(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// debugging
+	logger.WriteFile("tt_api_response", resp)
 
 	var data *Response
 	decoder := sonic.ConfigFastest.NewDecoder(resp.Body)
@@ -291,6 +295,10 @@ func ParseUniversalData(body []byte) (*WebItemStruct, error) {
 	if itemStruct == nil {
 		return nil, errors.New("item struct not found")
 	}
+
+	// debugging
+	logger.WriteFile("tt_item_struct", itemStruct)
+
 	itemStructBytes, err := sonic.ConfigFastest.Marshal(itemStruct)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal item struct: %w", err)

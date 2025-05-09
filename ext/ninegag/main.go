@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 
@@ -103,6 +104,9 @@ func GetPostData(postID string) (*Post, error) {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// debugging
+	logger.WriteFile("9gag_api_response", resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("invalid status code: %d", resp.StatusCode)

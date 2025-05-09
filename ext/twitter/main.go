@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 
@@ -170,6 +171,9 @@ func GetTweetAPI(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// debugging
+	logger.WriteFile("twitter_api_response", resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("invalid response code: %s", resp.Status)

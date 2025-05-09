@@ -3,6 +3,7 @@ package redgifs
 import (
 	"fmt"
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 	"net/http"
@@ -135,6 +136,10 @@ func GetVideo(
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get video: %s", res.Status)
 	}
+
+	// debugging
+	logger.WriteFile("redgifs_api_response", res)
+
 	var response Response
 	err = sonic.ConfigFastest.NewDecoder(res.Body).Decode(&response)
 	if err != nil {

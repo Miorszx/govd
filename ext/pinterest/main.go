@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 
@@ -158,6 +159,9 @@ func GetPinData(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// debugging
+	logger.WriteFile("pinterest_api_response", resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("bad response: %s", resp.Status)

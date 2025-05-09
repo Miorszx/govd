@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	"govd/enums"
+	"govd/logger"
 	"govd/models"
 	"govd/util"
 
@@ -262,6 +263,9 @@ func GetRedditData(
 
 		return GetRedditData(session, altHost, slug, true)
 	}
+
+	// debugging
+	logger.WriteFile("reddit_api_response", res)
 
 	var response Response
 	decoder := sonic.ConfigFastest.NewDecoder(res.Body)
