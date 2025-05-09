@@ -13,7 +13,8 @@ import (
 	_ "image/png" // register PNG decoder
 
 	_ "github.com/strukturag/libheif/go/heif" // register HEIF decoder
-	_ "golang.org/x/image/webp"               // register WebP decoder
+	"go.uber.org/zap"
+	_ "golang.org/x/image/webp" // register WebP decoder
 )
 
 var (
@@ -26,6 +27,8 @@ var (
 
 func ImgToJPEG(file io.ReadSeeker, outputPath string) error {
 	format, err := DetectImageFormat(file)
+	zap.S().Debugf("detected image format: %s", format)
+
 	if err != nil {
 		return fmt.Errorf("failed to detect image format: %w", err)
 	}

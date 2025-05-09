@@ -9,6 +9,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 func HandleDefaultFormatDownload(
@@ -26,6 +27,12 @@ func HandleDefaultFormatDownload(
 	}
 
 	if len(storedMedias) > 0 {
+		zap.S().Debugf(
+			"found %d stored medias for %s (%s)",
+			len(storedMedias),
+			dlCtx.MatchedContentID,
+			dlCtx.Extractor.CodeName,
+		)
 		return HandleDefaultStoredFormatDownload(
 			bot, ctx, dlCtx, storedMedias,
 		)
@@ -38,6 +45,11 @@ func HandleDefaultFormatDownload(
 
 	mediaList := response.MediaList
 	if len(mediaList) == 0 {
+		zap.S().Warnf(
+			"no media found for %s (%s), skpping download",
+			dlCtx.MatchedContentID,
+			dlCtx.Extractor.CodeName,
+		)
 		return nil
 	}
 
@@ -77,6 +89,12 @@ func HandleDefaultFormatDownload(
 	// and before it is sent to the user
 	// this allows for things like merging audio and video, etc.
 	for _, media := range medias {
+		zap.S().Debugf(
+			"running %d plugins for %s (%s)",
+			len(media.Media.Format.Plugins),
+			dlCtx.MatchedContentID,
+			dlCtx.Extractor.CodeName,
+		)
 		for _, plugin := range media.Media.Format.Plugins {
 			err = plugin(media)
 			if err != nil {
@@ -85,7 +103,7 @@ func HandleDefaultFormatDownload(
 		}
 	}
 
-	_, err = SendMedias(
+	msgs, err := SendMedias(
 		bot, ctx, dlCtx,
 		medias,
 		&models.SendMediaFormatsOptions{
@@ -96,6 +114,13 @@ func HandleDefaultFormatDownload(
 	if err != nil {
 		return fmt.Errorf("failed to send formats: %w", err)
 	}
+
+	zap.S().Debugf(
+		"sent %d medias for %s (%s)",
+		len(msgs),
+		dlCtx.MatchedContentID,
+		dlCtx.Extractor.CodeName,
+	)
 
 	return nil
 }

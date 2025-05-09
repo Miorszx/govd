@@ -10,6 +10,7 @@ import (
 	"regexp"
 
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 var instagramHost = []string{"instagram"}
@@ -31,6 +32,10 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
+		zap.S().Debugf(
+			"failed to get media from GQL API: %v",
+			err,
+		)
 		// method 2: get media from embed page
 		mediaList, err = GetEmbedMediaList(ctx)
 		if err == nil && len(mediaList) > 0 {
@@ -38,6 +43,10 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
+		zap.S().Debugf(
+			"failed to get media from embed page: %v",
+			err,
+		)
 		// method 3: get media from 3rd party service (unlikely)
 		mediaList, err = GetIGramMediaList(ctx)
 		if err == nil && len(mediaList) > 0 {
@@ -45,6 +54,10 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
+		zap.S().Debugf(
+			"failed to get media from 3rd party service: %v",
+			err,
+		)
 		return nil, errors.New("failed to extract media: all methods failed")
 	},
 }

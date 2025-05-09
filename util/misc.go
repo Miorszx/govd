@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	"golang.org/x/net/publicsuffix"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -51,8 +51,10 @@ func GetLocationURL(
 	}
 	resp, err := client.Do(req)
 	if err == nil {
-		defer resp.Body.Close()
-		return resp.Request.URL.String(), nil
+		resp.Body.Close()
+		url := resp.Request.URL.String()
+		zap.S().Debugf("head response url: %s", url)
+		return url, nil
 	}
 
 	// fallback to GET
@@ -61,11 +63,13 @@ func GetLocationURL(
 		return "", err
 	}
 	resp, err = client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+	if err == nil {
+		resp.Body.Close()
+		url := resp.Request.URL.String()
+		zap.S().Debugf("get response url: %s", url)
+		return url, nil
 	}
-	defer resp.Body.Close()
-	return resp.Request.URL.String(), nil
+	return "", errors.New("failed to get location url")
 }
 
 func IsUserAdmin(
@@ -182,12 +186,8 @@ func FixURL(url string) string {
 	return strings.ReplaceAll(url, "&amp;", "&")
 }
 
-func CheckFFmpeg() bool {
-	_, err := exec.LookPath("ffmpeg")
-	return err == nil
-}
-
 func CleanupDownloadsDir() {
+	zap.L().Debug("cleaning up downloads directory")
 	downloadsDir := os.Getenv("DOWNLOAD_DIR")
 	if downloadsDir == "" {
 		downloadsDir = "downloads"

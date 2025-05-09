@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"log"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/callbackquery"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/choseninlineresult"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/inlinequery"
+	"go.uber.org/zap"
 )
 
 var allowedUpdates = []string{
@@ -27,41 +27,45 @@ var allowedUpdates = []string{
 func Start() {
 	token := os.Getenv("BOT_TOKEN")
 	if token == "" {
-		log.Fatalf("BOT_TOKEN is not provided")
+		zap.S().Fatal("BOT_TOKEN is not provided")
 	}
 	b, err := gotgbot.NewBot(token, &gotgbot.BotOpts{
 		BotClient: NewBotClient(),
 	})
 	if err != nil {
-		log.Fatalf("failed to create bot: %v", err)
+		zap.S().Fatalf("failed to create bot: %v", err)
 	}
 	concurrentUpdates, err := strconv.Atoi(os.Getenv("CONCURRENT_UPDATES"))
 	if err != nil {
-		log.Println("failed to parse CONCURRENT_UPDATES env, using 50")
+		zap.S().Warn("failed to parse CONCURRENT_UPDATES env, using 50")
 		concurrentUpdates = 50
 	}
 	logDispatcherErrors, err := strconv.ParseBool(os.Getenv("LOG_DISPATCHER_ERRORS"))
 	if err != nil {
-		log.Println("failed to parse LOG_DISPATCHER_ERRORS env, using false")
+		zap.S().Warn("failed to parse LOG_DISPATCHER_ERRORS env, using false")
 		logDispatcherErrors = false
 	}
 	dispatcher := ext.NewDispatcher(&ext.DispatcherOpts{
 		Error: func(_ *gotgbot.Bot, _ *ext.Context, err error) ext.DispatcherAction {
 			if logDispatcherErrors {
-				log.Printf("an error occurred while handling update: %v", err)
+				zap.S().Errorf("an error occurred while handling update: %v", err)
 			}
 			return ext.DispatcherActionNoop
 		},
 		Panic: func(_ *gotgbot.Bot, _ *ext.Context, r any) {
 			if logDispatcherErrors {
-				log.Printf("panic occurred while handling update: %v\n", r)
-				log.Printf("stack trace:\n%s\n", debug.Stack())
+				zap.S().Errorf(
+					"panic occurred while handling update: %v\n%s",
+					r,
+					debug.Stack(),
+				)
 			}
 		},
 		MaxRoutines: concurrentUpdates,
 	})
 	updater := ext.NewUpdater(dispatcher, nil)
 	registerHandlers(dispatcher)
+	zap.S().Debugf("starting updates polling. allowed updates: %v", allowedUpdates)
 	err = updater.StartPolling(b, &ext.PollingOpts{
 		DropPendingUpdates: true,
 		GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
@@ -73,12 +77,13 @@ func Start() {
 		},
 	})
 	if err != nil {
-		log.Fatalf("failed to start polling: %v", err)
+		zap.S().Fatalf("failed to start polling: %v", err)
 	}
-	log.Printf("bot started on: %s\n", b.User.Username)
+	zap.S().Infof("bot started with username: %s", b.Username)
 }
 
 func registerHandlers(dispatcher *ext.Dispatcher) {
+	zap.S().Debug("registering handlers")
 	dispatcher.AddHandler(handlers.NewMessage(
 		botHandlers.URLFilter,
 		botHandlers.URLHandler,

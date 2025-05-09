@@ -18,6 +18,7 @@ import (
 	"govd/util/av"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 var downloadHTTPSession = GetDefaultHTTPClient()
@@ -28,6 +29,8 @@ func DownloadFile(
 	fileName string,
 	config *models.DownloadConfig,
 ) (string, error) {
+	zap.S().Debugf("invoking downloader: %s", fileName)
+
 	var errs []error
 	for _, fileURL := range urlList {
 		select {
@@ -65,6 +68,8 @@ func DownloadFileWithSegments(
 	fileName string,
 	config *models.DownloadConfig,
 ) (string, error) {
+	zap.S().Debugf("invoking segments downloader: %s", fileName)
+
 	if err := EnsureDownloadDir(config.DownloadDir); err != nil {
 		return "", err
 	}
@@ -81,6 +86,7 @@ func DownloadFileWithSegments(
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to download segments: %w", err)
 	}
+	zap.S().Debugf("merging segments %d segments", len(downloadedFiles))
 	mergedFilePath, err := av.MergeSegments(downloadedFiles, fileName)
 	if err != nil {
 		os.RemoveAll(tempDir)
@@ -97,6 +103,8 @@ func DownloadFileInMemory(
 	urlList []string,
 	config *models.DownloadConfig,
 ) (*bytes.Reader, error) {
+	zap.S().Debugf("invoking in-memory downloader")
+
 	var errs []error
 	for _, fileURL := range urlList {
 		select {
@@ -195,6 +203,7 @@ func downloadInMemory(
 func EnsureDownloadDir(dir string) error {
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
+			zap.S().Debugf("creating downloads directory: %s", dir)
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return fmt.Errorf("failed to create downloads directory: %w", err)
 			}
@@ -374,8 +383,9 @@ func getFileSize(
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("failed to get file size: status code %d", resp.StatusCode)
 	}
-
-	return int(resp.ContentLength), nil
+	fileSize := int(resp.ContentLength)
+	zap.S().Debugf("file size found: %d bytes", fileSize)
+	return fileSize, nil
 }
 
 func downloadChunkToFile(
@@ -423,6 +433,11 @@ func downloadAndWriteChunk(
 	config *models.DownloadConfig,
 	fileMutex *sync.Mutex,
 ) error {
+	zap.S().Debugf(
+		"downloading chunk %d-%d",
+		start, end,
+	)
+
 	reqCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 

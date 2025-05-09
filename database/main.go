@@ -4,10 +4,10 @@ import (
 	"govd/models"
 
 	"fmt"
-	"log"
 	"os"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -19,18 +19,18 @@ func Start() {
 	DB = connect()
 	sqlDB, err := DB.DB()
 	if err != nil {
-		log.Fatalf("failed to get database connection: %v", err)
+		zap.L().Fatal("failed to get database connection", zap.Error(err))
 	}
 	sqlDB.SetMaxIdleConns(20)
 	sqlDB.SetMaxOpenConns(50)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	err = sqlDB.Ping()
 	if err != nil {
-		log.Fatalf("failed to ping database: %v", err)
+		zap.L().Fatal("failed to ping database", zap.Error(err))
 	}
 	err = migrateDatabase()
 	if err != nil {
-		log.Fatalf("failed to migrate database: %v", err)
+		zap.L().Fatal("failed to migrate database", zap.Error(err))
 	}
 }
 
@@ -45,6 +45,7 @@ func connect() *gorm.DB {
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True",
 		user, password, host, port, dbname,
 	)
+	zap.L().Debug("connecting to database")
 
 	var conn *gorm.DB
 	var err error
@@ -64,18 +65,22 @@ func connect() *gorm.DB {
 			break
 		}
 		retryCount++
-		log.Printf("failed to connect to database (attempt %d/%d)", retryCount, maxRetries)
+		zap.L().Warn("failed to connect to database",
+			zap.Int("attempt", retryCount),
+			zap.Int("max_retries", maxRetries),
+		)
 		if retryCount < maxRetries {
 			time.Sleep(2 * time.Second)
 		}
 	}
 	if err != nil {
-		log.Fatalf("failed to connect to database after %d attempts: %v", maxRetries, err)
+		zap.L().Fatal("failed to connect to database", zap.Error(err))
 	}
 	return conn
 }
 
 func migrateDatabase() error {
+	zap.L().Debug("migrating database")
 	err := DB.AutoMigrate(
 		&models.Media{},
 		&models.MediaFormat{},

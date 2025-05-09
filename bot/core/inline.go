@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 
 	"govd/database"
 	"govd/enums"
@@ -37,10 +38,12 @@ func GetTask(id string) (*models.DownloadContext, error) {
 	if !ok {
 		return nil, errors.New("invalid task entry")
 	}
+	zap.S().Debugf("inline task %s found", id)
 	return entry.Task, nil
 }
 
 func SetTask(id string, task *models.DownloadContext) {
+	zap.S().Debugf("setting inline task %s", id)
 	InlineTasks.Store(id, TaskEntry{
 		Task:      task,
 		CreatedAt: time.Now(),
@@ -49,10 +52,12 @@ func SetTask(id string, task *models.DownloadContext) {
 }
 
 func DeleteTask(id string) {
+	zap.S().Debugf("deleting inline task %s", id)
 	InlineTasks.Delete(id)
 }
 
 func startTasksCleanup() {
+	zap.S().Debug("starting inline tasks cleanup")
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
@@ -65,7 +70,7 @@ func startTasksCleanup() {
 
 func cleanupStaleTasks() {
 	now := time.Now()
-	InlineTasks.Range(func(key, value interface{}) bool {
+	InlineTasks.Range(func(key, value any) bool {
 		entry, ok := value.(TaskEntry)
 		if !ok {
 			InlineTasks.Delete(key)
@@ -73,6 +78,7 @@ func cleanupStaleTasks() {
 		}
 
 		if now.Sub(entry.CreatedAt) > taskTimeout {
+			zap.S().Debugf("deleting stale task %s", key)
 			InlineTasks.Delete(key)
 		}
 		return true

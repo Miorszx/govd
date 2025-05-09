@@ -1,5 +1,7 @@
 package util
 
+import "go.uber.org/zap"
+
 func TraverseJSON(
 	data any,
 	keys any,
@@ -11,7 +13,8 @@ func TraverseJSON(
 	case []string:
 		keySlice = k
 	default:
-		return nil // unsupported keys type
+		zap.S().Warnf("unsupported keys type: %T", keys)
+		return nil
 	}
 
 	return traverseObject(data, keySlice)

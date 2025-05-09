@@ -17,6 +17,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 func getFileThumbnail(
@@ -32,6 +33,7 @@ func getFileThumbnail(
 	thumbnailFilePath := filepath.Join(fileDir, fileBaseName+".thumb.jpeg")
 
 	if len(format.Thumbnail) > 0 {
+		zap.S().Debug("downloading thumbnail from URL")
 		file, err := util.DownloadFileInMemory(ctx, format.Thumbnail, config)
 		if err != nil {
 			return "", fmt.Errorf("failed to download file in memory: %w", err)
@@ -43,6 +45,7 @@ func getFileThumbnail(
 		return thumbnailFilePath, nil
 	}
 	if format.Type == enums.MediaTypeVideo {
+		zap.S().Debug("extracting video thumbnail with libav")
 		err := av.ExtractVideoThumbnail(filePath, thumbnailFilePath)
 		if err != nil {
 			return "", fmt.Errorf("failed to extract video thumbnail: %w", err)
@@ -56,8 +59,10 @@ func insertVideoInfo(
 	format *models.MediaFormat,
 	filePath string,
 ) {
+	zap.S().Debug("extracting video info from mp4box")
 	duration, width, height := mp4box.ExtractBoxMetadata(filePath)
 	if duration == 0 && width == 0 && height == 0 {
+		zap.S().Debug("extracting video info with libav")
 		duration, width, height = av.GetVideoInfo(filePath)
 	}
 	format.Duration = duration
@@ -111,6 +116,13 @@ func StoreMedias(
 	if len(medias) == 0 {
 		return errors.New("no media to store")
 	}
+
+	zap.S().Debugf(
+		"storing %d medias for %s (%s)",
+		len(medias),
+		dlCtx.MatchedContentID,
+		dlCtx.Extractor.CodeName,
+	)
 
 	storedMedias := make([]*models.Media, 0, len(medias))
 
@@ -268,6 +280,10 @@ func ensureMergeFormats(
 	media *models.Media,
 	videoFormat *models.MediaFormat,
 ) {
+	zap.S().Debugf(
+		"ensuring merge formats for %s (%s)",
+		media.ContentID, media.ExtractorCodeName,
+	)
 	if videoFormat.Type != enums.MediaTypeVideo {
 		return
 	}

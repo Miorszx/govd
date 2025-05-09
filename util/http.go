@@ -1,7 +1,6 @@
 package util
 
 import (
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,6 +10,8 @@ import (
 
 	"govd/config"
 	"govd/models"
+
+	"go.uber.org/zap"
 )
 
 var (
@@ -94,13 +95,13 @@ func configureProxyTransport(
 	if cfg.HTTPProxy != "" {
 		httpProxyURL, err = url.Parse(cfg.HTTPProxy)
 		if err != nil {
-			log.Printf("warning: invalid HTTP proxy URL '%s': %v\n", cfg.HTTPProxy, err)
+			zap.S().Warnf("warning: invalid HTTP proxy URL '%s': %v", cfg.HTTPProxy, err)
 		}
 	}
 	if cfg.HTTPSProxy != "" {
 		httpsProxyURL, err = url.Parse(cfg.HTTPSProxy)
 		if err != nil {
-			log.Printf("warning: invalid HTTPS proxy URL '%s': %v\n", cfg.HTTPSProxy, err)
+			zap.S().Warnf("warning: invalid HTTPS proxy URL '%s': %v", cfg.HTTPSProxy, err)
 		}
 	}
 	if httpProxyURL == nil && httpsProxyURL == nil {

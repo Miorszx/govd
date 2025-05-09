@@ -10,6 +10,7 @@ import (
 	"govd/util"
 
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 const (
@@ -66,6 +67,10 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
+		zap.S().Debugf(
+			"failed to get media from web: %v",
+			err,
+		)
 		// method 2: get media from api
 		mediaList, err = MediaListFromAPI(ctx)
 		if err == nil {
@@ -73,6 +78,10 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
+		zap.S().Debugf(
+			"failed to get media from api: %v",
+			err,
+		)
 		return nil, errors.New("failed to extract media: all methods failed")
 	},
 }
