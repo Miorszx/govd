@@ -59,6 +59,11 @@ func GetVideoWeb(ctx *models.DownloadContext) (*WebItemStruct, []*http.Cookie, e
 		return nil, nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.Request.URL.Path == "/login" {
+		return nil, nil, util.ErrAuthenticationNeeded
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)

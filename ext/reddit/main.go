@@ -33,7 +33,7 @@ var ShortExtractor = &models.Extractor{
 		client := networking.GetExtractorHTTPClient(ctx.Extractor)
 		cookies := util.GetExtractorCookies(ctx.Extractor)
 		if cookies == nil {
-			return nil, errors.New("cookies not found")
+			return nil, util.ErrAuthenticationNeeded
 		}
 
 		resp, err := util.FetchPage(

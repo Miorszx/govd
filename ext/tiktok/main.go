@@ -74,7 +74,7 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
-		zap.S().Debugf("failed to get media from web: %v", err)
+		zap.S().Debug(err)
 		// method 2: get media from api
 		mediaList, err = MediaListFromAPI(ctx)
 		if err == nil {
@@ -82,7 +82,7 @@ var Extractor = &models.Extractor{
 				MediaList: mediaList,
 			}, nil
 		}
-		zap.S().Debugf("failed to get media from api: %v", err)
+		zap.S().Debug(err)
 		return nil, errors.New("failed to extract media: all methods failed")
 	},
 }

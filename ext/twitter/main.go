@@ -139,11 +139,11 @@ func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
 	cookies := util.GetExtractorCookies(ctx.Extractor)
 	tweetID := ctx.MatchedGroups["id"]
 	if cookies == nil {
-		return nil, errors.New("cookies not found")
+		return nil, util.ErrAuthenticationNeeded
 	}
 	headers := BuildAPIHeaders(cookies)
 	if headers == nil {
-		return nil, errors.New("failed to build headers. check cookies")
+		return nil, errors.New("failed to build headers. try refreshing cookies")
 	}
 	query := BuildAPIQuery(tweetID)
 

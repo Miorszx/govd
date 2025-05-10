@@ -253,7 +253,11 @@ func SendErrorMessage(
 		ctx.EffectiveMessage.Reply(
 			bot,
 			errorMessage,
-			nil,
+			&gotgbot.SendMessageOpts{
+				LinkPreviewOptions: &gotgbot.LinkPreviewOptions{
+					IsDisabled: true,
+				},
+			},
 		)
 	case ctx.Update.InlineQuery != nil:
 		ctx.InlineQuery.Answer(
@@ -272,7 +276,11 @@ func SendErrorMessage(
 			errorMessage,
 			&gotgbot.EditMessageTextOpts{
 				InlineMessageId: ctx.ChosenInlineResult.InlineMessageId,
-			})
+				LinkPreviewOptions: &gotgbot.LinkPreviewOptions{
+					IsDisabled: true,
+				},
+			},
+		)
 	}
 }
 
