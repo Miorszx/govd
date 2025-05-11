@@ -3,6 +3,7 @@ package tiktok
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 
 	"govd/enums"
@@ -50,6 +51,22 @@ var VMExtractor = &models.Extractor{
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get url location: %w", err)
+		}
+		parsedURL, err := url.Parse(redirectURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse redirect url: %w", err)
+		}
+		if parsedURL.Path == "/login" {
+			realURL := parsedURL.Query().Get("redirect_url")
+			if realURL == "" {
+				return nil, errors.New(
+					"tiktok is geo restricted in your region, " +
+						"use cookies to bypass or use a VPN/proxy",
+				)
+			}
+			return &models.ExtractorResponse{
+				URL: realURL,
+			}, nil
 		}
 		return &models.ExtractorResponse{
 			URL: redirectURL,
