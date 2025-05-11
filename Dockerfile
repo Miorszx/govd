@@ -13,9 +13,6 @@ WORKDIR /bot
 
 COPY . .
 
-# ensure the .env file exists
-RUN test -f .env || (echo ".env file is missing. build aborted." && exit 1)
-
 RUN mkdir -p downloads
 
 WORKDIR /bot/packages

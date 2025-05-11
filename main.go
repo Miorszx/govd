@@ -24,13 +24,13 @@ func main() {
 	// setup environment variables
 	err := godotenv.Load()
 	if err != nil {
-		zap.S().Fatal("error loading .env file")
+		zap.S().Warn("failed to load .env file. using system env")
 	}
 
 	// setup extractors
 	err = config.LoadExtractorConfigs()
 	if err != nil {
-		zap.S().Fatalf("error loading extractor configs: %v", err)
+		zap.S().Fatalf("failed to load extractor configs: %v", err)
 	}
 	zap.S().Debugf("loaded %d extractors", len(ext.List))
 	zap.S().Debugf("loaded %d plugins", len(plugins.List))
