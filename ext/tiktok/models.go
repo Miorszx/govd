@@ -1,9 +1,9 @@
 package tiktok
 
 type Response struct {
-	AwemeDetails []AwemeDetails `json:"aweme_details"`
-	StatusCode   int            `json:"status_code"`
-	StatusMsg    string         `json:"status_msg"`
+	AwemeDetail *AwemeDetail `json:"aweme_detail"`
+	StatusCode  int          `json:"status_code"`
+	StatusMsg   string       `json:"status_msg"`
 }
 
 type Cover struct {
@@ -55,7 +55,7 @@ type Video struct {
 	Width           int64     `json:"width"`
 }
 
-type AwemeDetails struct {
+type AwemeDetail struct {
 	AwemeID       string         `json:"aweme_id"`
 	AwemeType     int            `json:"aweme_type"`
 	Desc          string         `json:"desc"`

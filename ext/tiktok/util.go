@@ -78,13 +78,13 @@ func GetVideoWeb(ctx *models.DownloadContext) (*WebItemStruct, []*http.Cookie, e
 	return itemStruct, resp.Cookies(), nil
 }
 
-func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
+func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetail, error) {
 	client := networking.GetExtractorHTTPClient(ctx.Extractor)
 	cookies := util.GetExtractorCookies(ctx.Extractor)
 
 	awemeID := ctx.MatchedContentID
 	apiURL := fmt.Sprintf(
-		"https://%s/aweme/v1/multi/aweme/detail/",
+		"https://%s/aweme/v1/aweme/detail/",
 		apiHostname,
 	)
 	queryParams, err := BuildAPIQuery()
@@ -128,11 +128,13 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	videoData, err := FindVideoData(data, awemeID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find video data: %w", err)
+	if data.StatusCode == 2053 {
+		return nil, util.ErrUnavailable
 	}
-	return videoData, nil
+	if data.AwemeDetail == nil {
+		return nil, errors.New("aweme_detail is nil")
+	}
+	return data.AwemeDetail, nil
 }
 
 func BuildAPIQuery() (url.Values, error) {
@@ -181,7 +183,7 @@ func BuildAPIQuery() (url.Values, error) {
 		"build_number":          []string{appVersion},
 		"region":                []string{"US"},
 		"ts":                    []string{strconv.Itoa(int(time.Now().Unix()))},
-		"iid":                   []string{""}, // installation id, unchecked
+		"iid":                   []string{"123"}, // installation id, unchecked
 		"device_id":             []string{GetRandomDeviceID()},
 		"openudid":              []string{GetRandomUdid()},
 	}, nil
@@ -252,7 +254,7 @@ func GetRandomDeviceID() string {
 
 func BuildPostData(awemeID string) string {
 	data := url.Values{
-		"aweme_ids":      []string{fmt.Sprintf("[%s]", awemeID)},
+		"aweme_id":       []string{awemeID},
 		"request_source": []string{"0"},
 	}
 	return data.Encode()
@@ -274,24 +276,6 @@ func GetAppVersionCode(version string) (string, error) {
 		}
 	}
 	return result.String(), nil
-}
-
-func FindVideoData(
-	resp *Response,
-	expectedAwemeID string,
-) (*AwemeDetails, error) {
-	if resp.StatusCode == 2053 {
-		return nil, util.ErrUnavailable
-	}
-	if resp.AwemeDetails == nil {
-		return nil, errors.New("aweme_details is nil")
-	}
-	for _, item := range resp.AwemeDetails {
-		if item.AwemeID == expectedAwemeID {
-			return &item, nil
-		}
-	}
-	return nil, errors.New("matching aweme_id not found")
 }
 
 func ParseUniversalData(body []byte) (*WebItemStruct, error) {

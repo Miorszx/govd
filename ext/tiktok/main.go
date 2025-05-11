@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	apiHostname        = "api16-normal-c-useast1a.tiktokv.com"
+	apiHostname        = "api.tiktokv.com"
 	appName            = "musical_ly"
 	appID              = "1233"
 	appVersion         = "39.8.2"
