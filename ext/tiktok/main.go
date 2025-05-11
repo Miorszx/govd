@@ -16,7 +16,6 @@ import (
 
 const (
 	apiHostname        = "api16-normal-c-useast1a.tiktokv.com"
-	installationID     = "7177010410163668742"
 	appName            = "musical_ly"
 	appID              = "1233"
 	appVersion         = "39.8.2"
@@ -67,22 +66,24 @@ var Extractor = &models.Extractor{
 	Host:       baseHost,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
-		// method 1: get media from webpage
-		mediaList, err := MediaListFromWeb(ctx)
+		// method 1: get media from API
+		mediaList, err := MediaListFromAPI(ctx)
 		if err == nil {
 			return &models.ExtractorResponse{
 				MediaList: mediaList,
 			}, nil
 		}
 		zap.S().Debug(err)
-		// method 2: get media from api
-		mediaList, err = MediaListFromAPI(ctx)
+
+		// method 2: get media from webpage
+		mediaList, err = MediaListFromWeb(ctx)
 		if err == nil {
 			return &models.ExtractorResponse{
 				MediaList: mediaList,
 			}, nil
 		}
 		zap.S().Debug(err)
+
 		return nil, errors.New("failed to extract media: all methods failed")
 	},
 }

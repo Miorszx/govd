@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 
 	"govd/enums"
+	"govd/ext/tiktok/signer"
 	"govd/logger"
 	"govd/models"
 	"govd/util"
@@ -28,9 +30,9 @@ var (
 	universalDataPattern = regexp.MustCompile(`<script[^>]+\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)<\/script>`)
 
 	appHeaders = map[string]string{
-		"User-Agent": appUserAgent,
-		"Accept":     "application/json",
-		"X-Argus":    "",
+		"User-Agent":   appUserAgent,
+		"Accept":       "application/json",
+		"Content-Type": "application/x-www-form-urlencoded",
 	}
 	webHeaders = map[string]string{
 		"Host":            "www.tiktok.com",
@@ -89,15 +91,27 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build api query: %w", err)
 	}
-	reqURL := apiURL + "?" + queryParams
 	postData := BuildPostData(awemeID)
+	postDataReader := strings.NewReader(postData)
+
+	// generate signed headers
+	headers, err := signer.Sign(
+		queryParams,
+		postData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign request: %w", err)
+	}
+
+	reqURL := apiURL + "?" + queryParams.Encode()
+	maps.Copy(headers, appHeaders)
 
 	resp, err := util.FetchPage(
 		client,
 		http.MethodPost,
 		reqURL,
-		postData,
-		appHeaders,
+		postDataReader,
+		headers,
 		cookies,
 	)
 	if err != nil {
@@ -121,12 +135,12 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetails, error) {
 	return videoData, nil
 }
 
-func BuildAPIQuery() (string, error) {
+func BuildAPIQuery() (url.Values, error) {
 	requestTicket := strconv.Itoa(int(time.Now().Unix()) * 1000)
 	clientDeviceID := uuid.New().String()
 	versionCode, err := GetAppVersionCode(appVersion)
 	if err != nil {
-		return "", fmt.Errorf("failed to get app version code: %w", err)
+		return nil, fmt.Errorf("failed to get app version code: %w", err)
 	}
 	return url.Values{
 		"device_platform":       []string{"android"},
@@ -153,6 +167,7 @@ func BuildAPIQuery() (string, error) {
 		"is_pad":                []string{"0"},
 		"current_region":        []string{"US"},
 		"app_type":              []string{"normal"},
+		"app_version":           []string{appVersion},
 		"last_install_time":     []string{GetRandomInstallTime()},
 		"timezone_name":         []string{"America/New_York"},
 		"residence":             []string{"US"},
@@ -166,10 +181,10 @@ func BuildAPIQuery() (string, error) {
 		"build_number":          []string{appVersion},
 		"region":                []string{"US"},
 		"ts":                    []string{strconv.Itoa(int(time.Now().Unix()))},
-		"iid":                   []string{installationID},
+		"iid":                   []string{""}, // installation id, unchecked
 		"device_id":             []string{GetRandomDeviceID()},
 		"openudid":              []string{GetRandomUdid()},
-	}.Encode(), nil
+	}, nil
 }
 
 func ParsePlayAddr(
@@ -235,12 +250,12 @@ func GetRandomDeviceID() string {
 	return result.String()
 }
 
-func BuildPostData(awemeID string) *strings.Reader {
+func BuildPostData(awemeID string) string {
 	data := url.Values{
 		"aweme_ids":      []string{fmt.Sprintf("[%s]", awemeID)},
 		"request_source": []string{"0"},
 	}
-	return strings.NewReader(data.Encode())
+	return data.Encode()
 
 }
 

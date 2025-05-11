@@ -23,7 +23,7 @@ func HandleDefaultFormatDownload(
 		dlCtx.MatchedContentID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to get default medias: %w", err)
+		return err
 	}
 
 	if len(storedMedias) > 0 {
@@ -40,7 +40,7 @@ func HandleDefaultFormatDownload(
 
 	response, err := dlCtx.Extractor.Run(dlCtx)
 	if err != nil {
-		return fmt.Errorf("extractor fetch run failed: %w", err)
+		return err
 	}
 
 	mediaList := response.MediaList
@@ -68,7 +68,7 @@ func HandleDefaultFormatDownload(
 
 	medias, err := DownloadMedias(taskCtx, mediaList)
 	if err != nil {
-		return fmt.Errorf("failed to download media list: %w", err)
+		return err
 	}
 
 	if len(medias) == 0 {

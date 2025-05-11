@@ -50,7 +50,7 @@ func Init(logLevel string, logFile bool) {
 	logger := zap.New(
 		core,
 		zap.AddCaller(),
-		zap.AddStacktrace(zapcore.ErrorLevel),
+		zap.AddStacktrace(zapcore.FatalLevel),
 	)
 	zap.ReplaceGlobals(logger)
 }

@@ -18,20 +18,19 @@ import (
 )
 
 var (
-	jpegMagic = []byte{0xFF, 0xD8, 0xFF}
-	pngMagic  = []byte{0x89, 0x50, 0x4E, 0x47}
-	gifMagic  = []byte{0x47, 0x49, 0x46}
-	riffMagic = []byte{0x52, 0x49, 0x46, 0x46}
-	webpMagic = []byte{0x57, 0x45, 0x42, 0x50}
+	jpegHeader = []byte{0xFF, 0xD8, 0xFF}
+	pngHeader  = []byte{0x89, 0x50, 0x4E, 0x47}
+	gifHeader  = []byte{0x47, 0x49, 0x46}
+	riffHeader = []byte{0x52, 0x49, 0x46, 0x46}
+	webpHeader = []byte{0x57, 0x45, 0x42, 0x50}
 )
 
 func ImgToJPEG(file io.ReadSeeker, outputPath string) error {
 	format, err := DetectImageFormat(file)
-	zap.S().Debugf("detected image format: %s", format)
-
 	if err != nil {
 		return fmt.Errorf("failed to detect image format: %w", err)
 	}
+	zap.S().Debugf("detected image format: %s", format)
 
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
@@ -85,15 +84,15 @@ func DetectImageFormat(file io.ReadSeeker) (string, error) {
 	if len(header) < 12 {
 		return "", ErrFileTooShort
 	}
-	if bytes.HasPrefix(header, jpegMagic) {
+	if bytes.HasPrefix(header, jpegHeader) {
 		return "jpeg", nil
 	}
 
-	if bytes.HasPrefix(header, pngMagic) {
+	if bytes.HasPrefix(header, pngHeader) {
 		return "png", nil
 	}
 
-	if bytes.HasPrefix(header, gifMagic) {
+	if bytes.HasPrefix(header, gifHeader) {
 		return "gif", nil
 	}
 
@@ -101,8 +100,8 @@ func DetectImageFormat(file io.ReadSeeker) (string, error) {
 		return "heif", nil
 	}
 
-	if bytes.HasPrefix(header, riffMagic) {
-		if bytes.Equal(header[8:12], webpMagic) {
+	if bytes.HasPrefix(header, riffHeader) {
+		if bytes.Equal(header[8:12], webpHeader) {
 			return "webp", nil
 		}
 		return "", ErrUnknownRIFF

@@ -146,7 +146,7 @@ func StoreMedias(
 			media,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to store media: %w", err)
+			return err
 		}
 	}
 	return nil
@@ -215,19 +215,16 @@ func HandleErrorMessage(
 
 	if errors.Is(currentError, context.Canceled) ||
 		errors.Is(currentError, context.DeadlineExceeded) {
-		SendErrorMessage(
-			bot, ctx,
-			"download request canceled or timed out",
-		)
+		errorMessage := "download request canceled or timed out"
+		SendErrorMessage(bot, ctx, errorMessage)
 		return
 	}
 
 	for currentError != nil {
 		var botError *util.Error
 		if errors.As(currentError, &botError) {
-			SendErrorMessage(bot, ctx,
-				"error occurred when downloading: "+currentError.Error(),
-			)
+			errorMessage := "error occurred when downloading: " + currentError.Error()
+			SendErrorMessage(bot, ctx, errorMessage)
 			return
 		}
 		currentError = errors.Unwrap(currentError)
@@ -237,7 +234,7 @@ func HandleErrorMessage(
 	errorMessage := "error occurred when downloading: " + lastError.Error()
 
 	if strings.Contains(errorMessage, bot.Token) {
-		errorMessage = "telegram related error, probably connection issue"
+		errorMessage = "telegram related error, probably connection issues"
 	}
 
 	SendErrorMessage(bot, ctx, errorMessage)
