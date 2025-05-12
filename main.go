@@ -27,6 +27,19 @@ func main() {
 		zap.S().Warn("failed to load .env file. using system env")
 	}
 
+	// setup logger
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	allowLogFile, err := strconv.ParseBool(os.Getenv("LOG_FILE"))
+	if err != nil {
+		zap.S().Warn("failed to parse LOG_FILE env, using false")
+		allowLogFile = false
+	}
+	logger.Init(logLevel, allowLogFile)
+	defer logger.Sync()
+
 	// setup extractors
 	err = config.LoadExtractorConfigs()
 	if err != nil {
@@ -51,19 +64,6 @@ func main() {
 			}
 		}()
 	}
-
-	// setup logger
-	logLevel := os.Getenv("LOG_LEVEL")
-	if logLevel == "" {
-		logLevel = "info"
-	}
-	allowLogFile, err := strconv.ParseBool(os.Getenv("LOG_FILE"))
-	if err != nil {
-		zap.S().Warn("failed to parse LOG_FILE env, using false")
-		allowLogFile = false
-	}
-	logger.Init(logLevel, allowLogFile)
-	defer logger.Sync()
 
 	// cleanup downloads directory
 	util.StartDownloadsCleanup()
