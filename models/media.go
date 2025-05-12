@@ -14,6 +14,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/google/uuid"
 	"github.com/guregu/null/v6/zero"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -379,6 +380,14 @@ func (format *MediaFormat) GetInputMedia(
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
+	fileInfo, err := fileObj.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+	fileSize := fileInfo.Size()
+
+	zap.S().Debugf("file size: %d bytes", fileSize)
+
 	fileInputMedia := gotgbot.InputFileByReader(
 		filepath.Base(filePath),
 		fileObj,

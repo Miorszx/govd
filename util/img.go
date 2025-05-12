@@ -82,7 +82,7 @@ func DetectImageFormat(file io.ReadSeeker) (string, error) {
 		return "", fmt.Errorf("failed to reset file position: %w", err)
 	}
 	if len(header) < 12 {
-		return "", ErrFileTooShort
+		return "", fmt.Errorf("file header too short: %d bytes", len(header))
 	}
 	if bytes.HasPrefix(header, jpegHeader) {
 		return "jpeg", nil

@@ -10,11 +10,18 @@ import (
 	"github.com/pkg/errors"
 )
 
-func MergeAudio(media *models.DownloadedMedia) error {
+func MergeAudio(
+	media *models.DownloadedMedia,
+	downloadConfig *models.DownloadConfig,
+) error {
 	audioFormat := media.Media.GetDefaultAudioFormat()
 	if audioFormat == nil {
 		return errors.New("no audio format found")
 	}
+
+	// disable remuxing
+	downloadConfigCopy := *downloadConfig
+	downloadConfigCopy.Remux = false
 
 	// download the audio file
 	ctx, cancel := context.WithCancel(context.Background())
@@ -27,13 +34,13 @@ func MergeAudio(media *models.DownloadedMedia) error {
 		audioFile, err = util.DownloadFile(
 			ctx, audioFormat.URL,
 			audioFormat.GetFileName(),
-			nil,
+			&downloadConfigCopy,
 		)
 	} else {
 		audioFile, err = util.DownloadFileWithSegments(
 			ctx, audioFormat.Segments,
 			audioFormat.GetFileName(),
-			nil,
+			&downloadConfigCopy,
 		)
 	}
 	if err != nil {

@@ -9,10 +9,12 @@ import (
 	"govd/ext/threads"
 	"govd/ext/tiktok"
 	"govd/ext/twitter"
+	"govd/ext/youtube"
 	"govd/models"
 )
 
 var List = []*models.Extractor{
+	youtube.Extractor,
 	tiktok.Extractor,
 	tiktok.VMExtractor,
 	instagram.Extractor,

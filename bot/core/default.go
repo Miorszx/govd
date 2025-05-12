@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"govd/database"
 	"govd/models"
+	"govd/util"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -64,6 +65,16 @@ func HandleDefaultFormatDownload(
 		// ensure we can merge video and audio formats
 		ensureMergeFormats(mediaList[i], defaultFormat)
 		mediaList[i].Format = defaultFormat
+
+		zap.S().Debugf("default format selected: %s (media %d)", defaultFormat.FormatID, i)
+
+		// check for file size and duration limits
+		if util.ExceedsMaxFileSize(defaultFormat.FileSize) {
+			return util.ErrFileTooLarge
+		}
+		if util.ExceedsMaxDuration(defaultFormat.Duration) {
+			return util.ErrDurationTooLong
+		}
 	}
 
 	medias, err := DownloadMedias(taskCtx, mediaList)
@@ -89,14 +100,15 @@ func HandleDefaultFormatDownload(
 	// and before it is sent to the user
 	// this allows for things like merging audio and video, etc.
 	for _, media := range medias {
+		format := media.Media.Format
 		zap.S().Debugf(
 			"running %d plugins for %s (%s)",
-			len(media.Media.Format.Plugins),
+			len(format.Plugins),
 			dlCtx.MatchedContentID,
 			dlCtx.Extractor.CodeName,
 		)
-		for _, plugin := range media.Media.Format.Plugins {
-			err = plugin(media)
+		for _, plugin := range format.Plugins {
+			err = plugin(media, format.DownloadConfig)
 			if err != nil {
 				return fmt.Errorf("failed to run plugin: %w", err)
 			}

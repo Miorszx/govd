@@ -10,7 +10,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -21,7 +23,67 @@ import (
 	"github.com/aki237/nscjar"
 )
 
-var cookiesCache = make(map[string][]*http.Cookie)
+var (
+	cookiesCache = make(map[string][]*http.Cookie)
+
+	maxFileSizeOnce sync.Once
+	maxFileSizeVal  int64
+
+	maxDurationOnce sync.Once
+	maxDurationVal  time.Duration
+)
+
+func ExceedsMaxFileSize(fileSize int64) bool {
+	maxFileSize := GetMaxFileSize()
+	if maxFileSize == 0 {
+		return false
+	}
+	return fileSize > maxFileSize
+}
+
+func ExceedsMaxDuration(duration int64) bool {
+	maxDuration := GetMaxDuration()
+	if maxDuration == 0 {
+		return false
+	}
+	return duration > int64(maxDuration.Seconds())
+}
+
+func GetMaxFileSize() int64 {
+	maxFileSizeOnce.Do(func() {
+		defaultSize := 1 * 1024 * 1024 * 1024 // 1 GB
+		maxFileSize := os.Getenv("MAX_FILE_SIZE")
+		if maxFileSize == "" {
+			maxFileSizeVal = int64(defaultSize)
+			return
+		}
+		size, err := strconv.ParseInt(maxFileSize, 10, 64)
+		if err != nil {
+			maxFileSizeVal = int64(defaultSize)
+			return
+		}
+		maxFileSizeVal = size * 1024 * 1024
+	})
+	return maxFileSizeVal
+}
+
+func GetMaxDuration() time.Duration {
+	maxDurationOnce.Do(func() {
+		defaultDuration := 1 * time.Hour
+		maxDuration := os.Getenv("MAX_DURATION")
+		if maxDuration == "" {
+			maxDurationVal = defaultDuration
+			return
+		}
+		duration, err := time.ParseDuration(maxDuration)
+		if err != nil {
+			maxDurationVal = defaultDuration
+			return
+		}
+		maxDurationVal = duration * time.Second
+	})
+	return maxDurationVal
+}
 
 func FetchPage(
 	client models.HTTPClient,

@@ -87,6 +87,11 @@ func downloadMediaItem(
 
 	if format.Type == enums.MediaTypeVideo && (format.Width == 0 || format.Height == 0 || format.Duration == 0) {
 		insertVideoInfo(format, filePath)
+
+		// check if the extracted video duration is too long
+		if util.ExceedsMaxDuration(format.Duration) {
+			return nil, util.ErrDurationTooLong
+		}
 	}
 
 	cleanup = false

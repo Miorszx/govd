@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,7 +32,7 @@ func DownloadFile(
 	fileName string,
 	config *models.DownloadConfig,
 ) (string, error) {
-	zap.S().Debugf("invoking downloader: %s", fileName)
+	zap.S().Debugf("invoking downloader: %v", urlList)
 
 	var errs []error
 	for _, fileURL := range urlList {
@@ -235,6 +237,10 @@ func runChunkedDownload(
 		return err
 	}
 
+	if ExceedsMaxFileSize(int64(fileSize)) {
+		return ErrFileTooLarge
+	}
+
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
@@ -361,13 +367,28 @@ func getFileSize(
 	fileURL string,
 	config *models.DownloadConfig,
 ) (int, error) {
+	size, err := getFileSizeWithHead(ctx, fileURL, config)
+	if err != nil {
+		zap.S().Debugf("HEAD request failed: %v, trying fallback", err)
+	} else if size > 0 {
+		return size, nil
+	}
+	return getFileSizeWithRange(ctx, fileURL, config)
+}
+
+func getFileSizeWithHead(
+	ctx context.Context,
+	fileURL string,
+	config *models.DownloadConfig,
+) (int, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodHead, fileURL, nil)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
+		return 0, fmt.Errorf("failed to create HEAD request: %w", err)
 	}
+
 	for key, value := range config.Headers {
 		req.Header.Set(key, value)
 	}
@@ -377,16 +398,78 @@ func getFileSize(
 
 	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get file size: %w", err)
+		return 0, fmt.Errorf("failed to execute HEAD request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("failed to get file size: status code %d", resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("HEAD request failed: status code %d", resp.StatusCode)
 	}
+
 	fileSize := int(resp.ContentLength)
-	zap.S().Debugf("file size found: %d bytes", fileSize)
-	return fileSize, nil
+	if fileSize > 0 {
+		zap.S().Debugf("file size from HEAD: %d bytes", fileSize)
+		return fileSize, nil
+	}
+
+	// fallback to Content-Range header
+	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
+		if parts := strings.Split(contentRange, "/"); len(parts) == 2 {
+			if size, err := strconv.Atoi(parts[1]); err == nil && size > 0 {
+				zap.S().Debugf("file size from Content-Range: %d bytes", size)
+				return size, nil
+			}
+		}
+	}
+
+	zap.S().Debug("HEAD request didn't return valid file size")
+	return 0, nil
+}
+
+func getFileSizeWithRange(
+	ctx context.Context,
+	fileURL string,
+	config *models.DownloadConfig,
+) (int, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, config.Timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	for key, value := range config.Headers {
+		req.Header.Set(key, value)
+	}
+	for _, cookie := range config.Cookies {
+		req.AddCookie(cookie)
+	}
+
+	req.Header.Set("Range", "bytes=0-0")
+
+	resp, err := downloadHTTPClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// check if server supports range requests (status 206)
+	if resp.StatusCode == http.StatusPartialContent {
+		if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
+			// format is typically "bytes 0-0/1234" where 1234 is the total size
+			parts := strings.Split(contentRange, "/")
+			if len(parts) == 2 {
+				size, err := strconv.Atoi(parts[1])
+				if err == nil && size > 0 {
+					zap.S().Debugf("file size from range: %d bytes", size)
+					return size, nil
+				}
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("failed to get file size with range: status code %d", resp.StatusCode)
 }
 
 func downloadChunkToFile(
@@ -419,6 +502,7 @@ func downloadChunkToFile(
 			return nil
 		}
 
+		zap.S().Debugf("chunk %d-%d download failed: %v", start, end, err)
 		lastErr = err
 	}
 
@@ -465,6 +549,9 @@ func downloadAndWriteChunk(
 	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
+
+	chunkSize := resp.ContentLength
+	zap.S().Debugf("chunk size: %d bytes", chunkSize)
 
 	// use a fixed-size buffer for
 	// copying to avoid large allocations (32KB)

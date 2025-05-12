@@ -40,4 +40,5 @@ type ExtractorConfig struct {
 	NoProxy      string `yaml:"no_proxy"`
 	EdgeProxyURL string `yaml:"edge_proxy_url"`
 	Impersonate  bool   `yaml:"impersonate"`
+	Instance     string `yaml:"instance"`
 }

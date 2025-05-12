@@ -1,3 +1,3 @@
 package models
 
-type Plugin = func(*DownloadedMedia) error
+type Plugin = func(*DownloadedMedia, *DownloadConfig) error
