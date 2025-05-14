@@ -107,6 +107,10 @@ func registerHandlers(dispatcher *ext.Dispatcher) {
 		"limit",
 		botHandlers.MediaGroupLimitHandler,
 	))
+	dispatcher.AddHandler(handlers.NewCommand(
+		"silent",
+		botHandlers.SilentHandler,
+	))
 	dispatcher.AddHandler(handlers.NewCallback(
 		callbackquery.Equal("stats"),
 		botHandlers.StatsHandler,

@@ -30,12 +30,12 @@ func SettingsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 			"settings for this group\n\n"+
 				"captions: %s\n"+
 				"nsfw: %s\n"+
-				"media group limit: %d\n"+
-				"silent mode: %s\n",
+				"silent mode: %s\n"+
+				"media group limit: %d\n",
 			strconv.FormatBool(*settings.Captions),
 			strconv.FormatBool(*settings.NSFW),
-			settings.MediaGroupLimit,
 			strconv.FormatBool(*settings.Silent),
+			settings.MediaGroupLimit,
 		),
 		nil,
 	)
