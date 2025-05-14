@@ -9,4 +9,5 @@ type GroupSettings struct {
 	NSFW            *bool `gorm:"default:false"`
 	Captions        *bool `gorm:"default:false"`
 	MediaGroupLimit int   `gorm:"default:10"`
+	Silent          *bool `gorm:"default:false"`
 }

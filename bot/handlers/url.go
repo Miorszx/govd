@@ -19,8 +19,6 @@ func URLHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	}
 	dlCtx, err := extractors.CtxByURL(messageURL)
 	if err != nil {
-		core.HandleErrorMessage(
-			bot, ctx, err)
 		return nil
 	}
 	if dlCtx == nil || dlCtx.Extractor == nil {
@@ -48,8 +46,10 @@ func URLHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	err = core.HandleDownloadRequest(
 		bot, ctx, taskCtx, dlCtx)
 	if err != nil {
-		core.HandleErrorMessage(
-			bot, ctx, err)
+		if dlCtx.GroupSettings != nil && *dlCtx.GroupSettings.Silent {
+			return nil
+		}
+		core.HandleErrorMessage(bot, ctx, err)
 	}
 	return nil
 }

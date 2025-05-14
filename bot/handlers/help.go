@@ -16,6 +16,7 @@ var helpMessage = "usage:\n" +
 	"- /settings = show current settings\n" +
 	"- /captions (true|false) = enable/disable descriptions\n" +
 	"- /nsfw (true|false) = enable/disable nsfw content\n" +
+	"- /silent (true|false) = enable/disable silent mode\n" +
 	"- /limit (int) = set max items in media groups\n\n" +
 	"note: the bot is still in beta, " +
 	"so expect some bugs and missing features.\n"

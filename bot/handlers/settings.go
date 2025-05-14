@@ -27,10 +27,15 @@ func SettingsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	ctx.EffectiveMessage.Reply(
 		bot,
 		fmt.Sprintf(
-			"settings for this group\n\ncaptions: %s\nnsfw: %s\nmedia group limit: %d",
+			"settings for this group\n\n"+
+				"captions: %s\n"+
+				"nsfw: %s\n"+
+				"media group limit: %d\n"+
+				"silent mode: %s\n",
 			strconv.FormatBool(*settings.Captions),
 			strconv.FormatBool(*settings.NSFW),
 			settings.MediaGroupLimit,
+			strconv.FormatBool(*settings.Silent),
 		),
 		nil,
 	)
@@ -207,6 +212,64 @@ func MediaGroupLimitHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	ctx.EffectiveMessage.Reply(
 		bot,
 		fmt.Sprintf("media group limit set to %d", value),
+		nil,
+	)
+	return nil
+}
+
+func SilentHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
+	if ctx.EffectiveMessage.Chat.Type == gotgbot.ChatTypePrivate {
+		return nil
+	}
+
+	chatID := ctx.EffectiveMessage.Chat.Id
+	userID := ctx.EffectiveMessage.From.Id
+
+	args := ctx.Args()
+	if len(args) != 2 {
+		ctx.EffectiveMessage.Reply(
+			bot,
+			"usage: /silent (true|false)",
+			nil,
+		)
+		return nil
+	}
+	if !util.IsUserAdmin(bot, chatID, userID) {
+		ctx.EffectiveMessage.Reply(
+			bot,
+			"you don't have permission to change settings",
+			nil,
+		)
+		return nil
+	}
+	userInput := strings.ToLower(args[1])
+	value, err := strconv.ParseBool(userInput)
+	if err != nil {
+		ctx.EffectiveMessage.Reply(
+			bot,
+			fmt.Sprintf("invalid value (%s), use true or false", userInput),
+			nil,
+		)
+		return err
+	}
+	settings, err := database.GetGroupSettings(chatID)
+	if err != nil {
+		return err
+	}
+	settings.Silent = &value
+	err = database.UpdateGroupSettings(chatID, settings)
+	if err != nil {
+		return err
+	}
+	var message string
+	if value {
+		message = "silent mode enabled"
+	} else {
+		message = "silent mode disabled"
+	}
+	ctx.EffectiveMessage.Reply(
+		bot,
+		message,
 		nil,
 	)
 	return nil
