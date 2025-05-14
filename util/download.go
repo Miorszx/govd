@@ -373,7 +373,14 @@ func getFileSize(
 	} else if size > 0 {
 		return size, nil
 	}
-	return getFileSizeWithRange(ctx, fileURL, config)
+	size, err = getFileSizeWithRange(ctx, fileURL, config)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get file size: %w", err)
+	}
+	if size == 0 {
+		zap.S().Warnf("file size is unknown for URL: %s", fileURL)
+	}
+	return size, err
 }
 
 func getFileSizeWithHead(
@@ -454,22 +461,19 @@ func getFileSizeWithRange(
 	}
 	defer resp.Body.Close()
 
-	// check if server supports range requests (status 206)
-	if resp.StatusCode == http.StatusPartialContent {
-		if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
-			// format is typically "bytes 0-0/1234" where 1234 is the total size
-			parts := strings.Split(contentRange, "/")
-			if len(parts) == 2 {
-				size, err := strconv.Atoi(parts[1])
-				if err == nil && size > 0 {
-					zap.S().Debugf("file size from range: %d bytes", size)
-					return size, nil
-				}
+	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
+		// format is typically "bytes 0-0/1234" where 1234 is the total size
+		parts := strings.Split(contentRange, "/")
+		if len(parts) == 2 {
+			size, err := strconv.Atoi(parts[1])
+			if err == nil && size > 0 {
+				zap.S().Debugf("file size from range: %d bytes", size)
+				return size, nil
 			}
 		}
 	}
 
-	return 0, fmt.Errorf("failed to get file size with range: status code %d", resp.StatusCode)
+	return 0, nil
 }
 
 func downloadChunkToFile(
