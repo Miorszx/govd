@@ -9,13 +9,14 @@ the file uses yaml format. each top-level key is the name of an extractor. under
 instagram:
   edge_proxy_url: https://example.com
   impersonate: true
-
-youtube:
-  instance: https://example.com
-  http_proxy: http://proxy.example.com:8080
+  disabled: true
 ```
 
 # available options
+
+## extractor options
+* `disabled`: whether to disable the extractor. this is useful for extractors that are not working or are not needed. if you want to disable an extractor, you can set it to `true` in the configuration file.
+* `instance`: the instance to use for this extractor. this is useful for extractors that support multiple instances (e.g. [invidious for youtube](ext/youtube/SETUP.md)).
 
 ## network options
 * `http_proxy` | `https_proxy`: the http(s) proxy to use for this extractor. see [proxying](README.md#proxying) for more information.

@@ -15,7 +15,7 @@ youtube:
   instance: https://your-invidious-instance.example.com
 ```
 
-for more details, see [configuration page](CONFIGURATION.md).
+for more details, see [configuration page](../../CONFIGURATION.md).
 
 ## notes
 * if the invidious instance is slow, rate-limited, or offline, video extraction may fail

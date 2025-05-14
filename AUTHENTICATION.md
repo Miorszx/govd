@@ -4,8 +4,7 @@ some extractors require cookies to access the content. you can export them from 
 extractors that **need** authentication:
 * reddit
 * twitter
-* tiktok
-    * some regions require authentication
+* tiktok __(only some regions)__
 
 > [!CAUTION]
 > using cookies _may_ be leading to account bans. we are not responsible for any bans or issues that may arise from using cookies. if you are using cookies, please make sure to use them responsibly and at your own risk.

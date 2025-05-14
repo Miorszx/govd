@@ -3,3 +3,7 @@ instagram_share:
 
 reddit:
   https_proxy: https://example.com
+
+youtube:
+  instance: https://example.com
+  disabled: true

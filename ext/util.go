@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"govd/config"
 	"govd/models"
 	"govd/util"
 
@@ -66,6 +67,11 @@ func CtxByURL(urlStr string) (*models.DownloadContext, error) {
 		}
 
 		if extractor == nil || matches == nil {
+			return nil, nil
+		}
+
+		cfg := config.GetExtractorConfig(extractor)
+		if cfg != nil && cfg.IsDisabled {
 			return nil, nil
 		}
 
