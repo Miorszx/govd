@@ -6,12 +6,15 @@ import (
 
 	"github.com/pkg/errors"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
+	"go.uber.org/zap"
 )
 
 func MergeSegments(
 	segmentPaths []string,
 	outputPath string,
 ) (string, error) {
+	silent := zap.S().Level() != zap.DebugLevel
+
 	if len(segmentPaths) == 0 {
 		return "", errors.New("no segments to merge")
 	}
@@ -36,7 +39,7 @@ func MergeSegments(
 			"c":        "copy",
 			"movflags": "+faststart",
 		}).
-		Silent(true).
+		Silent(silent).
 		OverWriteOutput().
 		Run()
 	if err != nil {

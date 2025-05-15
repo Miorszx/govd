@@ -211,6 +211,10 @@ func HandleErrorMessage(
 	ctx *ext.Context,
 	err error,
 ) {
+	if zap.S().Level() == zap.DebugLevel {
+		zap.S().Errorf("error occurred: %v", err)
+	}
+
 	currentError := err
 
 	if errors.Is(currentError, context.Canceled) ||
@@ -230,8 +234,7 @@ func HandleErrorMessage(
 		currentError = errors.Unwrap(currentError)
 	}
 
-	lastError := util.GetLastError(err)
-	errorMessage := "error occurred when downloading: " + lastError.Error()
+	errorMessage := "error occurred when downloading: " + err.Error()
 
 	if strings.Contains(errorMessage, bot.Token) {
 		errorMessage = "telegram related error, probably connection issues"

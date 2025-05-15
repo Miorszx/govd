@@ -209,18 +209,6 @@ func EscapeCaption(str string) string {
 	return str
 }
 
-func GetLastError(err error) error {
-	var lastErr = err
-	for {
-		unwrapped := errors.Unwrap(lastErr)
-		if unwrapped == nil {
-			break
-		}
-		lastErr = unwrapped
-	}
-	return lastErr
-}
-
 func RandomBase64(length int) string {
 	const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 	const mask = 63 // 6 bits, since len(letters) == 64

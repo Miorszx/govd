@@ -2,15 +2,35 @@ package libav
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/asticode/go-astiav"
 	"github.com/pkg/errors"
+	ffmpeg "github.com/u2takey/ffmpeg-go"
+	"go.uber.org/zap"
 )
 
-func RemuxFile(inputFile string) error {
-	astiav.SetLogLevel(astiav.LogLevelQuiet)
+func RemuxFile(inputFile string) (string, error) {
+	outputFile, err := RemuxFileLibav(inputFile)
+	if err == nil {
+		return outputFile, nil
+	}
+	outputFile, err = RemuxFileProc(inputFile)
+	if err == nil {
+		return outputFile, nil
+	}
+	return "", err
+}
+
+func RemuxFileLibav(inputFile string) (string, error) {
+	if zap.S().Level() == zap.DebugLevel {
+		astiav.SetLogLevel(astiav.LogLevelDebug)
+	} else {
+		astiav.SetLogLevel(astiav.LogLevelQuiet)
+	}
+	defer os.Remove(inputFile)
 
 	ext := strings.ToLower(filepath.Ext(inputFile))
 	var muxerName string
@@ -24,28 +44,28 @@ func RemuxFile(inputFile string) error {
 	case ".avi":
 		muxerName = "avi"
 	default:
-		return fmt.Errorf("unsupported output container for extension: %s", ext)
+		return "", fmt.Errorf("unsupported output container for extension: %s", ext)
 	}
 	outputFile := strings.TrimSuffix(inputFile, ext) + ".remuxed" + ext
 
 	inputCtx := astiav.AllocFormatContext()
 	if inputCtx == nil {
-		return errors.New("failed to alloc input format context")
+		return "", errors.New("failed to alloc input format context")
 	}
 	defer inputCtx.Free()
 
 	if err := inputCtx.OpenInput(inputFile, nil, nil); err != nil {
-		return fmt.Errorf("failed to open input: %w", err)
+		return "", fmt.Errorf("failed to open input: %w", err)
 	}
 	defer inputCtx.CloseInput()
 
 	if err := inputCtx.FindStreamInfo(nil); err != nil {
-		return fmt.Errorf("failed to find stream info: %w", err)
+		return "", fmt.Errorf("failed to find stream info: %w", err)
 	}
 
 	outCtx, err := astiav.AllocOutputFormatContext(nil, muxerName, outputFile)
 	if err != nil {
-		return fmt.Errorf("failed to alloc output format context: %w", err)
+		return "", fmt.Errorf("failed to alloc output format context: %w", err)
 	}
 	defer outCtx.Free()
 
@@ -60,30 +80,31 @@ func RemuxFile(inputFile string) error {
 		}
 		outStream := outCtx.NewStream(nil)
 		if outStream == nil {
-			return errors.New("failed to create new stream in output context")
+			return "", errors.New("failed to create new stream in output context")
 		}
 		if err := inCP.Copy(outStream.CodecParameters()); err != nil {
-			return fmt.Errorf("failed to copy codec parameters: %w", err)
+			return "", fmt.Errorf("failed to copy codec parameters: %w", err)
 		}
 		outStream.CodecParameters().SetCodecTag(0)
 		outStream.SetTimeBase(inStream.TimeBase())
 		inToOutIdx[inIdx] = len(inToOutIdx)
 	}
 	if len(inToOutIdx) == 0 {
-		return errors.New("no supported streams to remux")
+		return "", errors.New("no supported streams to remux")
 	}
 
 	if !outCtx.OutputFormat().Flags().Has(astiav.IOFormatFlagNofile) {
 		ioCtx, err := astiav.OpenIOContext(outputFile, astiav.NewIOContextFlags(astiav.IOContextFlagWrite), nil, nil)
 		if err != nil {
-			return fmt.Errorf("failed to open output IO context: %w", err)
+			return "", fmt.Errorf("failed to open output IO context: %w", err)
 		}
 		defer ioCtx.Close()
 		outCtx.SetPb(ioCtx)
 	}
 
 	if err := outCtx.WriteHeader(nil); err != nil {
-		return fmt.Errorf("failed to write output header: %w", err)
+		os.Remove(outputFile)
+		return "", fmt.Errorf("failed to write output header: %w", err)
 	}
 
 	packet := astiav.AllocPacket()
@@ -93,7 +114,8 @@ func RemuxFile(inputFile string) error {
 			if errors.Is(err, astiav.ErrEof) {
 				break
 			}
-			return fmt.Errorf("error reading frame: %w", err)
+			os.Remove(outputFile)
+			return "", fmt.Errorf("failed to read frame: %w", err)
 		}
 		outIdx, ok := inToOutIdx[packet.StreamIndex()]
 		if !ok {
@@ -102,20 +124,51 @@ func RemuxFile(inputFile string) error {
 		}
 		inStream := inputCtx.Streams()[packet.StreamIndex()]
 		outStream := outCtx.Streams()[outIdx]
-		packet.SetPts(astiav.RescaleQRnd(packet.Pts(), inStream.TimeBase(), outStream.TimeBase(), astiav.RoundingNearInf))
-		packet.SetDts(astiav.RescaleQRnd(packet.Dts(), inStream.TimeBase(), outStream.TimeBase(), astiav.RoundingNearInf))
+		newPts := astiav.RescaleQRnd(packet.Pts(), inStream.TimeBase(), outStream.TimeBase(), astiav.RoundingNearInf)
+		newDts := astiav.RescaleQRnd(packet.Dts(), inStream.TimeBase(), outStream.TimeBase(), astiav.RoundingNearInf)
+		if newDts > newPts && newPts != astiav.NoPtsValue {
+			newDts = newPts
+		}
+		packet.SetPts(newPts)
+		packet.SetDts(newDts)
 		packet.SetDuration(astiav.RescaleQ(packet.Duration(), inStream.TimeBase(), outStream.TimeBase()))
 		packet.SetStreamIndex(outIdx)
 		packet.SetPos(-1)
 		if err := outCtx.WriteInterleavedFrame(packet); err != nil {
 			packet.Unref()
-			return fmt.Errorf("error writing frame: %w", err)
+			os.Remove(outputFile)
+			return "", fmt.Errorf("failed to write frame: %w", err)
 		}
 		packet.Unref()
 	}
 
 	if err := outCtx.WriteTrailer(); err != nil {
-		return fmt.Errorf("failed to write trailer: %w", err)
+		os.Remove(outputFile)
+		return "", fmt.Errorf("failed to write trailer: %w", err)
 	}
-	return nil
+	return outputFile, nil
+}
+
+func RemuxFileProc(inputFile string) (string, error) {
+	defer os.Remove(inputFile)
+
+	ext := strings.ToLower(filepath.Ext(inputFile))
+	outputFile := strings.TrimSuffix(inputFile, ext) + ".remuxed" + ext
+
+	err := ffmpeg.
+		Input(inputFile).
+		Output(outputFile, ffmpeg.KwArgs{
+			"c:v": "copy",
+			"c:a": "copy",
+			"c:s": "copy",
+			"map": "0",
+		}).
+		Silent(true).
+		OverWriteOutput().
+		Run()
+	if err != nil {
+		os.Remove(outputFile)
+		return "", fmt.Errorf("failed to remux file: %w", err)
+	}
+	return outputFile, nil
 }

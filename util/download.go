@@ -52,11 +52,12 @@ func DownloadFile(
 			}
 
 			if config.Remux {
-				err := libav.RemuxFile(filePath)
+				remuxedFilePath, err := libav.RemuxFile(filePath)
 				if err != nil {
 					os.Remove(filePath)
 					return "", fmt.Errorf("remuxing failed: %w", err)
 				}
+				filePath = remuxedFilePath
 			}
 			return filePath, nil
 		}

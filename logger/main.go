@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,7 +42,10 @@ func Init(logLevel string, logFile bool) {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
-	level := getZapLevel(logLevel)
+	level, err := zap.ParseAtomicLevel(logLevel)
+	if err != nil {
+		log.Panicf("failed to parse log level %s: %v", logLevel, err)
+	}
 	core := zapcore.NewCore(
 		consoleEncoder,
 		zapcore.Lock(os.Stdout),
@@ -53,23 +57,6 @@ func Init(logLevel string, logFile bool) {
 		zap.AddStacktrace(zapcore.FatalLevel),
 	)
 	zap.ReplaceGlobals(logger)
-}
-
-func getZapLevel(level string) zapcore.LevelEnabler {
-	switch level {
-	case "debug":
-		return zapcore.DebugLevel
-	case "info":
-		return zapcore.InfoLevel
-	case "warn":
-		return zapcore.WarnLevel
-	case "error":
-		return zapcore.ErrorLevel
-	case "fatal":
-		return zapcore.FatalLevel
-	default:
-		return zapcore.InfoLevel
-	}
 }
 
 func Sync() error {

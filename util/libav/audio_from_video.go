@@ -2,9 +2,11 @@ package libav
 
 import (
 	ffmpeg "github.com/u2takey/ffmpeg-go"
+	"go.uber.org/zap"
 )
 
 func AudioFromVideo(videoPath string, audioPath string) error {
+	silent := zap.S().Level() != zap.DebugLevel
 	err := ffmpeg.
 		Input(videoPath).
 		Output(audioPath, ffmpeg.KwArgs{
@@ -13,7 +15,7 @@ func AudioFromVideo(videoPath string, audioPath string) error {
 			"f":   "mp3",
 			"ab":  "128k",
 		}).
-		Silent(true).
+		Silent(silent).
 		OverWriteOutput().
 		Run()
 	if err != nil {

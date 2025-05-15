@@ -1,9 +1,16 @@
 package libav
 
-import "github.com/asticode/go-astiav"
+import (
+	"github.com/asticode/go-astiav"
+	"go.uber.org/zap"
+)
 
 func GetVideoInfo(filePath string) (int64, int64, int64) {
-	astiav.SetLogLevel(astiav.LogLevelQuiet)
+	if zap.S().Level() == zap.DebugLevel {
+		astiav.SetLogLevel(astiav.LogLevelDebug)
+	} else {
+		astiav.SetLogLevel(astiav.LogLevelQuiet)
+	}
 
 	formatCtx := astiav.AllocFormatContext()
 	if formatCtx == nil {

@@ -5,12 +5,15 @@ import (
 	"os"
 
 	ffmpeg "github.com/u2takey/ffmpeg-go"
+	"go.uber.org/zap"
 )
 
 func MergeVideoWithAudio(
 	videoFile string,
 	audioFile string,
 ) error {
+	silent := zap.S().Level() != zap.DebugLevel
+
 	tempFileName := videoFile + ".temp"
 	outputFile := videoFile
 
@@ -33,7 +36,7 @@ func MergeVideoWithAudio(
 			"c:v":      "copy",
 			"c:a":      "copy",
 		}).
-		Silent(true).
+		Silent(silent).
 		OverWriteOutput().
 		Run()
 

@@ -8,10 +8,15 @@ import (
 
 	"github.com/asticode/go-astiav"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 func ExtractVideoThumbnail(videoPath string, imagePath string) error {
-	astiav.SetLogLevel(astiav.LogLevelQuiet)
+	if zap.S().Level() == zap.DebugLevel {
+		astiav.SetLogLevel(astiav.LogLevelDebug)
+	} else {
+		astiav.SetLogLevel(astiav.LogLevelQuiet)
+	}
 
 	formatCtx := astiav.AllocFormatContext()
 	defer formatCtx.Free()
