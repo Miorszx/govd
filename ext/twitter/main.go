@@ -72,6 +72,7 @@ var Extractor = &models.Extractor{
 		"fxtwitter",
 		"vxtwitter",
 		"fixuptwitter",
+		"fixupx",
 	},
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
