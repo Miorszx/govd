@@ -65,11 +65,13 @@ var Extractor = &models.Extractor{
 	CodeName:   "twitter",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(`https?:\/\/(vx)?(twitter|x)\.com\/([^\/]+)\/status\/(?P<id>\d+)`),
+	URLPattern: regexp.MustCompile(`https?:\/\/(?:fx|vx|fixup)?(twitter|x)\.com\/([^\/]+)\/status\/(?P<id>\d+)`),
 	Host: []string{
 		"x",
 		"twitter",
+		"fxtwitter",
 		"vxtwitter",
+		"fixuptwitter",
 	},
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
