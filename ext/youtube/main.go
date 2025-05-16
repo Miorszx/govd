@@ -86,7 +86,7 @@ func GetVideoFromInv(ctx *models.DownloadContext) (*models.Media, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	formats := ParseInvFormats(data)
+	formats := ParseInvFormats(data, invInstance)
 	if len(formats) == 0 {
 		return nil, errors.New("no valid formats found")
 	}

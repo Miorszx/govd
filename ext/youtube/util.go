@@ -10,7 +10,10 @@ import (
 
 const invEndpoint = "/api/v1/videos/"
 
-func ParseInvFormats(data *InvResponse) []*models.MediaFormat {
+func ParseInvFormats(
+	data *InvResponse,
+	instance string,
+) []*models.MediaFormat {
 	formats := make([]*models.MediaFormat, 0, len(data.AdaptiveFormats))
 	duration := data.LengthSeconds
 
@@ -45,7 +48,7 @@ func ParseInvFormats(data *InvResponse) []*models.MediaFormat {
 			Height:     height,
 			Bitrate:    bitrate,
 			Duration:   int64(duration),
-			URL:        []string{format.URL},
+			URL:        []string{ParseInvURL(format.URL, instance)},
 			Title:      data.Title,
 			Artist:     data.Author,
 			DownloadConfig: &models.DownloadConfig{
@@ -115,4 +118,11 @@ func getAudioCodec(codecs string) enums.MediaCodec {
 	default:
 		return ""
 	}
+}
+
+func ParseInvURL(url string, instance string) string {
+	if strings.HasPrefix(url, instance) {
+		return url
+	}
+	return instance + url
 }
