@@ -215,15 +215,35 @@ func HandleErrorMessage(
 		zap.S().Errorf("error occurred: %v", err)
 	}
 
-	currentError := err
+	if strings.Contains(err.Error(), bot.Token) {
+		errorMessage := "telegram related error, probably connection issues"
+		SendErrorMessage(bot, ctx, errorMessage)
+		return
+	}
 
-	if errors.Is(currentError, context.Canceled) ||
-		errors.Is(currentError, context.DeadlineExceeded) {
+	var telegramError *gotgbot.TelegramError
+	if errors.As(err, &telegramError) {
+		if zap.S().Level() == zap.DebugLevel {
+			zap.S().Errorf(
+				"telegram error: Code=%d, Description=%s",
+				telegramError.Code,
+				telegramError.Description,
+			)
+		}
+		// check if error is related to botapi file size limit
+		if telegramError.Description == "Request Entity Too Large" {
+			err = util.ErrTelegramFileTooLarge
+		}
+	}
+
+	if errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) {
 		errorMessage := "download request canceled or timed out"
 		SendErrorMessage(bot, ctx, errorMessage)
 		return
 	}
 
+	currentError := err
 	for currentError != nil {
 		var botError *util.Error
 		if errors.As(currentError, &botError) {
@@ -233,13 +253,7 @@ func HandleErrorMessage(
 		}
 		currentError = errors.Unwrap(currentError)
 	}
-
 	errorMessage := "error occurred when downloading: " + err.Error()
-
-	if strings.Contains(errorMessage, bot.Token) {
-		errorMessage = "telegram related error, probably connection issues"
-	}
-
 	SendErrorMessage(bot, ctx, errorMessage)
 }
 

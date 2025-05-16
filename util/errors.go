@@ -21,5 +21,6 @@ var (
 	ErrInlineMediaGroup         = &Error{Message: "you can't download media groups in inline mode. try using me in a private chat"}
 	ErrAuthenticationNeeded     = &Error{Message: "this instance is not authenticated with this service. check out https://github.com/govdbot/govd/blob/main/AUTHENTICATION.md"}
 	ErrFileTooLarge             = &Error{Message: "file is too large for this instance"}
+	ErrTelegramFileTooLarge     = &Error{Message: "file is too large for your telegram botapi. be sure to use a local botapi for large files"}
 	ErrDurationTooLong          = &Error{Message: "media duration is too long for this instance"}
 )

@@ -14,6 +14,7 @@ import (
 	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
+	"go.uber.org/zap"
 )
 
 var Extractor = &models.Extractor{
@@ -42,24 +43,30 @@ var Extractor = &models.Extractor{
 func GetVideoFromInv(ctx *models.DownloadContext) (*models.Media, error) {
 	client := networking.GetExtractorHTTPClient(ctx.Extractor)
 	cookies := util.GetExtractorCookies(ctx.Extractor)
+
 	cfg := config.GetExtractorConfig(ctx.Extractor)
 	if cfg == nil {
-		return nil, errors.New("youtube extractor config not found")
+		return nil, fmt.Errorf("youtube extractor is not configured")
 	}
-	invInstance := cfg.Instance
-	if invInstance == "" {
-		return nil, errors.New("invidious instance not found in config")
+	instance, err := GetInvInstance(cfg)
+	if err != nil {
+		return nil, err
 	}
+
 	videoID := ctx.MatchedContentID
 	videoURL := ctx.MatchedContentURL
 	media := ctx.Extractor.NewMedia(
 		videoID,
 		videoURL,
 	)
-	reqURL := invInstance +
+
+	reqURL := instance +
 		invEndpoint +
 		videoID +
 		"?local=true" // proxied CDN
+
+	zap.S().Debugf("proxied invidious api: %s", reqURL)
+
 	resp, err := util.FetchPage(
 		client,
 		http.MethodGet,
@@ -86,7 +93,7 @@ func GetVideoFromInv(ctx *models.DownloadContext) (*models.Media, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	formats := ParseInvFormats(data, invInstance)
+	formats := ParseInvFormats(data)
 	if len(formats) == 0 {
 		return nil, errors.New("no valid formats found")
 	}

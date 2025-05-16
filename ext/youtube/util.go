@@ -1,6 +1,8 @@
 package youtube
 
 import (
+	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -10,10 +12,9 @@ import (
 
 const invEndpoint = "/api/v1/videos/"
 
-func ParseInvFormats(
-	data *InvResponse,
-	instance string,
-) []*models.MediaFormat {
+var invInstance string
+
+func ParseInvFormats(data *InvResponse) []*models.MediaFormat {
 	formats := make([]*models.MediaFormat, 0, len(data.AdaptiveFormats))
 	duration := data.LengthSeconds
 
@@ -21,7 +22,7 @@ func ParseInvFormats(
 		if format.URL == "" {
 			continue
 		}
-		mediaType, vCodec, aCodec := parseStreamType(format.Type)
+		mediaType, vCodec, aCodec := ParseStreamType(format.Type)
 		if mediaType == "" {
 			continue
 		}
@@ -48,7 +49,7 @@ func ParseInvFormats(
 			Height:     height,
 			Bitrate:    bitrate,
 			Duration:   int64(duration),
-			URL:        []string{ParseInvURL(format.URL, instance)},
+			URL:        []string{ParseInvURL(format.URL)},
 			Title:      data.Title,
 			Artist:     data.Author,
 			DownloadConfig: &models.DownloadConfig{
@@ -61,7 +62,7 @@ func ParseInvFormats(
 	return formats
 }
 
-func parseStreamType(
+func ParseStreamType(
 	streamType string,
 ) (enums.MediaType, enums.MediaCodec, enums.MediaCodec) {
 	parts := strings.Split(streamType, "; ")
@@ -74,8 +75,8 @@ func parseStreamType(
 	var mediaType enums.MediaType
 	var videoCodec, audioCodec enums.MediaCodec
 
-	videoCodec = getVideoCodec(codecs)
-	audioCodec = getAudioCodec(codecs)
+	videoCodec = ParseVideoCodec(codecs)
+	audioCodec = ParseAudioCodec(codecs)
 
 	if videoCodec != "" {
 		mediaType = enums.MediaTypeVideo
@@ -86,7 +87,7 @@ func parseStreamType(
 	return mediaType, videoCodec, audioCodec
 }
 
-func getVideoCodec(codecs string) enums.MediaCodec {
+func ParseVideoCodec(codecs string) enums.MediaCodec {
 	switch {
 	case strings.Contains(codecs, "avc"), strings.Contains(codecs, "h264"):
 		return enums.MediaCodecAVC
@@ -103,7 +104,7 @@ func getVideoCodec(codecs string) enums.MediaCodec {
 	}
 }
 
-func getAudioCodec(codecs string) enums.MediaCodec {
+func ParseAudioCodec(codecs string) enums.MediaCodec {
 	switch {
 	case strings.Contains(codecs, "mp4a"):
 		return enums.MediaCodecAAC
@@ -120,9 +121,24 @@ func getAudioCodec(codecs string) enums.MediaCodec {
 	}
 }
 
-func ParseInvURL(url string, instance string) string {
-	if strings.HasPrefix(url, instance) {
+func ParseInvURL(url string) string {
+	if strings.HasPrefix(url, invInstance) {
 		return url
 	}
-	return instance + url
+	return invInstance + url
+}
+
+func GetInvInstance(cfg *models.ExtractorConfig) (string, error) {
+	if invInstance != "" {
+		return invInstance, nil
+	}
+	if cfg.Instance == "" {
+		return "", fmt.Errorf("invidious instance url is not set")
+	}
+	parsedURL, err := url.Parse(cfg.Instance)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse youtube instance url: %w", err)
+	}
+	invInstance = strings.TrimSuffix(parsedURL.String(), "/")
+	return invInstance, nil
 }
