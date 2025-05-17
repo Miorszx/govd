@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pkg/errors"
+
 	"govd/enums"
 	"govd/models"
 )
@@ -133,7 +135,7 @@ func GetInvInstance(cfg *models.ExtractorConfig) (string, error) {
 		return invInstance, nil
 	}
 	if cfg.Instance == "" {
-		return "", fmt.Errorf("invidious instance url is not set")
+		return "", errors.New("invidious instance url is not set")
 	}
 	parsedURL, err := url.Parse(cfg.Instance)
 	if err != nil {

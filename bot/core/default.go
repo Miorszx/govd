@@ -73,8 +73,6 @@ func HandleDefaultFormatDownload(
 			defaultFormat.DownloadConfig = models.GetDownloadConfig(nil)
 		}
 
-		mediaList[i].Format = defaultFormat
-
 		// check for file size and duration limits
 		if util.ExceedsMaxFileSize(defaultFormat.FileSize) {
 			return util.ErrFileTooLarge
@@ -82,6 +80,8 @@ func HandleDefaultFormatDownload(
 		if util.ExceedsMaxDuration(defaultFormat.Duration) {
 			return util.ErrDurationTooLong
 		}
+
+		mediaList[i].Format = defaultFormat
 	}
 
 	medias, err := DownloadMedias(taskCtx, mediaList)

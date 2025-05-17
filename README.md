@@ -115,7 +115,7 @@ you can configure the bot using the `.env` file. here are the available options:
 | PROFILER_PORT  | port for profiler http server (pprof)     | 0 _(disabled)_                      |
 | LOG_LEVEL      | log level (debug, info, warn, error)      | info                                |
 | LOG_FILE       | whether to enable file logging            | false                               |
-| MAX_DURATION   | max duration in seconds                   | 3600                                |
+| MAX_DURATION   | max duration (parsed string)              | 1h                                  |
 | MAX_FILE_SIZE  | max file size in mb                       | 1000                                |
 
 ## extractors

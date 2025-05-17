@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 const (
@@ -25,7 +27,7 @@ func Sign(
 
 	appID := params.Get("aid")
 	if appID == "" {
-		return nil, fmt.Errorf("missing app id")
+		return nil, errors.New("missing app id")
 	}
 	paramsStr := params.Encode()
 

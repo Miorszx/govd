@@ -1,7 +1,6 @@
 package youtube
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -12,6 +11,8 @@ import (
 	"govd/models"
 	"govd/util"
 	"govd/util/networking"
+
+	"github.com/pkg/errors"
 
 	"github.com/bytedance/sonic"
 	"go.uber.org/zap"
@@ -46,7 +47,7 @@ func GetVideoFromInv(ctx *models.DownloadContext) (*models.Media, error) {
 
 	cfg := config.GetExtractorConfig(ctx.Extractor)
 	if cfg == nil {
-		return nil, fmt.Errorf("youtube extractor is not configured")
+		return nil, errors.New("youtube extractor is not configured")
 	}
 	instance, err := GetInvInstance(cfg)
 	if err != nil {

@@ -68,11 +68,14 @@ func (f ProtoField) String() string {
 	case ProtoFieldTypeInt32, ProtoFieldTypeInt64, ProtoFieldTypeVarint:
 		return fmt.Sprintf("%d(%s): %d", f.Idx, f.Type, f.Val)
 	case ProtoFieldTypeString:
-		if f.IsAsciiStr() {
-			return fmt.Sprintf("%d(%s): \"%s\"", f.Idx, f.Type, string(f.Val.([]byte)))
+		val, ok := f.Val.([]byte)
+		if ok && f.IsAsciiStr() {
+			return fmt.Sprintf("%d(%s): \"%s\"", f.Idx, f.Type, string(val))
 		}
 		return fmt.Sprintf("%d(%s): h\"%x\"", f.Idx, f.Type, f.Val)
 	case ProtoFieldTypeGroupStart, ProtoFieldTypeGroupEnd:
+		return fmt.Sprintf("%d(%s): %v", f.Idx, f.Type, f.Val)
+	case ProtoFieldTypeError1, ProtoFieldTypeError2:
 		return fmt.Sprintf("%d(%s): %v", f.Idx, f.Type, f.Val)
 	default:
 		return fmt.Sprintf("%d(%s): %v", f.Idx, f.Type, f.Val)
@@ -240,6 +243,9 @@ func (pb *ProtoBuf) parseBuf(data []byte) error {
 			field = ProtoField{Idx: fieldIdx, Type: fieldType, Val: r.readVarint()}
 		case ProtoFieldTypeString:
 			field = ProtoField{Idx: fieldIdx, Type: fieldType, Val: r.readString()}
+		case ProtoFieldTypeGroupStart, ProtoFieldTypeGroupEnd, ProtoFieldTypeError1, ProtoFieldTypeError2:
+			// not implemented, just store nil or empty
+			field = ProtoField{Idx: fieldIdx, Type: fieldType, Val: nil}
 		default:
 			return ProtoError{Msg: fmt.Sprintf("parse protobuf error, unexpected field type: %s", fieldType)}
 		}
@@ -288,6 +294,8 @@ func (pb *ProtoBuf) ToBuf() ([]byte, error) {
 			} else {
 				return nil, ProtoError{Msg: fmt.Sprintf("invalid value type %T for STRING field", field.Val)}
 			}
+		case ProtoFieldTypeGroupStart, ProtoFieldTypeGroupEnd, ProtoFieldTypeError1, ProtoFieldTypeError2:
+			// not implemented, skip writing value
 		default:
 			return nil, ProtoError{Msg: fmt.Sprintf("encode protobuf error, unexpected field type: %s", field.Type)}
 		}
@@ -321,6 +329,9 @@ func (pb *ProtoBuf) GetInt(idx int) (int, error) {
 		case int:
 			return v, nil
 		}
+	case ProtoFieldTypeString, ProtoFieldTypeGroupStart, ProtoFieldTypeGroupEnd, ProtoFieldTypeError1, ProtoFieldTypeError2:
+		// not supported for GetInt
+		return 0, ProtoError{Msg: fmt.Sprintf("GetInt(%d) -> %s (unsupported type)", idx, field.Type)}
 	}
 
 	return 0, ProtoError{Msg: fmt.Sprintf("GetInt(%d) -> %s", idx, field.Type)}

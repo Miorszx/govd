@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -99,9 +100,9 @@ func (g *Gorgon) Encrypt(data string) map[string]string {
 		result += g.HexString(param)
 	}
 	return map[string]string{
-		"ticket":  fmt.Sprintf("%d", g.Unix*1000),
-		"khronos": fmt.Sprintf("%d", g.Unix),
-		"gorgon":  fmt.Sprintf("0404b0d30000%s", result),
+		"ticket":  strconv.FormatInt(g.Unix*1000, 10),
+		"khronos": strconv.FormatInt(g.Unix, 10),
+		"gorgon":  "0404b0d30000" + result,
 	}
 }
 

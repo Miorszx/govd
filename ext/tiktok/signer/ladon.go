@@ -21,7 +21,8 @@ func NewLadon(
 	unixString := strconv.FormatInt(unix, 10)
 	data := unixString + "-" + licenseID + "-" + appID
 
-	keygen := append(randomBytes, []byte(appID)...)
+	keygen := randomBytes
+	keygen = append(keygen, []byte(appID)...)
 	hash := md5.Sum(keygen)
 	mdHex := hex.EncodeToString(hash[:])
 

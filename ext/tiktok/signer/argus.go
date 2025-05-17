@@ -118,7 +118,8 @@ func (a *Argus) Encrypt(xargusBean map[int]any) (string, error) {
 	}
 
 	headerBytes := []byte{0xf2, 0xf7, 0xfc, 0xff, 0xf2, 0xf7, 0xfc, 0xff}
-	combinedBuffer := append(headerBytes, encPb...)
+	combinedBuffer := headerBytes
+	combinedBuffer = append(combinedBuffer, encPb...)
 	bBuffer := a.encryptEncPb(combinedBuffer)
 
 	bBuffer = append([]byte{0xa6, 0x6e, 0xad, 0x9f, 0x77, 0x01, 0xd0, 0x0c, 0x18}, bBuffer...)
@@ -143,14 +144,14 @@ func (a *Argus) Encrypt(xargusBean map[int]any) (string, error) {
 	return base64.StdEncoding.EncodeToString(finalResult), nil
 }
 
-func generateRandom(max int) int {
+func generateRandom(maxValue int) int {
 	b := make([]byte, 4)
 	_, err := rand.Read(b)
 	if err != nil {
 		// fallback
 		return 12345678
 	}
-	randomValue := int(binary.BigEndian.Uint32(b)) % max
+	randomValue := int(binary.BigEndian.Uint32(b)) % maxValue
 	if randomValue < 0 {
 		randomValue = -randomValue
 	}

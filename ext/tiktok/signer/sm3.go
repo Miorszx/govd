@@ -71,7 +71,7 @@ func (s *SM3) cf(vi []uint32, bi []byte) []uint32 {
 	}
 
 	w1 := make([]uint32, 64)
-	for j := 0; j < 64; j++ {
+	for j := range 64 {
 		w1[j] = w[j] ^ w[j+4]
 	}
 

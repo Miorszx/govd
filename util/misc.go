@@ -80,7 +80,7 @@ func GetMaxDuration() time.Duration {
 			maxDurationVal = defaultDuration
 			return
 		}
-		maxDurationVal = duration * time.Second
+		maxDurationVal = duration
 	})
 	return maxDurationVal
 }

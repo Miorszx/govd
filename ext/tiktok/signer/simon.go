@@ -24,12 +24,12 @@ func keyExpansion(key []uint64) []uint64 {
 	var tmp uint64
 	for i := 4; i < 72; i++ {
 		tmp = rotateRight64(expandedKey[i-1], 3)
-		tmp = tmp ^ expandedKey[i-3]
-		tmp = tmp ^ rotateRight64(tmp, 1)
+		tmp ^= expandedKey[i-3]
+		tmp ^= rotateRight64(tmp, 1)
 		expandedKey[i] = ^expandedKey[i-4] & 0xFFFFFFFFFFFFFFFF
-		expandedKey[i] = expandedKey[i] ^ tmp
-		expandedKey[i] = expandedKey[i] ^ getBit(0x3DC94C3A046D678B, (i-4)%62)
-		expandedKey[i] = expandedKey[i] ^ 3
+		expandedKey[i] ^= tmp
+		expandedKey[i] ^= getBit(0x3DC94C3A046D678B, (i-4)%62)
+		expandedKey[i] ^= 3
 	}
 
 	return expandedKey
