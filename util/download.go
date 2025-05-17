@@ -63,7 +63,7 @@ func DownloadFile(
 		}
 	}
 
-	return "", fmt.Errorf("%w: %v", ErrDownloadFailed, errs)
+	return "", fmt.Errorf("%v", errs)
 }
 
 func DownloadFileWithSegments(
@@ -127,7 +127,7 @@ func DownloadFileInMemory(
 		}
 	}
 
-	return nil, fmt.Errorf("%w: %v", ErrDownloadFailed, errs)
+	return nil, fmt.Errorf("%v", errs)
 }
 
 func downloadInMemory(
@@ -379,7 +379,7 @@ func getFileSize(
 		return 0, fmt.Errorf("failed to get file size: %w", err)
 	}
 	if size == 0 {
-		zap.S().Warnf("file size is unknown for URL: %s", fileURL)
+		zap.S().Debugf("file size is unknown for URL: %s. using default chunk size", fileURL)
 	}
 	return size, err
 }

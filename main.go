@@ -21,6 +21,9 @@ import (
 )
 
 func main() {
+	logger.Init()
+	defer logger.Sync()
+
 	// setup environment variables
 	err := godotenv.Load()
 	if err != nil {
@@ -37,8 +40,8 @@ func main() {
 		zap.S().Warn("failed to parse LOG_FILE env, using false")
 		allowLogFile = false
 	}
-	logger.Init(logLevel, allowLogFile)
-	defer logger.Sync()
+	logger.SetLevel(logLevel)
+	logger.SetLogFile(allowLogFile)
 
 	// setup extractors
 	err = config.LoadExtractorConfigs()

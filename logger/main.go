@@ -17,12 +17,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var allowLogFile bool
+var (
+	allowLogFile bool
+	atomicLevel  = zap.NewAtomicLevelAt(zap.InfoLevel)
+)
 
-func Init(logLevel string, logFile bool) {
-	// enable file logging
-	allowLogFile = logFile
-
+func Init() {
 	simpleTimeEncoder := func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 		enc.AppendString(t.Format("2006-01-02 15:04:05"))
 	}
@@ -42,14 +42,10 @@ func Init(logLevel string, logFile bool) {
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 	consoleEncoder := zapcore.NewConsoleEncoder(encoderConfig)
-	level, err := zap.ParseAtomicLevel(logLevel)
-	if err != nil {
-		log.Panicf("failed to parse log level %s: %v", logLevel, err)
-	}
 	core := zapcore.NewCore(
 		consoleEncoder,
 		zapcore.Lock(os.Stdout),
-		level,
+		atomicLevel,
 	)
 	logger := zap.New(
 		core,
@@ -57,6 +53,18 @@ func Init(logLevel string, logFile bool) {
 		zap.AddStacktrace(zapcore.FatalLevel),
 	)
 	zap.ReplaceGlobals(logger)
+}
+
+func SetLevel(level string) {
+	parsedLevel, err := zap.ParseAtomicLevel(level)
+	if err != nil {
+		log.Panicf("failed to parse log level %s: %v", level, err)
+	}
+	atomicLevel.SetLevel(parsedLevel.Level())
+}
+
+func SetLogFile(value bool) {
+	allowLogFile = value
 }
 
 func Sync() error {
