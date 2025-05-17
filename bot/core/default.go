@@ -62,11 +62,18 @@ func HandleDefaultFormatDownload(
 		if len(defaultFormat.URL) == 0 {
 			return fmt.Errorf("media format at index %d has no URL", i)
 		}
-		// ensure we can merge video and audio formats
-		ensureMergeFormats(mediaList[i], defaultFormat)
-		mediaList[i].Format = defaultFormat
 
 		zap.S().Debugf("default format selected: %s (media %d)", defaultFormat.FormatID, i)
+
+		// ensure we can merge video and audio formats
+		ensureMergeFormats(mediaList[i], defaultFormat)
+
+		// ensure download config is set
+		if defaultFormat.DownloadConfig == nil {
+			defaultFormat.DownloadConfig = models.GetDownloadConfig(nil)
+		}
+
+		mediaList[i].Format = defaultFormat
 
 		// check for file size and duration limits
 		if util.ExceedsMaxFileSize(defaultFormat.FileSize) {
