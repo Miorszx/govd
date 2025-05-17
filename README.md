@@ -77,46 +77,46 @@ you can configure the bot using the `.env` file. here are the available options:
 
 ## database
 
-| variable     | description       | default   |
-|--------------|-------------------|-----------|
-| db_host      | database host     | localhost |
-| db_port      | database port     | 3306      |
-| db_name      | database name     | govd      |
-| db_user      | database user     | govd      |
-| db_password  | database password | password  |
+| variable      | description                         | default                              |
+|---------------|-------------------------------------|--------------------------------------|
+| DB_HOST       | database host                       | localhost                            |
+| DB_PORT       | database port                       | 3306                                 |
+| DB_NAME       | database name                       | govd                                 |
+| DB_USER       | database user                       | govd                                 |
+| DB_PASSWORD   | database password                   | password                             |
 
 ## telegram
 
 | variable           | description                      | default                              |
 |--------------------|----------------------------------|--------------------------------------|
-| bot_api_url        | telegram bot api url             | https://api.telegram.org             |
-| bot_token          | telegram bot token               | 12345678:abc-def1234ghikl-zyx57w2p0s |
-| concurrent_updates | max concurrent updates handled   | 50                                   |
+| BOT_API_URL        | telegram bot api url             | https://api.telegram.org             |
+| BOT_TOKEN          | telegram bot token               | 12345678:abc-def1234ghikl-zyx57w2p0s |
+| CONCURRENT_UPDATES | max concurrent updates handled   | 50                                   |
 
 ## downloads
 
 | variable       | description                    | default    |
 |----------------|--------------------------------|------------|
-| downloads_dir  | directory for downloaded files | downloads  |
+| DOWNLOADS_DIR  | directory for downloaded files | downloads  |
 
 ## proxying
 
 | variable     | description                 | default            |
 |--------------|-----------------------------|--------------------|
-| http_proxy   | http proxy (optional)       | none _(disabled)_  |
-| https_proxy  | https proxy (optional)      | none _(disabled)_  |
-| no_proxy     | no proxy domains (optional) | none _(disabled)_  |
+| HTTP_PROXY   | http proxy (optional)       | none _(disabled)_  |
+| HTTPS_PROXY  | https proxy (optional)      | none _(disabled)_  |
+| NO_PROXY     | no proxy domains (optional) | none _(disabled)_  |
 
 ## misc
 
 | variable       | description                               | default                             |
 |----------------|-------------------------------------------|-------------------------------------|
-| repo_url       | project repository url                    | https://github.com/govdbot/govd     |
-| profiler_port  | port for profiler http server (pprof)     | 0 _(disabled)_                      |
-| log_level      | log level (debug, info, warn, error)      | info                                |
-| log_file       | whether to enable file logging            | false                               |
-| max_duration   | max duration in seconds                   | 3600                                |
-| max_file_size  | max file size in mb                       | 1000                                |
+| REPO_URL       | project repository url                    | https://github.com/govdbot/govd     |
+| PROFILER_PORT  | port for profiler http server (pprof)     | 0 _(disabled)_                      |
+| LOG_LEVEL      | log level (debug, info, warn, error)      | info                                |
+| LOG_FILE       | whether to enable file logging            | false                               |
+| MAX_DURATION   | max duration in seconds                   | 3600                                |
+| MAX_FILE_SIZE  | max file size in mb                       | 1000                                |
 
 ## extractors
 you can configure specific extractors options with `ext-cfg.yaml` file ([learn more](CONFIGURATION.md)).

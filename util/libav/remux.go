@@ -8,23 +8,10 @@ import (
 
 	"github.com/asticode/go-astiav"
 	"github.com/pkg/errors"
-	ffmpeg "github.com/u2takey/ffmpeg-go"
 	"go.uber.org/zap"
 )
 
 func RemuxFile(inputFile string) (string, error) {
-	outputFile, err := RemuxFileLibav(inputFile)
-	if err == nil {
-		return outputFile, nil
-	}
-	outputFile, err = RemuxFileProc(inputFile)
-	if err == nil {
-		return outputFile, nil
-	}
-	return "", err
-}
-
-func RemuxFileLibav(inputFile string) (string, error) {
 	if zap.S().Level() == zap.DebugLevel {
 		astiav.SetLogLevel(astiav.LogLevelDebug)
 	} else {
@@ -145,30 +132,6 @@ func RemuxFileLibav(inputFile string) (string, error) {
 	if err := outCtx.WriteTrailer(); err != nil {
 		os.Remove(outputFile)
 		return "", fmt.Errorf("failed to write trailer: %w", err)
-	}
-	return outputFile, nil
-}
-
-func RemuxFileProc(inputFile string) (string, error) {
-	defer os.Remove(inputFile)
-
-	ext := strings.ToLower(filepath.Ext(inputFile))
-	outputFile := strings.TrimSuffix(inputFile, ext) + ".remuxed" + ext
-
-	err := ffmpeg.
-		Input(inputFile).
-		Output(outputFile, ffmpeg.KwArgs{
-			"c:v": "copy",
-			"c:a": "copy",
-			"c:s": "copy",
-			"map": "0",
-		}).
-		Silent(true).
-		OverWriteOutput().
-		Run()
-	if err != nil {
-		os.Remove(outputFile)
-		return "", fmt.Errorf("failed to remux file: %w", err)
 	}
 	return outputFile, nil
 }

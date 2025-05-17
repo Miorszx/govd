@@ -22,7 +22,7 @@ var Extractor = &models.Extractor{
 	CodeName:   "youtube",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategoryStreaming,
-	URLPattern: regexp.MustCompile(`(?:https?:)?(?:\/\/)?(?:(?:www|m)\.)?(?:youtube(?:-nocookie)?\.com\/(?:(?:watch\?(?:.*&)?v=)|(?:embed\/)|(?:v\/))|youtu\.be\/)(?P<id>[\w-]{11})(?:[?&].*)?`),
+	URLPattern: regexp.MustCompile(`(?:https?:)?(?:\/\/)?(?:(?:www|m)\.)?(?:youtube(?:-nocookie)?\.com\/(?:(?:watch\?(?:.*&)?v=)|(?:embed\/)|(?:v\/)|(?:shorts\/))|youtu\.be\/)(?P<id>[\w-]{11})(?:[?&].*)?`),
 	Host: []string{
 		"youtube",
 		"youtu",
