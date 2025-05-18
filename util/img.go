@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/strukturag/libheif/go/heif" // register HEIF decoder
 	"go.uber.org/zap"
+	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // register WebP decoder
 )
 
@@ -26,49 +27,95 @@ var (
 )
 
 func ImgToJPEG(file io.ReadSeeker, outputPath string) error {
-	format, err := DetectImageFormat(file)
-	if err != nil {
-		return fmt.Errorf("failed to detect image format: %w", err)
-	}
-	zap.S().Debugf("detected image format: %s", format)
-
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer outputFile.Close()
 
-	if format == "jpeg" {
-		if _, err = file.Seek(0, io.SeekStart); err != nil {
-			os.Remove(outputPath)
-			return fmt.Errorf("failed to reset file position: %w", err)
-		}
-
-		if _, err = io.Copy(outputFile, file); err != nil {
-			os.Remove(outputPath)
-			return fmt.Errorf("failed to copy image: %w", err)
-		}
-		return nil
-	}
-
-	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		os.Remove(outputPath)
-		return fmt.Errorf("failed to reset file position: %w", err)
-	}
-
-	img, _, err := image.Decode(file)
+	img, err := DecodeImage(file, 0)
 	if err != nil {
 		os.Remove(outputPath)
 		return fmt.Errorf("failed to decode image: %w", err)
 	}
 
+	if img == nil {
+		// already a jpeg
+		if _, err = io.Copy(outputFile, file); err != nil {
+			os.Remove(outputPath)
+			return fmt.Errorf("failed to copy image: %w", err)
+		}
+	}
 	err = jpeg.Encode(outputFile, img, nil)
 	if err != nil {
 		os.Remove(outputPath)
 		return fmt.Errorf("failed to encode image: %w", err)
 	}
-
 	return nil
+}
+
+func ResizeImgToJPEG(file io.ReadSeeker, outputPath string, resize int) error {
+	outputFile, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outputFile.Close()
+
+	img, err := DecodeImage(file, resize)
+	if err != nil {
+		os.Remove(outputPath)
+		return fmt.Errorf("failed to decode image: %w", err)
+	}
+
+	if img == nil {
+		// already a jpeg
+		if _, err = io.Copy(outputFile, file); err != nil {
+			os.Remove(outputPath)
+			return fmt.Errorf("failed to copy image: %w", err)
+		}
+	}
+	err = jpeg.Encode(outputFile, img, nil)
+	if err != nil {
+		os.Remove(outputPath)
+		return fmt.Errorf("failed to encode image: %w", err)
+	}
+	return nil
+}
+
+func DecodeImage(
+	file io.ReadSeeker,
+	resize int,
+) (image.Image, error) {
+	format, err := DetectImageFormat(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect image format: %w", err)
+	}
+	zap.S().Debugf("detected image format: %s", format)
+
+	if format == "jpeg" {
+		if _, err = file.Seek(0, io.SeekStart); err != nil {
+			return nil, fmt.Errorf("failed to reset file position: %w", err)
+		}
+		if resize > 0 {
+			img, err := jpeg.Decode(file)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode image: %w", err)
+			}
+			dst := image.NewRGBA(image.Rect(0, 0, resize, resize))
+			draw.NearestNeighbor.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Over, nil)
+			return dst, nil
+		}
+		// already a jpeg, no need to decode
+		return nil, nil
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("failed to reset file position: %w", err)
+	}
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode image: %w", err)
+	}
+	return img, nil
 }
 
 func DetectImageFormat(file io.ReadSeeker) (string, error) {

@@ -20,7 +20,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func getFileThumbnail(
+func GetFileThumbnail(
 	ctx context.Context,
 	format *models.MediaFormat,
 	filePath string,
@@ -38,9 +38,18 @@ func getFileThumbnail(
 		if err != nil {
 			return "", fmt.Errorf("failed to download file in memory: %w", err)
 		}
-		err = util.ImgToJPEG(file, thumbnailFilePath)
-		if err != nil {
-			return "", fmt.Errorf("failed to convert to JPEG: %w", err)
+		if format.Type == enums.MediaTypeAudio {
+			zap.S().Debug("resizing audio thumbnail")
+			// thumbnails for audio files are usually 320x320
+			err = util.ResizeImgToJPEG(file, thumbnailFilePath, 320)
+			if err != nil {
+				return "", fmt.Errorf("failed to convert to JPEG: %w", err)
+			}
+		} else {
+			err = util.ImgToJPEG(file, thumbnailFilePath)
+			if err != nil {
+				return "", fmt.Errorf("failed to convert to JPEG: %w", err)
+			}
 		}
 		return thumbnailFilePath, nil
 	}
@@ -55,7 +64,7 @@ func getFileThumbnail(
 	return "", nil
 }
 
-func insertVideoInfo(
+func InsertVideoInfo(
 	format *models.MediaFormat,
 	filePath string,
 ) {
@@ -298,7 +307,7 @@ func SendErrorMessage(
 	}
 }
 
-func ensureMergeFormats(
+func EnsureMergeFormats(
 	media *models.Media,
 	videoFormat *models.MediaFormat,
 ) {

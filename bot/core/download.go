@@ -15,7 +15,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func downloadMediaItem(
+func DownloadMediaItem(
 	ctx context.Context,
 	media *models.Media,
 	idx int,
@@ -78,7 +78,7 @@ func downloadMediaItem(
 	}
 
 	if format.Type == enums.MediaTypeVideo || format.Type == enums.MediaTypeAudio {
-		path, err := getFileThumbnail(ctx, format, filePath, config)
+		path, err := GetFileThumbnail(ctx, format, filePath, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get thumbnail: %w", err)
 		}
@@ -86,7 +86,7 @@ func downloadMediaItem(
 	}
 
 	if format.Type == enums.MediaTypeVideo && (format.Width == 0 || format.Height == 0 || format.Duration == 0) {
-		insertVideoInfo(format, filePath)
+		InsertVideoInfo(format, filePath)
 
 		// check if the extracted video duration is too long
 		if util.ExceedsMaxDuration(format.Duration) {
@@ -108,7 +108,7 @@ func StartDownloadTask(
 	media *models.Media,
 	idx int,
 ) (*models.DownloadedMedia, error) {
-	return downloadMediaItem(ctx, media, idx)
+	return DownloadMediaItem(ctx, media, idx)
 }
 
 func StartConcurrentDownload(
@@ -121,7 +121,7 @@ func StartConcurrentDownload(
 ) {
 	defer wg.Done()
 
-	result, err := downloadMediaItem(ctx, media, idx)
+	result, err := DownloadMediaItem(ctx, media, idx)
 	if err != nil {
 		errChan <- err
 		return

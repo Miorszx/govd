@@ -48,7 +48,7 @@ func SetTask(id string, task *models.DownloadContext) {
 		Task:      task,
 		CreatedAt: time.Now(),
 	})
-	cleanupActive.Do(startTasksCleanup)
+	cleanupActive.Do(StartTasksCleanup)
 }
 
 func DeleteTask(id string) {
@@ -56,19 +56,19 @@ func DeleteTask(id string) {
 	InlineTasks.Delete(id)
 }
 
-func startTasksCleanup() {
+func StartTasksCleanup() {
 	zap.S().Debug("starting inline tasks cleanup")
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			cleanupStaleTasks()
+			CleanupStaleTasks()
 		}
 	}()
 }
 
-func cleanupStaleTasks() {
+func CleanupStaleTasks() {
 	now := time.Now()
 	InlineTasks.Range(func(key, value any) bool {
 		entry, ok := value.(TaskEntry)
@@ -280,7 +280,7 @@ func GetInlineFormat(
 			return
 		}
 		// ensure we can merge video and audio formats
-		ensureMergeFormats(mediaList[i], defaultFormat)
+		EnsureMergeFormats(mediaList[i], defaultFormat)
 		mediaList[i].Format = defaultFormat
 	}
 	messageCaption := FormatCaption(mediaList[0], true)

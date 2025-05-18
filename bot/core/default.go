@@ -66,7 +66,7 @@ func HandleDefaultFormatDownload(
 		zap.S().Debugf("default format selected: %s (media %d)", defaultFormat.FormatID, i)
 
 		// ensure we can merge video and audio formats
-		ensureMergeFormats(mediaList[i], defaultFormat)
+		EnsureMergeFormats(mediaList[i], defaultFormat)
 
 		// ensure download config is set
 		if defaultFormat.DownloadConfig == nil {
