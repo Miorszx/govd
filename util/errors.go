@@ -22,4 +22,5 @@ var (
 	ErrFileTooLarge             = &Error{Message: "file is too large for this instance"}
 	ErrTelegramFileTooLarge     = &Error{Message: "file is too large for your telegram botapi. be sure to use a local botapi for large files"}
 	ErrDurationTooLong          = &Error{Message: "media duration is too long for this instance"}
+	ErrPaidContent              = &Error{Message: "this content is paid"}
 )

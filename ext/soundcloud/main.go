@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 
 	"govd/enums"
 	"govd/logger"
@@ -235,6 +236,10 @@ func GetTrackURL(
 	err = decoder.Decode(&manifest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if strings.Contains(manifest.URL, "preview-media") {
+		return nil, util.ErrPaidContent
 	}
 
 	return &manifest, nil
