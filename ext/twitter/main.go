@@ -95,12 +95,12 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 
 	caption := CleanCaption(tweetData.FullText)
 
-	var mediaEntities []MediaEntity
+	var mediaEntities []*MediaEntity
 	switch {
-	case tweetData.ExtendedEntities != nil && len(tweetData.ExtendedEntities.Media) > 0:
-		mediaEntities = tweetData.ExtendedEntities.Media
 	case tweetData.Entities != nil && len(tweetData.Entities.Media) > 0:
 		mediaEntities = tweetData.Entities.Media
+	case tweetData.ExtendedEntities != nil && len(tweetData.ExtendedEntities.Media) > 0:
+		mediaEntities = tweetData.ExtendedEntities.Media
 	default:
 		return nil, nil
 	}
@@ -114,7 +114,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 
 		switch mediaEntity.Type {
 		case "video", "animated_gif":
-			formats, err := ExtractVideoFormats(&mediaEntity)
+			formats, err := ExtractVideoFormats(mediaEntity)
 			if err != nil {
 				return nil, err
 			}
@@ -177,19 +177,15 @@ func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	result := apiResponse.Data.TweetResult.Result
-	if result == nil {
-		return nil, errors.New("failed to get tweet result")
-	}
-
 	var tweet *Tweet
 	switch {
-	case result.Tweet != nil:
-		tweet = result.Tweet
-	case result.Legacy != nil:
-		tweet = result.Legacy
+	case apiResponse.Data.TweetResult.Result.Tweet != nil:
+		tweet = apiResponse.Data.TweetResult.Result.Tweet.Legacy
+	case apiResponse.Data.TweetResult.Result.Legacy != nil:
+		tweet = apiResponse.Data.TweetResult.Result.Legacy
 	default:
-		return nil, errors.New("failed to get tweet data")
+		return nil, errors.New("failed to find tweet data in response")
 	}
+
 	return tweet, nil
 }
