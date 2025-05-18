@@ -177,12 +177,17 @@ func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	result := apiResponse.Data.TweetResult.Result
+	if result == nil {
+		return nil, errors.New("failed to find tweet result in response")
+	}
+
 	var tweet *Tweet
 	switch {
-	case apiResponse.Data.TweetResult.Result.Tweet != nil:
-		tweet = apiResponse.Data.TweetResult.Result.Tweet.Legacy
-	case apiResponse.Data.TweetResult.Result.Legacy != nil:
-		tweet = apiResponse.Data.TweetResult.Result.Legacy
+	case result.Tweet != nil:
+		tweet = result.Tweet.Legacy
+	case result.Legacy != nil:
+		tweet = result.Legacy
 	default:
 		return nil, errors.New("failed to find tweet data in response")
 	}
