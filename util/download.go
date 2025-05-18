@@ -32,7 +32,7 @@ func DownloadFile(
 	fileName string,
 	config *models.DownloadConfig,
 ) (string, error) {
-	zap.S().Debugf("invoking downloader: %v", urlList)
+	zap.S().Debugf("invoking downloader: %v with config %+v", urlList, config)
 
 	var errs []error
 	for _, fileURL := range urlList {

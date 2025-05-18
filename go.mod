@@ -8,6 +8,7 @@ require (
 	github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.31
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/abema/go-mp4 v1.4.1
+	github.com/bogem/id3v2/v2 v2.1.4
 	github.com/bytedance/sonic v1.13.2
 	github.com/google/uuid v1.6.0
 	github.com/guregu/null/v6 v6.0.0
@@ -47,6 +48,6 @@ require (
 	github.com/titanous/json5 v1.0.0
 	github.com/u2takey/go-utils v0.3.1 // indirect
 	go.uber.org/zap v1.27.0
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	gorm.io/driver/mysql v1.5.7
 )

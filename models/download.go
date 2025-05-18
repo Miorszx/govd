@@ -1,7 +1,6 @@
 package models
 
 import (
-	"maps"
 	"net/http"
 	"os"
 	"time"
@@ -47,35 +46,38 @@ func GetDownloadConfig(config *DownloadConfig) *DownloadConfig {
 	if config == nil {
 		return defaultConfig
 	}
-	config.Merge(defaultConfig)
+	config.Ensure()
 	return config
 }
 
-func (dc *DownloadConfig) Merge(other *DownloadConfig) {
-	if other.ChunkSize > 0 {
-		dc.ChunkSize = other.ChunkSize
+func (cfg *DownloadConfig) Ensure() {
+	defaultConfig := DefaultDownloadConfig()
+
+	if cfg.ChunkSize <= 0 {
+		cfg.ChunkSize = defaultConfig.ChunkSize
 	}
-	if other.Concurrency > 0 {
-		dc.Concurrency = other.Concurrency
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = defaultConfig.Concurrency
 	}
-	if other.Timeout > 0 {
-		dc.Timeout = other.Timeout
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = defaultConfig.Timeout
 	}
-	if other.DownloadDir != "" {
-		dc.DownloadDir = other.DownloadDir
+	if cfg.DownloadDir == "" {
+		cfg.DownloadDir = defaultConfig.DownloadDir
 	}
-	if other.RetryAttempts > 0 {
-		dc.RetryAttempts = other.RetryAttempts
+	if cfg.RetryAttempts <= 0 {
+		cfg.RetryAttempts = defaultConfig.RetryAttempts
 	}
-	if other.RetryDelay > 0 {
-		dc.RetryDelay = other.RetryDelay
+	if cfg.RetryDelay <= 0 {
+		cfg.RetryDelay = defaultConfig.RetryDelay
 	}
-	if other.Remux {
-		dc.Remux = other.Remux
+	if cfg.MaxInMemory <= 0 {
+		cfg.MaxInMemory = defaultConfig.MaxInMemory
 	}
-	if other.MaxInMemory > 0 {
-		dc.MaxInMemory = other.MaxInMemory
+	if cfg.Headers == nil {
+		cfg.Headers = make(map[string]string)
 	}
-	maps.Copy(dc.Headers, other.Headers)
-	dc.Cookies = append(dc.Cookies, other.Cookies...)
+	if cfg.Cookies == nil {
+		cfg.Cookies = make([]*http.Cookie, 0)
+	}
 }

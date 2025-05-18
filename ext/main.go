@@ -6,6 +6,7 @@ import (
 	"govd/ext/pinterest"
 	"govd/ext/reddit"
 	"govd/ext/redgifs"
+	"govd/ext/soundcloud"
 	"govd/ext/threads"
 	"govd/ext/tiktok"
 	"govd/ext/twitter"
@@ -29,4 +30,6 @@ var List = []*models.Extractor{
 	reddit.ShortExtractor,
 	ninegag.Extractor,
 	redgifs.Extractor,
+	soundcloud.Extractor,
+	soundcloud.ShortExtractor,
 }
