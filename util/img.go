@@ -38,13 +38,13 @@ func ImgToJPEG(file io.ReadSeeker, outputPath string) error {
 		os.Remove(outputPath)
 		return fmt.Errorf("failed to decode image: %w", err)
 	}
-
 	if img == nil {
 		// already a jpeg
 		if _, err = io.Copy(outputFile, file); err != nil {
 			os.Remove(outputPath)
 			return fmt.Errorf("failed to copy image: %w", err)
 		}
+		return nil
 	}
 	err = jpeg.Encode(outputFile, img, nil)
 	if err != nil {
@@ -73,6 +73,7 @@ func ResizeImgToJPEG(file io.ReadSeeker, outputPath string, resize int) error {
 			os.Remove(outputPath)
 			return fmt.Errorf("failed to copy image: %w", err)
 		}
+		return nil
 	}
 	err = jpeg.Encode(outputFile, img, nil)
 	if err != nil {
