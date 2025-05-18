@@ -3,12 +3,14 @@ package pinterest
 import (
 	"fmt"
 	"net/url"
+	"strings"
 
 	"govd/enums"
 	"govd/models"
 	"govd/util/parser"
 
 	"github.com/bytedance/sonic"
+	"go.uber.org/zap"
 )
 
 var headers = map[string]string{
@@ -20,7 +22,7 @@ func ParseVideoObject(videoObj *Videos) ([]*models.MediaFormat, error) {
 	var formats []*models.MediaFormat
 
 	for key, video := range videoObj.VideoList {
-		if key != "HLS" {
+		if !strings.Contains(key, "HLS") {
 			formats = append(formats, &models.MediaFormat{
 				FormatID:   key,
 				URL:        []string{video.URL},
@@ -33,6 +35,7 @@ func ParseVideoObject(videoObj *Videos) ([]*models.MediaFormat, error) {
 				Thumbnail:  []string{video.Thumbnail},
 			})
 		} else {
+			zap.S().Debugf("extracting HLS formats: %s", key)
 			hlsFormats, err := parser.ParseM3U8FromURL(video.URL)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hls formats: %w", err)

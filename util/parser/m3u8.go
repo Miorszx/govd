@@ -14,6 +14,7 @@ import (
 
 	"github.com/grafov/m3u8"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 var httpClient = &http.Client{
@@ -30,19 +31,21 @@ func ParseM3U8Content(
 	}
 
 	buf := bytes.NewBuffer(content)
-	playlist, listType, err := m3u8.DecodeFrom(buf, true)
+	playlist, listType, err := m3u8.DecodeFrom(buf, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing m3u8: %w", err)
 	}
 
 	switch listType {
 	case m3u8.MASTER:
+		zap.S().Debugf("detected master playlist")
 		master, ok := playlist.(*m3u8.MasterPlaylist)
 		if !ok {
 			return nil, errors.New("failed to cast to master playlist")
 		}
 		return parseMasterPlaylist(master, baseURLObj)
 	case m3u8.MEDIA:
+		zap.S().Debugf("detected media playlist")
 		media, ok := playlist.(*m3u8.MediaPlaylist)
 		if !ok {
 			return nil, errors.New("failed to cast to media playlist")
@@ -106,9 +109,11 @@ func parseMasterPlaylist(
 				if variantFormats[0].Duration > 0 {
 					format.Duration = variantFormats[0].Duration
 				}
+				formats = append(formats, format)
+			} else {
+				zap.S().Warnf("skipping variant due to: %v", err)
 			}
 		}
-		formats = append(formats, format)
 	}
 	return formats, nil
 }
@@ -176,6 +181,9 @@ func parseAlternative(
 			if altFormats[0].Duration > 0 {
 				format.Duration = altFormats[0].Duration
 			}
+		} else {
+			zap.S().Warnf("skipping alternative due to: %v", err)
+			return nil
 		}
 	}
 	return format
