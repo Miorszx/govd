@@ -3,6 +3,7 @@ package handlers
 import (
 	"govd/database"
 	extractors "govd/ext"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,10 +64,6 @@ func UpdateStats() {
 	if err != nil {
 		groups = 0
 	}
-	dailyGroups, err := database.GetDailyGroupsCount()
-	if err != nil {
-		dailyGroups = 0
-	}
 	downloads, err := database.GetMediaCount()
 	if err != nil {
 		downloads = 0
@@ -78,10 +75,8 @@ func UpdateStats() {
 
 	var stats strings.Builder
 	stats.WriteString("users: " + strconv.Itoa(users) + "\n")
-	stats.WriteString("daily users: " + strconv.Itoa(dailyUsers) + "\n\n")
-
-	stats.WriteString("groups: " + strconv.Itoa(groups) + "\n")
-	stats.WriteString("daily groups: " + strconv.Itoa(dailyGroups) + "\n\n")
+	stats.WriteString("daily users: " + strconv.Itoa(dailyUsers) + "\n")
+	stats.WriteString("groups: " + strconv.Itoa(groups) + "\n\n")
 
 	stats.WriteString("downloads: " + strconv.Itoa(downloads) + "\n")
 	stats.WriteString("daily downloads: " + strconv.Itoa(dailyDownloads) + "\n\n")
@@ -89,12 +84,18 @@ func UpdateStats() {
 	stats.WriteString("extractors:\n")
 	stats.WriteString("<blockquote expandable>")
 
-	var extractorStats []*ExtractorStats
+	extractorStats := make([]*ExtractorStats, 0, len(extractors.List))
+	codenames := make([]string, 0, len(extractors.List))
 
 	for _, extractor := range extractors.List {
 		if extractor.IsRedirect {
 			continue
 		}
+		if slices.Contains(codenames, extractor.CodeName) {
+			continue
+		}
+		codenames = append(codenames, extractor.CodeName)
+
 		count, err := database.GetExtMediaCount(extractor.CodeName)
 		if err != nil {
 			count = 0
@@ -118,6 +119,9 @@ func UpdateStats() {
 		stats.WriteString("daily: " + strconv.Itoa(stat.Daily) + "\n\n")
 	}
 	stats.WriteString("</blockquote>")
+
+	stats.WriteString("\n\nupdates every 30 minutes")
+
 	currentStats = &Stats{
 		String:    stats.String(),
 		UpdatedAt: time.Now(),
@@ -133,7 +137,7 @@ func GetStats() string {
 				UpdatedAt: time.Now(),
 			}
 		}
-	} else if currentStats.UpdatedAt.Add(10 * time.Minute).Before(time.Now()) {
+	} else if currentStats.UpdatedAt.Add(30 * time.Minute).Before(time.Now()) {
 		oldStats := currentStats
 		UpdateStats()
 		if currentStats == nil {

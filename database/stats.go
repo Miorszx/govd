@@ -90,16 +90,3 @@ func GetGroupsCount() (int, error) {
 	}
 	return int(count), nil
 }
-
-func GetDailyGroupsCount() (int, error) {
-	var count int64
-	err := DB.
-		Model(&models.GroupSettings{}).
-		Where("DATE(last_used) = DATE(NOW())").
-		Count(&count).
-		Error
-	if err != nil {
-		return 0, err
-	}
-	return int(count), nil
-}
