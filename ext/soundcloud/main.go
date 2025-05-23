@@ -88,10 +88,10 @@ func GetTrackMediaList(ctx *models.DownloadContext) ([]*models.Media, error) {
 		}
 	} else {
 		uploader := ctx.MatchedGroups["uploader"]
-		resolveTitle := fmt.Sprintf("%s/%s", uploader, contentID)
+		resolveTitle := uploader + "/" + contentID
 		token := ctx.MatchedGroups["token"]
 		if token != "" {
-			resolveTitle += fmt.Sprintf("/%s", token)
+			resolveTitle += "/" + token
 		}
 		infoURL = ResolveURL(baseURL + resolveTitle)
 	}

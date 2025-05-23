@@ -12,6 +12,8 @@ import (
 	"govd/models"
 	"govd/util"
 	"govd/util/networking"
+
+	"github.com/pkg/errors"
 )
 
 var clientIDPattern = regexp.MustCompile(`"clientId"\s*:\s*"([0-9a-zA-Z]{32})"`)
@@ -63,5 +65,5 @@ func GetClientID(ctx *models.DownloadContext) (string, error) {
 		return clientID, nil
 	}
 
-	return "", fmt.Errorf("failed to find clientId")
+	return "", errors.New("failed to find clientId")
 }
