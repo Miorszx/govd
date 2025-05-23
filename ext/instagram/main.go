@@ -28,7 +28,6 @@ var Extractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https:\/\/(www\.)?(?:dd)?instagram\.com\/(reels?|p|tv)\/(?P<id>[a-zA-Z0-9_-]+)`),
 	Host:       instagramHost,
 	IsRedirect: false,
-	IsHidden:   true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		// method 1: get media from GQL web API
