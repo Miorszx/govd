@@ -30,6 +30,7 @@ var ShortExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https?://t\.co/(?P<id>\w+)`),
 	Host:       []string{"t"},
 	IsRedirect: true,
+	IsHidden:   true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		client := networking.GetExtractorHTTPClient(ctx.Extractor)

@@ -32,6 +32,7 @@ var ShortExtractor = &models.Extractor{
 	URLPattern: regexp.MustCompile(`https?:\/\/on\.soundcloud\.com\/(?P<id>\w+)`),
 	Host:       []string{"on.soundcloud"},
 	IsRedirect: true,
+	IsHidden:   true,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
 		client := networking.GetExtractorHTTPClient(ctx.Extractor)

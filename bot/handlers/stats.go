@@ -1,11 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"govd/database"
 	extractors "govd/ext"
-	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,12 +18,25 @@ type Stats struct {
 }
 
 type ExtractorStats struct {
-	CodeName string
-	Total    int
-	Daily    int
+	Name  string
+	Total int
+	Daily int
 }
 
 var currentStats *Stats
+
+var statsMessage = "users: %d\n" +
+	"daily users: %d\n" +
+	"groups: %d\n\n" +
+	"downloads: %d\n" +
+	"daily downloads: %d\n\n" +
+	"extractors:\n" +
+	"<blockquote expandable>" +
+	"%s" +
+	"</blockquote>\n\n" +
+	"updates every 30 minutes"
+
+var statsMessageNoData = "stats temporarily unavailable"
 
 func StatsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	if ctx.EffectiveMessage.Chat.Type != gotgbot.ChatTypePrivate {
@@ -73,28 +85,12 @@ func UpdateStats() {
 		dailyDownloads = 0
 	}
 
-	var stats strings.Builder
-	stats.WriteString("users: " + strconv.Itoa(users) + "\n")
-	stats.WriteString("daily users: " + strconv.Itoa(dailyUsers) + "\n")
-	stats.WriteString("groups: " + strconv.Itoa(groups) + "\n\n")
-
-	stats.WriteString("downloads: " + strconv.Itoa(downloads) + "\n")
-	stats.WriteString("daily downloads: " + strconv.Itoa(dailyDownloads) + "\n\n")
-
-	stats.WriteString("extractors:\n")
-	stats.WriteString("<blockquote expandable>")
-
 	extractorStats := make([]*ExtractorStats, 0, len(extractors.List))
-	codenames := make([]string, 0, len(extractors.List))
 
 	for _, extractor := range extractors.List {
-		if extractor.IsRedirect {
+		if extractor.IsRedirect || extractor.IsHidden {
 			continue
 		}
-		if slices.Contains(codenames, extractor.CodeName) {
-			continue
-		}
-		codenames = append(codenames, extractor.CodeName)
 
 		count, err := database.GetExtMediaCount(extractor.CodeName)
 		if err != nil {
@@ -105,25 +101,34 @@ func UpdateStats() {
 			dailyCount = 0
 		}
 		extractorStats = append(extractorStats, &ExtractorStats{
-			CodeName: extractor.CodeName,
-			Total:    count,
-			Daily:    dailyCount,
+			Name:  extractor.Name,
+			Total: count,
+			Daily: dailyCount,
 		})
 	}
 	sort.Slice(extractorStats, func(i, j int) bool {
 		return extractorStats[i].Total > extractorStats[j].Total
 	})
+	entries := make([]string, 0, len(extractors.List))
 	for _, stat := range extractorStats {
-		stats.WriteString(stat.CodeName + "\n")
-		stats.WriteString("total: " + strconv.Itoa(stat.Total) + "\n")
-		stats.WriteString("daily: " + strconv.Itoa(stat.Daily) + "\n\n")
+		entries = append(entries,
+			fmt.Sprintf(
+				"%s\ntotal: %d\ndaily: %d",
+				stat.Name, stat.Total, stat.Daily,
+			),
+		)
 	}
-	stats.WriteString("</blockquote>")
-
-	stats.WriteString("\n\nupdates every 30 minutes")
 
 	currentStats = &Stats{
-		String:    stats.String(),
+		String: fmt.Sprintf(
+			statsMessage,
+			users,
+			dailyUsers,
+			groups,
+			downloads,
+			dailyDownloads,
+			strings.Join(entries, "\n\n"),
+		),
 		UpdatedAt: time.Now(),
 	}
 }
@@ -133,7 +138,7 @@ func GetStats() string {
 		UpdateStats()
 		if currentStats == nil {
 			currentStats = &Stats{
-				String:    "stats temporarily unavailable",
+				String:    statsMessageNoData,
 				UpdatedAt: time.Now(),
 			}
 		}

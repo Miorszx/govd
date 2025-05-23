@@ -14,7 +14,7 @@ func ExtractorsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	messageText := "available extractors:\n"
 	extractorNames := make([]string, 0, len(extractors.List))
 	for _, extractor := range extractors.List {
-		if extractor.IsRedirect {
+		if extractor.IsRedirect || extractor.IsHidden {
 			continue
 		}
 		extractorNames = append(extractorNames, extractor.Name)
