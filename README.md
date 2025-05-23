@@ -119,7 +119,7 @@ you can configure the bot using the `.env` file. here are the available options:
 | MAX_FILE_SIZE  | max file size in mb                       | 1000                                |
 
 ## extractors
-you can configure specific extractors options with `ext-cfg.yaml` file ([learn more](CONFIGURATION.md)).
+you can configure specific extractors options with `config.yaml` file ([learn more](CONFIGURATION.md)).
 
 > [!IMPORTANT]  
 > to avoid limits on files, you should host your own telegram botapi and set `BOT_API_URL` variable according. public bot instance is currently running under a botapi fork, [tdlight-telegram-bot-api](https://github.com/tdlight-team/tdlight-telegram-bot-api), but you can use the official botapi client too.
@@ -127,7 +127,7 @@ you can configure specific extractors options with `ext-cfg.yaml` file ([learn m
 # proxying
 there are two types of proxying available:
 * **http proxy**: this is a standard http proxy that can be used to route requests through a proxy server. you can set the `HTTP_PROXY` and `HTTPS_PROXY` environment variables to use this feature. (SOCKS5 is supported too)
-* **edge proxy**: this is a custom proxy that is used to route requests through a specific url. currenrly, you can only set this proxy with `ext-cfg.yaml` file ([learn more](EDGEPROXY.md)).
+* **edge proxy**: this is a custom proxy that is used to route requests through a specific url. currenrly, you can only set this proxy with `config.yaml` file ([learn more](EDGEPROXY.md)).
 
 > [!TIP]
 > by settings `NO_PROXY` environment variable, you can specify domains that should not be proxied.

@@ -10,11 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const configPath = "config.yaml"
+
 var extractorConfigs map[string]*models.ExtractorConfig
 
 func LoadExtractorConfigs() error {
 	extractorConfigs = make(map[string]*models.ExtractorConfig)
-	configPath := "ext-cfg.yaml"
 
 	_, err := os.Stat(configPath)
 	if os.IsNotExist(err) {

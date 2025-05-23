@@ -2,7 +2,7 @@
 edge proxy is an optional feature that allows routing some extractor requests through a custom proxy endpoint, instead of a classic http/https proxy. this is useful if you want to centralize or control the traffic of certain platforms via your own proxy service, for example to bypass geo-restrictions, add caching, logging, or other customizations.
 
 ## configuration
-edge proxy is configured via the `ext-cfg.yaml` file.  
+edge proxy is configured via the `config.yaml` file.  
 you can set the proxy url for each extractor that supports it.  
 example:
 
