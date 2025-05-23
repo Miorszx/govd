@@ -2,7 +2,34 @@ package database
 
 import "govd/models"
 
-func GetMediaCount() (int64, error) {
+func GetExtMediaCount(ext string) (int, error) {
+	var count int64
+	err := DB.
+		Model(&models.Media{}).
+		Where("extractor_code_name = ?", ext).
+		Count(&count).
+		Error
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func GetExtDailyMediaCount(ext string) (int, error) {
+	var count int64
+	err := DB.
+		Model(&models.Media{}).
+		Where("extractor_code_name = ?", ext).
+		Where("DATE(created_at) = DATE(NOW())").
+		Count(&count).
+		Error
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func GetMediaCount() (int, error) {
 	var count int64
 	err := DB.
 		Model(&models.Media{}).
@@ -11,10 +38,23 @@ func GetMediaCount() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
-func GetUsersCount() (int64, error) {
+func GetDailyMediaCount() (int, error) {
+	var count int64
+	err := DB.
+		Model(&models.Media{}).
+		Where("DATE(created_at) = DATE(NOW())").
+		Count(&count).
+		Error
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func GetUsersCount() (int, error) {
 	var count int64
 	err := DB.
 		Model(&models.User{}).
@@ -23,22 +63,10 @@ func GetUsersCount() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
 }
 
-func GetGroupsCount() (int64, error) {
-	var count int64
-	err := DB.
-		Model(&models.GroupSettings{}).
-		Count(&count).
-		Error
-	if err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
-func GetDailyUserCount() (int64, error) {
+func GetDailyUserCount() (int, error) {
 	var count int64
 	err := DB.
 		Model(&models.User{}).
@@ -48,5 +76,30 @@ func GetDailyUserCount() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	return int(count), nil
+}
+
+func GetGroupsCount() (int, error) {
+	var count int64
+	err := DB.
+		Model(&models.GroupSettings{}).
+		Count(&count).
+		Error
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func GetDailyGroupsCount() (int, error) {
+	var count int64
+	err := DB.
+		Model(&models.GroupSettings{}).
+		Where("DATE(last_used) = DATE(NOW())").
+		Count(&count).
+		Error
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
 }
