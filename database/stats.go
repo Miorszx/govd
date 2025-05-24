@@ -2,33 +2,6 @@ package database
 
 import "govd/models"
 
-func GetExtMediaCount(ext string) (int, error) {
-	var count int64
-	err := DB.
-		Model(&models.Media{}).
-		Where("extractor_code_name = ?", ext).
-		Count(&count).
-		Error
-	if err != nil {
-		return 0, err
-	}
-	return int(count), nil
-}
-
-func GetExtDailyMediaCount(ext string) (int, error) {
-	var count int64
-	err := DB.
-		Model(&models.Media{}).
-		Where("extractor_code_name = ?", ext).
-		Where("DATE(created_at) = DATE(NOW())").
-		Count(&count).
-		Error
-	if err != nil {
-		return 0, err
-	}
-	return int(count), nil
-}
-
 func GetMediaCount() (int, error) {
 	var count int64
 	err := DB.

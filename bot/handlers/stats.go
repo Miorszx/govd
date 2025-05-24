@@ -3,38 +3,26 @@ package handlers
 import (
 	"fmt"
 	"govd/database"
-	extractors "govd/ext"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 )
 
-type Stats struct {
+type stats struct {
 	String    string
 	UpdatedAt time.Time
 }
 
-type ExtractorStats struct {
-	Name  string
-	Total int
-	Daily int
-}
-
-var currentStats *Stats
+var currentStats *stats
+var updateInterval = 5 // minutes
 
 var statsMessage = "users: %d\n" +
 	"daily users: %d\n" +
 	"groups: %d\n\n" +
 	"downloads: %d\n" +
 	"daily downloads: %d\n\n" +
-	"extractors:\n" +
-	"<blockquote expandable>" +
-	"%s" +
-	"</blockquote>\n\n" +
-	"updates every 30 minutes"
+	"updates every %d minutes"
 
 var statsMessageNoData = "stats temporarily unavailable"
 
@@ -85,41 +73,7 @@ func UpdateStats() {
 		dailyDownloads = 0
 	}
 
-	extractorStats := make([]*ExtractorStats, 0, len(extractors.List))
-
-	for _, extractor := range extractors.List {
-		if extractor.IsRedirect || extractor.IsHidden {
-			continue
-		}
-
-		count, err := database.GetExtMediaCount(extractor.CodeName)
-		if err != nil {
-			count = 0
-		}
-		dailyCount, err := database.GetExtDailyMediaCount(extractor.CodeName)
-		if err != nil {
-			dailyCount = 0
-		}
-		extractorStats = append(extractorStats, &ExtractorStats{
-			Name:  extractor.Name,
-			Total: count,
-			Daily: dailyCount,
-		})
-	}
-	sort.Slice(extractorStats, func(i, j int) bool {
-		return extractorStats[i].Total > extractorStats[j].Total
-	})
-	entries := make([]string, 0, len(extractors.List))
-	for _, stat := range extractorStats {
-		entries = append(entries,
-			fmt.Sprintf(
-				"%s\ntotal: %d\ndaily: %d",
-				stat.Name, stat.Total, stat.Daily,
-			),
-		)
-	}
-
-	currentStats = &Stats{
+	currentStats = &stats{
 		String: fmt.Sprintf(
 			statsMessage,
 			users,
@@ -127,7 +81,7 @@ func UpdateStats() {
 			groups,
 			downloads,
 			dailyDownloads,
-			strings.Join(entries, "\n\n"),
+			updateInterval,
 		),
 		UpdatedAt: time.Now(),
 	}
@@ -137,12 +91,12 @@ func GetStats() string {
 	if currentStats == nil {
 		UpdateStats()
 		if currentStats == nil {
-			currentStats = &Stats{
+			currentStats = &stats{
 				String:    statsMessageNoData,
 				UpdatedAt: time.Now(),
 			}
 		}
-	} else if currentStats.UpdatedAt.Add(30 * time.Minute).Before(time.Now()) {
+	} else if currentStats.UpdatedAt.Add(time.Duration(updateInterval) * time.Minute).Before(time.Now()) {
 		oldStats := currentStats
 		UpdateStats()
 		if currentStats == nil {
