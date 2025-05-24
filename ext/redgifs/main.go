@@ -139,7 +139,7 @@ func GetVideo(ctx *models.DownloadContext) (*Response, error) {
 	logger.WriteFile("redgifs_api_response", resp)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get video: %s", resp.Status)
+		return nil, fmt.Errorf("bad response: %s", resp.Status)
 	}
 
 	var response Response

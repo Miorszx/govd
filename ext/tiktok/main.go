@@ -11,7 +11,6 @@ import (
 	"govd/util"
 	"govd/util/networking"
 
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -61,10 +60,7 @@ var VMExtractor = &models.Extractor{
 			zap.S().Debug("tiktok is geo restricted in your region, attemping bypass...")
 			realURL := parsedURL.Query().Get("redirect_url")
 			if realURL == "" {
-				return nil, errors.New(
-					"tiktok is geo restricted in your region, " +
-						"use cookies to bypass or use a VPN/proxy",
-				)
+				return nil, ErrRegionNotSupported
 			}
 			zap.S().Debugf("found url: %s", realURL)
 			return &models.ExtractorResponse{
@@ -104,7 +100,7 @@ var Extractor = &models.Extractor{
 		}
 		zap.S().Debug(err)
 
-		return nil, errors.New("failed to extract media: all methods failed")
+		return nil, ErrAllMethodsFailed
 	},
 }
 

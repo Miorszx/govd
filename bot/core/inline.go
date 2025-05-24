@@ -269,37 +269,13 @@ func GetInlineFormat(
 		errChan <- util.ErrInlineMediaGroup
 		return
 	}
-	for i := range mediaList {
-		defaultFormat := mediaList[i].GetDefaultFormat()
-		if defaultFormat == nil {
-			errChan <- fmt.Errorf("no default format found for media at index %d", i)
-			return
-		}
-		if len(defaultFormat.URL) == 0 {
-			errChan <- fmt.Errorf("media format at index %d has no URL", i)
-			return
-		}
 
-		// ensure we can merge video and audio formats
-		EnsureMergeFormats(mediaList[i], defaultFormat)
-
-		// ensure download config is set
-		if defaultFormat.DownloadConfig == nil {
-			defaultFormat.DownloadConfig = models.GetDownloadConfig(nil)
-		}
-
-		// check for file size and duration limits
-		if util.ExceedsMaxFileSize(defaultFormat.FileSize) {
-			errChan <- util.ErrFileTooLarge
-			return
-		}
-		if util.ExceedsMaxDuration(defaultFormat.Duration) {
-			errChan <- util.ErrDurationTooLong
-			return
-		}
-
-		mediaList[i].Format = defaultFormat
+	err = ValidateMediaList(mediaList)
+	if err != nil {
+		errChan <- err
+		return
 	}
+
 	messageCaption := FormatCaption(mediaList[0], true)
 
 	medias, err := DownloadMedias(taskCtx, mediaList)

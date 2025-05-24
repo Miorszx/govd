@@ -13,7 +13,6 @@ import (
 	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -53,7 +52,7 @@ var ShortExtractor = &models.Extractor{
 		}
 		matchedURL := Extractor.URLPattern.FindSubmatch(body)
 		if matchedURL == nil {
-			return nil, errors.New("failed to find url in body")
+			return nil, ErrURLNotFound
 		}
 		return &models.ExtractorResponse{
 			URL: string(matchedURL[0]),
@@ -147,7 +146,7 @@ func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
 	}
 	headers := BuildAPIHeaders(cookies)
 	if headers == nil {
-		return nil, errors.New("failed to build headers. try refreshing cookies")
+		return nil, ErrInvalidCookies
 	}
 	query := BuildAPIQuery(tweetID)
 
@@ -180,7 +179,7 @@ func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
 
 	result := apiResponse.Data.TweetResult.Result
 	if result == nil {
-		return nil, errors.New("failed to find tweet result in response")
+		return nil, ErrTweetNotFound
 	}
 
 	var tweet *Tweet
@@ -190,7 +189,7 @@ func GetTweetAPI(ctx *models.DownloadContext) (*Tweet, error) {
 	case result.Legacy != nil:
 		tweet = result.Legacy
 	default:
-		return nil, errors.New("failed to find tweet data in response")
+		return nil, ErrTweetNotFound
 	}
 
 	return tweet, nil

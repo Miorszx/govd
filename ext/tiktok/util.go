@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
-	"github.com/pkg/errors"
 
 	"govd/enums"
 	"govd/ext/tiktok/signer"
@@ -132,7 +131,7 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetail, error) {
 		return nil, util.ErrUnavailable
 	}
 	if data.AwemeDetail == nil {
-		return nil, errors.New("aweme_detail is nil")
+		return nil, ErrAwemeDetailNil
 	}
 	return data.AwemeDetail, nil
 }
@@ -195,7 +194,7 @@ func ParsePlayAddr(
 ) (*models.MediaFormat, error) {
 	formatID := playAddr.URLKey
 	if formatID == "" {
-		return nil, errors.New("url_key not found")
+		return nil, ErrURLKeyNotFound
 	}
 	videoCodec := enums.MediaCodecHEVC
 	if strings.Contains(formatID, "h264") {
@@ -281,7 +280,7 @@ func GetAppVersionCode(version string) (string, error) {
 func ParseUniversalData(body []byte) (*WebItemStruct, error) {
 	matches := universalDataPattern.FindSubmatch(body)
 	if len(matches) < 2 {
-		return nil, errors.New("universal data not found")
+		return nil, ErrUniversalDataNotFound
 	}
 	var data any
 	err := sonic.ConfigFastest.Unmarshal(matches[1], &data)
@@ -290,11 +289,11 @@ func ParseUniversalData(body []byte) (*WebItemStruct, error) {
 	}
 	defaultScope := util.TraverseJSON(data, "__DEFAULT_SCOPE__")
 	if defaultScope == nil {
-		return nil, errors.New("default scope not found")
+		return nil, ErrUniversalDataNotFound
 	}
 	itemStruct := util.TraverseJSON(defaultScope, "itemStruct")
 	if itemStruct == nil {
-		return nil, errors.New("item struct not found")
+		return nil, ErrItemStructNotFound
 	}
 
 	// debugging
@@ -311,12 +310,4 @@ func ParseUniversalData(body []byte) (*WebItemStruct, error) {
 		return nil, fmt.Errorf("failed to unmarshal item struct: %w", err)
 	}
 	return &webItem, nil
-}
-
-func GetCookies() []*http.Cookie {
-	cookies, err := util.ParseCookieFile("tiktok.txt")
-	if err != nil {
-		return nil
-	}
-	return cookies
 }

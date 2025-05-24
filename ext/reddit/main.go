@@ -12,7 +12,6 @@ import (
 	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
-	"github.com/pkg/errors"
 )
 
 var baseHost = []string{
@@ -90,7 +89,7 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 	}
 
 	if len(manifest) == 0 || len(manifest[0].Data.Children) == 0 {
-		return nil, errors.New("no data found in response")
+		return nil, ErrNoDataFound
 	}
 
 	data := manifest[0].Data.Children[0].Data

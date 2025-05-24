@@ -20,6 +20,41 @@ import (
 	"go.uber.org/zap"
 )
 
+func ValidateMediaList(
+	mediaList []*models.Media,
+) error {
+	for i := range mediaList {
+		defaultFormat := mediaList[i].GetDefaultFormat()
+		if defaultFormat == nil {
+			return fmt.Errorf("no default format found for media at index %d", i)
+		}
+		if len(defaultFormat.URL) == 0 {
+			return fmt.Errorf("media format at index %d has no URL", i)
+		}
+
+		zap.S().Debugf("default format selected: %s (media %d)", defaultFormat.FormatID, i)
+
+		// ensure we can merge video and audio formats
+		EnsureMergeFormats(mediaList[i], defaultFormat)
+
+		// ensure download config is set
+		if defaultFormat.DownloadConfig == nil {
+			defaultFormat.DownloadConfig = models.GetDownloadConfig(nil)
+		}
+
+		// check for file size and duration limits
+		if util.ExceedsMaxFileSize(defaultFormat.FileSize) {
+			return util.ErrFileTooLarge
+		}
+		if util.ExceedsMaxDuration(defaultFormat.Duration) {
+			return util.ErrDurationTooLong
+		}
+
+		mediaList[i].Format = defaultFormat
+	}
+	return nil
+}
+
 func GetFileThumbnail(
 	ctx context.Context,
 	format *models.MediaFormat,

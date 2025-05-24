@@ -15,7 +15,6 @@ import (
 	"govd/util/networking"
 
 	"github.com/bytedance/sonic"
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -121,7 +120,7 @@ func GetTrackMediaList(ctx *models.DownloadContext) ([]*models.Media, error) {
 	}
 
 	if formatObj == nil {
-		return nil, errors.New("no suitable format found")
+		return nil, ErrNoSuitableFormat
 	}
 
 	trackManifest, err := GetTrackURL(ctx, formatObj.URL, clientID)

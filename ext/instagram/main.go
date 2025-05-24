@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -63,7 +62,7 @@ var Extractor = &models.Extractor{
 			"failed to get media from 3rd party service: %v",
 			err,
 		)
-		return nil, errors.New("failed to extract media: all methods failed")
+		return nil, ErrAllMethodsFailed
 	},
 }
 
