@@ -1,6 +1,16 @@
 package database
 
-import "govd/models"
+import (
+	"govd/models"
+	"time"
+)
+
+func getDayRange() (time.Time, time.Time) {
+	now := DB.NowFunc()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	return start, end
+}
 
 func GetMediaCount() (int, error) {
 	var count int64
@@ -16,9 +26,11 @@ func GetMediaCount() (int, error) {
 
 func GetDailyMediaCount() (int, error) {
 	var count int64
+
+	start, end := getDayRange()
 	err := DB.
 		Model(&models.Media{}).
-		Where("DATE(created_at) = DATE(NOW())").
+		Where("created_at >= ? AND created_at < ?", start, end).
 		Count(&count).
 		Error
 	if err != nil {
@@ -41,9 +53,11 @@ func GetUsersCount() (int, error) {
 
 func GetDailyUserCount() (int, error) {
 	var count int64
+
+	start, end := getDayRange()
 	err := DB.
 		Model(&models.User{}).
-		Where("DATE(last_used) = DATE(NOW())").
+		Where("last_used >= ? AND last_used < ?", start, end).
 		Count(&count).
 		Error
 	if err != nil {
