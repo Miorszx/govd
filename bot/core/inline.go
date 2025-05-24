@@ -289,6 +289,28 @@ func GetInlineFormat(
 		errChan <- fmt.Errorf("failed to download medias: %w", err)
 		return
 	}
+
+	// plugins act as post-processing for the media.
+	// they are run after the media is downloaded
+	// and before it is sent to the user
+	// this allows for things like merging audio and video, etc.
+	for _, media := range medias {
+		format := media.Media.Format
+		zap.S().Debugf(
+			"running %d plugins for %s (%s)",
+			len(format.Plugins),
+			dlCtx.MatchedContentID,
+			dlCtx.Extractor.CodeName,
+		)
+		for _, plugin := range format.Plugins {
+			err = plugin(media, format.DownloadConfig)
+			if err != nil {
+				errChan <- fmt.Errorf("failed to run plugin: %w", err)
+				return
+			}
+		}
+	}
+
 	msgs, err := SendMedias(
 		bot, ctx, dlCtx,
 		medias, &models.SendMediaFormatsOptions{
