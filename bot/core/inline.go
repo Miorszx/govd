@@ -279,11 +279,29 @@ func GetInlineFormat(
 			errChan <- fmt.Errorf("media format at index %d has no URL", i)
 			return
 		}
+
 		// ensure we can merge video and audio formats
 		EnsureMergeFormats(mediaList[i], defaultFormat)
+
+		// ensure download config is set
+		if defaultFormat.DownloadConfig == nil {
+			defaultFormat.DownloadConfig = models.GetDownloadConfig(nil)
+		}
+
+		// check for file size and duration limits
+		if util.ExceedsMaxFileSize(defaultFormat.FileSize) {
+			errChan <- util.ErrFileTooLarge
+			return
+		}
+		if util.ExceedsMaxDuration(defaultFormat.Duration) {
+			errChan <- util.ErrDurationTooLong
+			return
+		}
+
 		mediaList[i].Format = defaultFormat
 	}
 	messageCaption := FormatCaption(mediaList[0], true)
+
 	medias, err := DownloadMedias(taskCtx, mediaList)
 	if err != nil {
 		errChan <- fmt.Errorf("failed to download medias: %w", err)
