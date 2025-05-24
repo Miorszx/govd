@@ -58,6 +58,7 @@ var VMExtractor = &models.Extractor{
 			return nil, fmt.Errorf("failed to parse redirect url: %w", err)
 		}
 		if parsedURL.Path == "/login" {
+			zap.S().Debug("tiktok is geo restricted in your region, attemping bypass...")
 			realURL := parsedURL.Query().Get("redirect_url")
 			if realURL == "" {
 				return nil, errors.New(
@@ -65,6 +66,7 @@ var VMExtractor = &models.Extractor{
 						"use cookies to bypass or use a VPN/proxy",
 				)
 			}
+			zap.S().Debugf("found url: %s", realURL)
 			return &models.ExtractorResponse{
 				URL: realURL,
 			}, nil
@@ -80,7 +82,7 @@ var Extractor = &models.Extractor{
 	CodeName:   "tiktok",
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategorySocial,
-	URLPattern: regexp.MustCompile(`https?:\/\/((www|m)\.)?(vx)?tiktok\.com\/((?:embed|@[\w\.-]+)\/)?(v(ideo)?|p(hoto)?)\/(?P<id>[0-9]+)`),
+	URLPattern: regexp.MustCompile(`https?:\/\/((www|m)\.)?(vx)?tiktok\.com\/((?:embed|@[\w\.-]*)\/)?(v(ideo)?|p(hoto)?)\/(?P<id>[0-9]+)`),
 	Host:       baseHost,
 
 	Run: func(ctx *models.DownloadContext) (*models.ExtractorResponse, error) {
