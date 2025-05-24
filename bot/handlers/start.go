@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"os"
+	"govd/config"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -51,7 +51,7 @@ func getStartKeyboard(bot *gotgbot.Bot) gotgbot.InlineKeyboardMarkup {
 				},
 				{
 					Text: "github",
-					Url:  os.Getenv("REPO_URL"),
+					Url:  config.Env.RepoURL,
 				},
 			},
 		},

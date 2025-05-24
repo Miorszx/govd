@@ -34,15 +34,3 @@ func (extractor *Extractor) NewMedia(
 		ExtractorCodeName: extractor.CodeName,
 	}
 }
-
-type ExtractorConfig struct {
-	HTTPProxy    string `yaml:"http_proxy"`
-	HTTPSProxy   string `yaml:"https_proxy"`
-	NoProxy      string `yaml:"no_proxy"`
-	EdgeProxyURL string `yaml:"edge_proxy_url"`
-	Impersonate  bool   `yaml:"impersonate"`
-
-	IsDisabled bool `yaml:"disabled"`
-
-	Instance string `yaml:"instance"`
-}

@@ -3,14 +3,13 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"govd/config"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
-	"go.uber.org/zap"
 )
 
 type Client struct {
@@ -39,11 +38,6 @@ func (b Client) RequestWithContext(
 }
 
 func NewBotClient() Client {
-	botAPIURL := os.Getenv("BOT_API_URL")
-	if botAPIURL == "" {
-		zap.L().Warn("failed to parse BOT_API_URL env, using default")
-		botAPIURL = gotgbot.DefaultAPIURL
-	}
 	return Client{
 		BotClient: &gotgbot.BaseBotClient{
 			Client: http.Client{
@@ -57,7 +51,7 @@ func NewBotClient() Client {
 			UseTestEnvironment: false,
 			DefaultRequestOpts: &gotgbot.RequestOpts{
 				Timeout: 10 * time.Minute,
-				APIURL:  botAPIURL,
+				APIURL:  config.Env.BotAPIURL,
 			},
 		},
 	}

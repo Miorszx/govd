@@ -3,6 +3,7 @@ package util
 import (
 	"crypto/rand"
 	"fmt"
+	"govd/config"
 	"govd/models"
 	"govd/util/networking"
 	"io"
@@ -10,9 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -23,66 +22,14 @@ import (
 	"github.com/aki237/nscjar"
 )
 
-var (
-	cookiesCache = make(map[string][]*http.Cookie)
-
-	maxFileSizeOnce sync.Once
-	maxFileSizeVal  int64
-
-	maxDurationOnce sync.Once
-	maxDurationVal  time.Duration
-)
+var cookiesCache = make(map[string][]*http.Cookie)
 
 func ExceedsMaxFileSize(fileSize int64) bool {
-	maxFileSize := GetMaxFileSize()
-	if maxFileSize == 0 {
-		return false
-	}
-	return fileSize > maxFileSize
+	return fileSize > config.Env.MaxFileSize
 }
 
 func ExceedsMaxDuration(duration int64) bool {
-	maxDuration := GetMaxDuration()
-	if maxDuration == 0 {
-		return false
-	}
-	return duration > int64(maxDuration.Seconds())
-}
-
-func GetMaxFileSize() int64 {
-	maxFileSizeOnce.Do(func() {
-		defaultSize := 1 * 1024 * 1024 * 1024 // 1 GB
-		maxFileSize := os.Getenv("MAX_FILE_SIZE")
-		if maxFileSize == "" {
-			maxFileSizeVal = int64(defaultSize)
-			return
-		}
-		size, err := strconv.ParseInt(maxFileSize, 10, 64)
-		if err != nil {
-			maxFileSizeVal = int64(defaultSize)
-			return
-		}
-		maxFileSizeVal = size * 1024 * 1024
-	})
-	return maxFileSizeVal
-}
-
-func GetMaxDuration() time.Duration {
-	maxDurationOnce.Do(func() {
-		defaultDuration := 1 * time.Hour
-		maxDuration := os.Getenv("MAX_DURATION")
-		if maxDuration == "" {
-			maxDurationVal = defaultDuration
-			return
-		}
-		duration, err := time.ParseDuration(maxDuration)
-		if err != nil {
-			maxDurationVal = defaultDuration
-			return
-		}
-		maxDurationVal = duration
-	})
-	return maxDurationVal
+	return duration > int64(config.Env.MaxDuration.Seconds())
 }
 
 func FetchPage(
@@ -285,16 +232,13 @@ func FixURL(url string) string {
 }
 
 func CleanupDownloadsDir() {
-	zap.L().Debug("cleaning up downloads directory")
-	downloadsDir := os.Getenv("DOWNLOAD_DIR")
-	if downloadsDir == "" {
-		downloadsDir = "downloads"
-	}
-	filepath.Walk(downloadsDir, func(path string, info os.FileInfo, err error) error {
+	dir := config.Env.DownloadsDirectory
+	zap.S().Debug("cleaning up downloads directory")
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if path == downloadsDir {
+		if path == dir {
 			return nil
 		}
 		if time.Since(info.ModTime()) > 30*time.Minute {
