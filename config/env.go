@@ -4,9 +4,11 @@ import (
 	"govd/models"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"go.uber.org/zap"
 )
 
@@ -107,6 +109,22 @@ func LoadEnv() error {
 			zap.S().Fatal("LOG_FILE env is not a valid boolean")
 		}
 	}
+	if value := os.Getenv("WHITELIST"); value != "" {
+		parts := strings.Split(value, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(part, 10, 64)
+			if err != nil {
+				zap.S().Fatalf("WHITELIST env contains an invalid ID: %s", part)
+			}
+			if part != "" {
+				Env.Whitelist = append(Env.Whitelist, id)
+			}
+		}
+	}
 	return nil
 }
 
@@ -118,7 +136,7 @@ func GetDefaultConfig() *models.EnvConfig {
 		DBUser: "govd",
 
 		BotAPIURL:         gotgbot.DefaultAPIURL,
-		ConcurrentUpdates: 50,
+		ConcurrentUpdates: ext.DefaultMaxRoutines,
 
 		DownloadsDirectory: "downloads",
 

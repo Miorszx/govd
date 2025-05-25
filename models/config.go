@@ -25,6 +25,7 @@ type EnvConfig struct {
 	ProfilerPort int
 	LogLevel     string
 	LogFile      bool
+	Whitelist    []int64
 }
 
 type ExtractorConfig struct {

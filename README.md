@@ -83,14 +83,14 @@ you can configure the bot using the `.env` file. here are the available options:
 | DB_PORT       | database port                       | 3306                                 |
 | DB_NAME       | database name                       | govd                                 |
 | DB_USER       | database user                       | govd                                 |
-| DB_PASSWORD   | database password                   | password                             |
+| DB_PASSWORD   | database password                   | none                                 |
 
 ## telegram
 
 | variable           | description                      | default                              |
 |--------------------|----------------------------------|--------------------------------------|
 | BOT_API_URL        | telegram bot api url             | https://api.telegram.org             |
-| BOT_TOKEN          | telegram bot token               | 12345678:abc-def1234ghikl-zyx57w2p0s |
+| BOT_TOKEN          | telegram bot token               | none                                 |
 | CONCURRENT_UPDATES | max concurrent updates handled   | 50                                   |
 
 ## downloads
@@ -101,13 +101,13 @@ you can configure the bot using the `.env` file. here are the available options:
 
 ## proxying
 
-| variable     | description                 | default            |
-|--------------|-----------------------------|--------------------|
-| HTTP_PROXY   | http proxy (optional)       | none _(disabled)_  |
-| HTTPS_PROXY  | https proxy (optional)      | none _(disabled)_  |
-| NO_PROXY     | no proxy domains (optional) | none _(disabled)_  |
+| variable     | description       | default            |
+|--------------|-------------------|--------------------|
+| HTTP_PROXY   | http proxy        | none _(disabled)_  |
+| HTTPS_PROXY  | https proxy       | none _(disabled)_  |
+| NO_PROXY     | no proxy domains  | none _(disabled)_  |
 
-## misc
+## other
 
 | variable       | description                               | default                             |
 |----------------|-------------------------------------------|-------------------------------------|
@@ -117,6 +117,8 @@ you can configure the bot using the `.env` file. here are the available options:
 | LOG_FILE       | whether to enable file logging            | false                               |
 | MAX_DURATION   | max duration (parsed string)              | 1h                                  |
 | MAX_FILE_SIZE  | max file size in mb                       | 1000                                |
+| MAX_FILE_SIZE  | max file size in mb                       | 1000                                |
+| WHITELIST      | list of allowed ids separated by commas   | none _(disabled)_                   |
 
 ## extractors
 you can configure specific extractors options with `config.yaml` file ([learn more](CONFIGURATION.md)).

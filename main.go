@@ -29,6 +29,9 @@ func main() {
 
 	zap.S().Debugf("loaded %d extractors", len(ext.List))
 	zap.S().Debugf("loaded %d plugins", len(plugins.List))
+	if len(config.Env.Whitelist) > 0 {
+		zap.S().Infof("whitelist is enabled: %v", config.Env.Whitelist)
+	}
 
 	// check for ffmpeg binary
 	_, err := exec.LookPath("ffmpeg")

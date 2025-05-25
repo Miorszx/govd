@@ -13,6 +13,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/callbackquery"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/choseninlineresult"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/inlinequery"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/message"
 	"go.uber.org/zap"
 )
 
@@ -125,4 +126,18 @@ func registerHandlers(dispatcher *ext.Dispatcher) {
 		callbackquery.Equal("inline:loading"),
 		botHandlers.InlineLoadingHandler,
 	))
+
+	// whitelist handlers
+	dispatcher.AddHandlerToGroup(handlers.NewMessage(
+		message.All,
+		botHandlers.WhitelistHandler,
+	), -10)
+	dispatcher.AddHandlerToGroup(handlers.NewCallback(
+		callbackquery.All,
+		botHandlers.WhitelistHandler,
+	), -10)
+	dispatcher.AddHandlerToGroup(handlers.NewInlineQuery(
+		inlinequery.All,
+		botHandlers.WhitelistHandler,
+	), -10)
 }
