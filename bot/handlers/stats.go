@@ -31,7 +31,7 @@ var (
 		"traffic: <code>%s</code>\n" +
 		"daily traffic: <code>%s</code>\n\n" +
 		"updates every %d minutes"
-	statsMessageLoading = "stats are being updated, come back in a few moments!"
+	statsMessageLoading = "stats are being updated, come back in a moment!"
 )
 
 func StatsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
