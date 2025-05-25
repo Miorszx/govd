@@ -38,4 +38,4 @@ the main difference between http proxy and edge proxy is that http proxy is a st
 ## notes
 * edge proxy is for advanced use and not required for most users.
 * this feature is experimental and may change in the future.
-* you can check full implementation of the edge proxy in the [`util/edgeproxy`](util/edgeproxy.go) package.
+* you can check full implementation of the edge proxy in the [`networking`](util/networking/edgeproxy.go) package.

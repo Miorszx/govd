@@ -306,6 +306,9 @@ func SendErrorMessage(
 	ctx *ext.Context,
 	errorMessage string,
 ) {
+	// avoid leaking sensitive URLs in error messages
+	errorMessage = util.RedactURLs(errorMessage)
+
 	switch {
 	case ctx.Update.Message != nil:
 		ctx.EffectiveMessage.Reply(

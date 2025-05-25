@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -267,6 +268,13 @@ func ExtractBaseHost(rawURL string) (string, error) {
 		return "", errors.New("invalid domain structure")
 	}
 	return parts[0], nil
+}
+
+func RedactURLs(text string) string {
+	urlRegex := regexp.MustCompile(`https?://[^\s"'<>]+`)
+	return urlRegex.ReplaceAllStringFunc(text, func(match string) string {
+		return "<redacted-url>"
+	})
 }
 
 func StartDownloadsCleanup() {
