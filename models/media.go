@@ -12,6 +12,7 @@ import (
 	"govd/enums"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"github.com/guregu/null/v6/zero"
 	"go.uber.org/zap"
@@ -386,7 +387,7 @@ func (format *MediaFormat) GetInputMedia(
 	}
 	fileSize := fileInfo.Size()
 
-	zap.S().Debugf("file size: %d bytes", fileSize)
+	zap.S().Debugf("file size: %s", humanize.IBytes(uint64(fileSize)))
 
 	fileInputMedia := gotgbot.InputFileByReader(
 		filepath.Base(filePath),

@@ -21,6 +21,7 @@ import (
 	"govd/util/libav"
 	"govd/util/networking"
 
+	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -171,7 +172,7 @@ func downloadInMemory(
 	}
 
 	if resp.ContentLength > int64(downloadConfig.MaxInMemory) {
-		return nil, fmt.Errorf("file too large for in-memory download: %d bytes", resp.ContentLength)
+		return nil, fmt.Errorf("file too large for in-memory download: %s", humanize.IBytes(uint64(resp.ContentLength)))
 	}
 
 	// allocate a single buffer with the
@@ -418,7 +419,7 @@ func getFileSizeWithHead(
 
 	fileSize := int(resp.ContentLength)
 	if fileSize > 0 {
-		zap.S().Debugf("file size from HEAD: %d bytes", fileSize)
+		zap.S().Debugf("file size from HEAD: %s", humanize.IBytes(uint64(fileSize)))
 		return fileSize, nil
 	}
 
@@ -426,7 +427,7 @@ func getFileSizeWithHead(
 	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
 		if parts := strings.Split(contentRange, "/"); len(parts) == 2 {
 			if size, err := strconv.Atoi(parts[1]); err == nil && size > 0 {
-				zap.S().Debugf("file size from Content-Range: %d bytes", size)
+				zap.S().Debugf("file size from Content-Range: %s", humanize.IBytes(uint64(size)))
 				return size, nil
 			}
 		}
@@ -470,7 +471,7 @@ func getFileSizeWithRange(
 		if len(parts) == 2 {
 			size, err := strconv.Atoi(parts[1])
 			if err == nil && size > 0 {
-				zap.S().Debugf("file size from range: %d bytes", size)
+				zap.S().Debugf("file size from range: %s", humanize.IBytes(uint64(size)))
 				return size, nil
 			}
 		}
@@ -562,7 +563,7 @@ func downloadAndWriteChunk(
 	}
 
 	chunkSize := resp.ContentLength
-	zap.S().Debugf("chunk size: %d bytes", chunkSize)
+	zap.S().Debugf("chunk size: %s", humanize.IBytes(uint64(chunkSize)))
 
 	// use a fixed-size buffer for
 	// copying to avoid large allocations (32KB)

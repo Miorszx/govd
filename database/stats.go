@@ -5,11 +5,34 @@ import (
 	"time"
 )
 
-func getDayRange() (time.Time, time.Time) {
-	now := DB.NowFunc()
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
-	return start, end
+func GetTraffic() (int, error) {
+	var traffic int64
+	err := DB.
+		Model(&models.MediaFormat{}).
+		Select("SUM(file_size)").
+		Where("file_size > 0").
+		Scan(&traffic).
+		Error
+	if err != nil {
+		return 0, err
+	}
+	return int(traffic), nil
+}
+
+func GetDailyTraffic() (int, error) {
+	var traffic int64
+
+	start, end := getDayRange()
+	err := DB.
+		Model(&models.MediaFormat{}).
+		Select("SUM(file_size)").
+		Where("file_size > 0 AND created_at >= ? AND created_at < ?", start, end).
+		Scan(&traffic).
+		Error
+	if err != nil {
+		return 0, err
+	}
+	return int(traffic), nil
 }
 
 func GetMediaCount() (int, error) {
@@ -76,4 +99,11 @@ func GetGroupsCount() (int, error) {
 		return 0, err
 	}
 	return int(count), nil
+}
+
+func getDayRange() (time.Time, time.Time) {
+	now := DB.NowFunc()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	return start, end
 }

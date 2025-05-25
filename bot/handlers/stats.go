@@ -3,10 +3,12 @@ package handlers
 import (
 	"fmt"
 	"govd/database"
+	"strings"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/dustin/go-humanize"
 )
 
 type stats struct {
@@ -15,13 +17,15 @@ type stats struct {
 }
 
 var currentStats *stats
-var updateInterval = 5 // minutes
+var updateInterval = 30 // minutes
 
-var statsMessage = "users: %d\n" +
-	"daily users: %d\n" +
-	"groups: %d\n\n" +
-	"downloads: %d\n" +
-	"daily downloads: %d\n\n" +
+var statsMessage = "users: <code>%s</code>\n" +
+	"daily users: <code>%s</code>\n" +
+	"groups: <code>%s</code>\n\n" +
+	"downloads: <code>%s</code>\n" +
+	"daily downloads: <code>%s</code>\n\n" +
+	"traffic: <code>%s</code>\n" +
+	"daily traffic: <code>%s</code>\n\n" +
 	"updates every %d minutes"
 
 var statsMessageNoData = "stats temporarily unavailable"
@@ -72,19 +76,33 @@ func UpdateStats() {
 	if err != nil {
 		dailyDownloads = 0
 	}
+	traffic, err := database.GetTraffic()
+	if err != nil {
+		traffic = 0
+	}
+	dailyTraffic, err := database.GetDailyTraffic()
+	if err != nil {
+		dailyTraffic = 0
+	}
 
 	currentStats = &stats{
 		String: fmt.Sprintf(
 			statsMessage,
-			users,
-			dailyUsers,
-			groups,
-			downloads,
-			dailyDownloads,
+			HumanizedInt(users),
+			HumanizedInt(dailyUsers),
+			HumanizedInt(groups),
+			HumanizedInt(downloads),
+			HumanizedInt(dailyDownloads),
+			humanize.IBytes(uint64(traffic)),
+			humanize.IBytes(uint64(dailyTraffic)),
 			updateInterval,
 		),
 		UpdatedAt: time.Now(),
 	}
+}
+
+func HumanizedInt(d int) string {
+	return strings.ReplaceAll(humanize.Comma(int64(d)), ",", ".")
 }
 
 func GetStats() string {
