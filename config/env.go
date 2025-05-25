@@ -124,7 +124,7 @@ func GetDefaultConfig() *models.EnvConfig {
 
 		MaxDuration: time.Hour,
 		MaxFileSize: 1000 * 1024 * 1024, // 1GB
-		RepoURL:     "https://github.com/stefanodvx/govd",
+		RepoURL:     "https://github.com/govdbot/govd",
 		LogLevel:    "info",
 	}
 }
