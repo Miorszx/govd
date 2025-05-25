@@ -6,6 +6,7 @@ import (
 	"govd/config"
 	"govd/models"
 	"govd/util/networking"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -273,7 +274,7 @@ func ExtractBaseHost(rawURL string) (string, error) {
 func RedactURLs(text string) string {
 	urlRegex := regexp.MustCompile(`https?://[^\s"'<>]+`)
 	return urlRegex.ReplaceAllStringFunc(text, func(match string) string {
-		return "<redacted-url>"
+		return html.EscapeString("<redacted url>")
 	})
 }
 
