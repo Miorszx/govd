@@ -84,7 +84,7 @@ func LoadEnv() error {
 	}
 	if value := os.Getenv("MAX_FILE_SIZE"); value != "" {
 		if size, err := strconv.Atoi(value); err == nil {
-			Env.MaxFileSize = int64(size)
+			Env.MaxFileSize = int64(size) * 1024 * 1024
 		}
 	}
 	if value := os.Getenv("REPO_URL"); value != "" {
