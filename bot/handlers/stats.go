@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"govd/database"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -18,23 +19,38 @@ type stats struct {
 
 var currentStats *stats
 var updateInterval = 30 // minutes
+var isUpdating bool
+var updateMutex sync.Mutex
 
-var statsMessage = "users: <code>%s</code>\n" +
-	"daily users: <code>%s</code>\n" +
-	"groups: <code>%s</code>\n\n" +
-	"downloads: <code>%s</code>\n" +
-	"daily downloads: <code>%s</code>\n\n" +
-	"traffic: <code>%s</code>\n" +
-	"daily traffic: <code>%s</code>\n\n" +
-	"updates every %d minutes"
-
-var statsMessageNoData = "stats temporarily unavailable"
+var (
+	statsMessage = "users: <code>%s</code>\n" +
+		"daily users: <code>%s</code>\n" +
+		"groups: <code>%s</code>\n\n" +
+		"downloads: <code>%s</code>\n" +
+		"daily downloads: <code>%s</code>\n\n" +
+		"traffic: <code>%s</code>\n" +
+		"daily traffic: <code>%s</code>\n\n" +
+		"updates every %d minutes"
+	statsMessageLoading = "stats are being updated, come back in a few moments!"
+)
 
 func StatsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	if ctx.EffectiveMessage.Chat.Type != gotgbot.ChatTypePrivate {
 		return nil
 	}
+
+	if isUpdating {
+		ctx.CallbackQuery.Answer(
+			bot,
+			&gotgbot.AnswerCallbackQueryOpts{
+				Text:      statsMessageLoading,
+				ShowAlert: true,
+			},
+		)
+		return nil
+	}
 	ctx.CallbackQuery.Answer(bot, nil)
+
 	stats := GetStats()
 	ctx.EffectiveMessage.EditText(
 		bot,
@@ -56,6 +72,16 @@ func StatsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 }
 
 func UpdateStats() {
+	updateMutex.Lock()
+	isUpdating = true
+	updateMutex.Unlock()
+
+	defer func() {
+		updateMutex.Lock()
+		isUpdating = false
+		updateMutex.Unlock()
+	}()
+
 	users, err := database.GetUsersCount()
 	if err != nil {
 		users = 0
@@ -106,20 +132,26 @@ func HumanizedInt(d int) string {
 }
 
 func GetStats() string {
+	updateMutex.Lock()
+	updating := isUpdating
+	updateMutex.Unlock()
+
+	if updating {
+		return statsMessageLoading
+	}
+
 	if currentStats == nil {
-		UpdateStats()
-		if currentStats == nil {
-			currentStats = &stats{
-				String:    statsMessageNoData,
-				UpdatedAt: time.Now(),
-			}
-		}
+		go UpdateStats()
+		return statsMessageLoading
 	} else if currentStats.UpdatedAt.Add(time.Duration(updateInterval) * time.Minute).Before(time.Now()) {
 		oldStats := currentStats
-		UpdateStats()
-		if currentStats == nil {
-			currentStats = oldStats
-		}
+		go func() {
+			UpdateStats()
+			if currentStats == nil {
+				currentStats = oldStats
+			}
+		}()
+		return oldStats.String // return old stats while updating
 	}
 	return currentStats.String
 }
