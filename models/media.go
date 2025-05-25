@@ -387,7 +387,7 @@ func (format *MediaFormat) GetInputMedia(
 	}
 	fileSize := fileInfo.Size()
 
-	zap.S().Debugf("file size: %s", humanize.IBytes(uint64(fileSize)))
+	zap.S().Debugf("file size: %s", humanize.Bytes(uint64(fileSize)))
 
 	fileInputMedia := gotgbot.InputFileByReader(
 		filepath.Base(filePath),
