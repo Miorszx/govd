@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+	"govd/config"
 	extractors "govd/ext"
 	"strings"
 
@@ -17,7 +19,15 @@ func ExtractorsHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 		if extractor.IsRedirect || extractor.IsHidden {
 			continue
 		}
-		extractorNames = append(extractorNames, extractor.Name)
+		cfg := config.GetExtractorConfig(extractor)
+		if cfg != nil && cfg.IsDisabled {
+			extractorNames = append(extractorNames, fmt.Sprintf(
+				"<s>%s</s> <i>(disabled)</i>",
+				extractor.Name,
+			))
+		} else {
+			extractorNames = append(extractorNames, extractor.Name)
+		}
 	}
 	messageText += strings.Join(extractorNames, ", ")
 
