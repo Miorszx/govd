@@ -11,11 +11,12 @@ import (
 
 func WhitelistHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	var effectiveID int64
-	if ctx.EffectiveChat != nil {
+	switch {
+	case ctx.EffectiveChat != nil:
 		effectiveID = ctx.EffectiveChat.Id
-	} else if ctx.EffectiveUser != nil {
+	case ctx.EffectiveUser != nil:
 		effectiveID = ctx.EffectiveUser.Id
-	} else {
+	default:
 		return ext.ContinueGroups
 	}
 	if len(config.Env.Whitelist) > 0 {
