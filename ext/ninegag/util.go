@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"govd/enums"
-	"govd/models"
+	"github.com/govdbot/govd/enums"
+	"github.com/govdbot/govd/models"
 )
 
 func FindBestPhoto(

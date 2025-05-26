@@ -3,9 +3,6 @@ package util
 import (
 	"crypto/rand"
 	"fmt"
-	"govd/config"
-	"govd/models"
-	"govd/util/networking"
 	"html"
 	"io"
 	"net/http"
@@ -15,6 +12,10 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/govdbot/govd/config"
+	"github.com/govdbot/govd/models"
+	"github.com/govdbot/govd/util/networking"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"

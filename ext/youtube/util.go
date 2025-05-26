@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"govd/enums"
-	"govd/models"
+	"github.com/govdbot/govd/enums"
+	"github.com/govdbot/govd/models"
 )
 
 const invEndpoint = "/api/v1/videos/"

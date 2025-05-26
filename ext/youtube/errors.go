@@ -1,6 +1,6 @@
 package youtube
 
-import "govd/util"
+import "github.com/govdbot/govd/util"
 
 var (
 	ErrNotConfigured   = &util.Error{Message: "youtube extractor is not configured"}

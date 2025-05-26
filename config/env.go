@@ -1,11 +1,12 @@
 package config
 
 import (
-	"govd/models"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/govdbot/govd/models"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"

@@ -1,6 +1,6 @@
 package instagram
 
-import "govd/util"
+import "github.com/govdbot/govd/util"
 
 var (
 	ErrAllMethodsFailed   = &util.Error{Message: "all methods failed"}

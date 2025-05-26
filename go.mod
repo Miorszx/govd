@@ -1,4 +1,4 @@
-module govd
+module github.com/govdbot/govd
 
 go 1.23.0
 

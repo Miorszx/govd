@@ -10,10 +10,10 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 
-	"govd/database"
-	"govd/enums"
-	"govd/models"
-	"govd/util"
+	"github.com/govdbot/govd/database"
+	"github.com/govdbot/govd/enums"
+	"github.com/govdbot/govd/models"
+	"github.com/govdbot/govd/util"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"

@@ -4,8 +4,8 @@ import (
 	"runtime/debug"
 	"time"
 
-	botHandlers "govd/bot/handlers"
-	"govd/config"
+	botHandlers "github.com/govdbot/govd/bot/handlers"
+	"github.com/govdbot/govd/config"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"

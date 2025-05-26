@@ -16,10 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"govd/config"
-	"govd/models"
-	"govd/util/libav"
-	"govd/util/networking"
+	"github.com/govdbot/govd/config"
+	"github.com/govdbot/govd/models"
+	"github.com/govdbot/govd/util/libav"
+	"github.com/govdbot/govd/util/networking"
 
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"

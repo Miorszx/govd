@@ -5,7 +5,7 @@ import (
 	"maps"
 	"os"
 
-	"govd/models"
+	"github.com/govdbot/govd/models"
 
 	"gopkg.in/yaml.v3"
 )

@@ -1,6 +1,6 @@
 package twitter
 
-import "govd/util"
+import "github.com/govdbot/govd/util"
 
 var (
 	ErrURLNotFound    = &util.Error{Message: "URL not found in response"}

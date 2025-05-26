@@ -1,6 +1,6 @@
 package tiktok
 
-import "govd/util"
+import "github.com/govdbot/govd/util"
 
 var (
 	ErrRegionNotSupported    = &util.Error{Message: "tiktok is geo restricted in your region, use cookies to bypass or use a VPN/proxy"}

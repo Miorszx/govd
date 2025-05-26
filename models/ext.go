@@ -1,8 +1,9 @@
 package models
 
 import (
-	"govd/enums"
 	"regexp"
+
+	"github.com/govdbot/govd/enums"
 )
 
 type Extractor struct {

@@ -1,6 +1,6 @@
 package ninegag
 
-import "govd/util"
+import "github.com/govdbot/govd/util"
 
 var (
 	ErrNoMediaFound = &util.Error{Message: "no media found"}

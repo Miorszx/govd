@@ -1,8 +1,8 @@
 package database
 
 import (
-	"govd/config"
-	"govd/models"
+	"github.com/govdbot/govd/config"
+	"github.com/govdbot/govd/models"
 
 	"fmt"
 	"time"

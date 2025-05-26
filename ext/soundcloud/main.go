@@ -7,12 +7,12 @@ import (
 	"regexp"
 	"strings"
 
-	"govd/enums"
-	"govd/logger"
-	"govd/models"
-	"govd/plugins"
-	"govd/util"
-	"govd/util/networking"
+	"github.com/govdbot/govd/enums"
+	"github.com/govdbot/govd/logger"
+	"github.com/govdbot/govd/models"
+	"github.com/govdbot/govd/plugins"
+	"github.com/govdbot/govd/util"
+	"github.com/govdbot/govd/util/networking"
 
 	"github.com/bytedance/sonic"
 	"go.uber.org/zap"

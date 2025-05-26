@@ -3,11 +3,12 @@ package bot
 import (
 	"context"
 	"encoding/json"
-	"govd/config"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/govdbot/govd/config"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 )

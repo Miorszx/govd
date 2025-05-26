@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"govd/enums"
+	"github.com/govdbot/govd/enums"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/dustin/go-humanize"

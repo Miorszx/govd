@@ -2,14 +2,15 @@ package main
 
 import (
 	"fmt"
-	"govd/bot"
-	"govd/config"
-	"govd/database"
-	"govd/ext"
-	"govd/logger"
-	"govd/plugins"
-	"govd/util"
 	"os/exec"
+
+	"github.com/govdbot/govd/bot"
+	"github.com/govdbot/govd/config"
+	"github.com/govdbot/govd/database"
+	"github.com/govdbot/govd/ext"
+	"github.com/govdbot/govd/logger"
+	"github.com/govdbot/govd/plugins"
+	"github.com/govdbot/govd/util"
 
 	"net/http"
 	_ "net/http/pprof" // profiling

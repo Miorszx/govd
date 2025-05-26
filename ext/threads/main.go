@@ -2,14 +2,15 @@ package threads
 
 import (
 	"fmt"
-	"govd/enums"
-	"govd/logger"
-	"govd/models"
-	"govd/util"
-	"govd/util/networking"
 	"io"
 	"net/http"
 	"regexp"
+
+	"github.com/govdbot/govd/enums"
+	"github.com/govdbot/govd/logger"
+	"github.com/govdbot/govd/models"
+	"github.com/govdbot/govd/util"
+	"github.com/govdbot/govd/util/networking"
 )
 
 var Extractor = &models.Extractor{

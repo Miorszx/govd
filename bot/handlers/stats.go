@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"fmt"
-	"govd/database"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/govdbot/govd/database"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"

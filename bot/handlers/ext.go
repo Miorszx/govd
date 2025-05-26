@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"fmt"
-	"govd/config"
-	extractors "govd/ext"
 	"strings"
+
+	"github.com/govdbot/govd/config"
+	extractors "github.com/govdbot/govd/ext"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"

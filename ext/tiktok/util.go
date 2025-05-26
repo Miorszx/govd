@@ -15,12 +15,12 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"govd/enums"
-	"govd/ext/tiktok/signer"
-	"govd/logger"
-	"govd/models"
-	"govd/util"
-	"govd/util/networking"
+	"github.com/govdbot/govd/enums"
+	"github.com/govdbot/govd/ext/tiktok/signer"
+	"github.com/govdbot/govd/logger"
+	"github.com/govdbot/govd/models"
+	"github.com/govdbot/govd/util"
+	"github.com/govdbot/govd/util/networking"
 
 	"github.com/google/uuid"
 )

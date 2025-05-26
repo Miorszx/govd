@@ -1,8 +1,9 @@
 package database
 
 import (
-	"govd/models"
 	"time"
+
+	"github.com/govdbot/govd/models"
 )
 
 func GetTraffic() (int, error) {

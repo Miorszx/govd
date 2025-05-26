@@ -2,7 +2,8 @@ package handlers
 
 import (
 	"fmt"
-	"govd/config"
+
+	"github.com/govdbot/govd/config"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"

@@ -3,8 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
-	"govd/database"
-	"govd/models"
+
+	"github.com/govdbot/govd/database"
+	"github.com/govdbot/govd/models"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
