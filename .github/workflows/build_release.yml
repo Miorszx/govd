@@ -1,12 +1,18 @@
-name: docker image build
+name: Build-Docker-On-Release
 
-on: [push, release]
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+  packages: write
 
 env:
   IMAGE: govdbot/govd:${{ github.ref_name }}
-  GHCR_IMAGE: ghcr.io/govdbot/govd:${{ github.ref_name }}
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
   IMAGE_LATEST: govdbot/govd:latest
-  GHCR_IMAGE_LATEST: ghcr.io/govdbot/govd:latest
+  GHCR_IMAGE_LATEST: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
 
 jobs:
   build-images:
