@@ -1,8 +1,6 @@
-name: Build-Docker
+name: docker image build
 
-on:
-  release:
-    types: [created]
+on: [push, release]
 
 env:
   IMAGE: govdbot/govd:${{ github.ref_name }}
