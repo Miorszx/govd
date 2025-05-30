@@ -287,10 +287,18 @@ func ParseUniversalData(body []byte) (*WebItemStruct, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal universal data: %w", err)
 	}
+
+	// debugging
+	logger.WriteFile("tt_universal_data", data)
+
 	defaultScope := util.TraverseJSON(data, "__DEFAULT_SCOPE__")
 	if defaultScope == nil {
 		return nil, ErrUniversalDataNotFound
 	}
+
+	// debugging
+	logger.WriteFile("tt_default_scope", defaultScope)
+
 	itemStruct := util.TraverseJSON(defaultScope, "itemStruct")
 	if itemStruct == nil {
 		return nil, ErrItemStructNotFound
