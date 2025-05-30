@@ -1,6 +1,7 @@
 package tiktok
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -193,6 +194,9 @@ func MediaListFromWeb(ctx *models.DownloadContext) ([]*models.Media, error) {
 		)
 		media.SetCaption(caption)
 		video := details.Video
+		if video == nil {
+			return nil, errors.New("video details are missing")
+		}
 		if video.PlayAddr != "" {
 			media.AddFormat(&models.MediaFormat{
 				Type:       enums.MediaTypeVideo,
