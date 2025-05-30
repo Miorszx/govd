@@ -1,6 +1,6 @@
 services:
   govd-bot:
-    image: govdbot/govd:latest
+    image: govdbot/govd:main
     container_name: govd-bot
     restart: unless-stopped
     networks:
