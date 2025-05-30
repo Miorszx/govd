@@ -10,4 +10,5 @@ var (
 	ErrUniversalDataNotFound = &util.Error{Message: "universal data not found in response"}
 	ErrDefaultScopeNotFound  = &util.Error{Message: "default scope not found in response"}
 	ErrItemStructNotFound    = &util.Error{Message: "item struct not found in response"}
+	ErrVideoNotFound         = &util.Error{Message: "video not found, this usually means the video is private or deleted"}
 )
