@@ -31,12 +31,13 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
 > there's no official support for windows yet. if you want to run the bot on it, please follow [docker installation](#docker-recommended).
 
 1. clone the repository:
+
     ```bash
     git clone https://github.com/govdbot/govd.git && cd govd
     ```
 
-2. edit the `.env` file to set the database properties.  
-   for enhanced security, it is recommended to change the `DB_PASSWORD` property in the `.env` file.
+2. create or update the `.env` file to set the database properties.  
+   for enhanced security, it is recommended to change the `DB_PASSWORD` property.
 
 3. make sure your database is up and running.
 
@@ -47,7 +48,13 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
     ```
 
 ## docker (recommended)
-1. create or update the `.env` file to ensure the database properties match the environment variables defined for the mariadb service in the `docker-compose.yml` file.  
+1. clone the repository:
+
+    ```bash
+    git clone https://github.com/govdbot/govd.git && cd govd
+    ```
+
+2. create or update the `.env` file to ensure the database properties match the environment variables defined for the mariadb service in the `docker-compose.yml` file.  
    for enhanced security, it is recommended to change the `MARIADB_PASSWORD` property in `docker-compose.yaml` and ensure `DB_PASSWORD` in `.env` matches it.
 
     the following line in the `.env` file **must** be set as:
@@ -55,12 +62,6 @@ this project draws significant inspiration from [yt-dlp](https://github.com/yt-d
     ```
     DB_HOST=db
     ``` 
-
-2. build the image using the dockerfile:
-
-    ```bash
-    docker build -t govd-bot .
-    ```
 
 3. run the compose to start all services:
 
