@@ -126,6 +126,12 @@ func LoadEnv() error {
 			}
 		}
 	}
+	if value := os.Getenv("CAPTION_HEADER"); value != "" {
+		Env.CaptionHeader = value
+	}
+	if value := os.Getenv("CAPTION_DESCRIPTION"); value != "" {
+		Env.CaptionDescription = value
+	}
 	return nil
 }
 
@@ -145,5 +151,8 @@ func GetDefaultConfig() *models.EnvConfig {
 		MaxFileSize: 1000 * 1024 * 1024, // 1GB
 		RepoURL:     "https://github.com/govdbot/govd",
 		LogLevel:    "info",
+
+		CaptionHeader:      "<a href='{{url}}'>source</a> - @govd_bot",
+		CaptionDescription: "<blockquote expandable>{{text}}</blockquote>",
 	}
 }

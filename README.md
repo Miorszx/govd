@@ -109,16 +109,18 @@ you can configure the bot using the `.env` file. here are the available options:
 
 ## other
 
-| variable       | description                               | default                             |
-|----------------|-------------------------------------------|-------------------------------------|
-| REPO_URL       | project repository url                    | https://github.com/govdbot/govd     |
-| PROFILER_PORT  | port for profiler http server (pprof)     | 0 _(disabled)_                      |
-| LOG_LEVEL      | log level (debug, info, warn, error)      | info                                |
-| LOG_FILE       | whether to enable file logging            | false                               |
-| MAX_DURATION   | max duration (parsed string)              | 1h                                  |
-| MAX_FILE_SIZE  | max file size in mb                       | 1000                                |
-| MAX_FILE_SIZE  | max file size in mb                       | 1000                                |
-| WHITELIST      | list of allowed ids separated by commas   | none _(disabled)_                   |
+| variable            | description                               | default                             |
+|---------------------|-------------------------------------------|-------------------------------------|
+| REPO_URL            | project repository url                    | https://github.com/govdbot/govd     |
+| PROFILER_PORT       | port for profiler http server (pprof)     | 0 _(disabled)_                      |
+| LOG_LEVEL           | log level (debug, info, warn, error)      | info                                |
+| LOG_FILE            | whether to enable file logging            | false                               |
+| MAX_DURATION        | max duration (parsed string)              | 1h                                  |
+| MAX_FILE_SIZE       | max file size in mb                       | 1000                                |
+| MAX_FILE_SIZE       | max file size in mb                       | 1000                                |
+| WHITELIST           | list of allowed ids separated by commas   | none _(disabled)_                   |
+| CAPTION_HEADER      | customizable caption's header             | -                                   |
+| CAPTION_DESCRIPTION | customizable caption's description        | -                                   |
 
 ## extractors
 you can configure specific extractors options with `config.yaml` file ([learn more](CONFIGURATION.md)).

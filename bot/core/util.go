@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/govdbot/govd/config"
 	"github.com/govdbot/govd/database"
 	"github.com/govdbot/govd/enums"
 	"github.com/govdbot/govd/models"
@@ -200,8 +201,10 @@ func FormatCaption(
 	media *models.Media,
 	isEnabled bool,
 ) string {
-	newCaption := fmt.Sprintf(
-		"<a href='%s'>source</a> - @govd_bot\n",
+	var description string
+	header := strings.ReplaceAll(
+		config.Env.CaptionHeader,
+		"{{url}",
 		media.ContentURL,
 	)
 	if isEnabled && media.Caption.Valid {
@@ -209,12 +212,13 @@ func FormatCaption(
 		if len(text) > 600 {
 			text = text[:600] + "..."
 		}
-		newCaption += fmt.Sprintf(
-			"<blockquote expandable>%s</blockquote>\n",
+		description = strings.ReplaceAll(
+			config.Env.CaptionDescription,
+			"{{text}}",
 			util.EscapeCaption(text),
 		)
 	}
-	return newCaption
+	return header + "\n" + description
 }
 
 func TypingEffect(

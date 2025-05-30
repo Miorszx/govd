@@ -26,6 +26,9 @@ type EnvConfig struct {
 	LogLevel     string
 	LogFile      bool
 	Whitelist    []int64
+
+	CaptionHeader      string
+	CaptionDescription string
 }
 
 type ExtractorConfig struct {
