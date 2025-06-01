@@ -84,7 +84,7 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetail, error) {
 	awemeID := ctx.MatchedContentID
 	apiURL := fmt.Sprintf(
 		"https://%s/aweme/v1/aweme/detail/",
-		apiHostname,
+		GetRandomAPIHost(),
 	)
 	queryParams, err := BuildAPIQuery()
 	if err != nil {
