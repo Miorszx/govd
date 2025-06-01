@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	"go.uber.org/zap"
 
 	"github.com/govdbot/govd/enums"
 	"github.com/govdbot/govd/ext/tiktok/signer"
@@ -81,10 +82,13 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetail, error) {
 	client := networking.GetExtractorHTTPClient(ctx.Extractor)
 	cookies := util.GetExtractorCookies(ctx.Extractor)
 
+	apiHostname := GetRandomAPIHost()
+	zap.S().Debugf("using API hostname: %s", apiHostname)
+
 	awemeID := ctx.MatchedContentID
 	apiURL := fmt.Sprintf(
 		"https://%s/aweme/v1/aweme/detail/",
-		GetRandomAPIHost(),
+		apiHostname,
 	)
 	queryParams, err := BuildAPIQuery()
 	if err != nil {
