@@ -204,7 +204,7 @@ func FormatCaption(
 	var description string
 	header := strings.ReplaceAll(
 		config.Env.CaptionHeader,
-		"{{url}",
+		"{{url}}",
 		media.ContentURL,
 	)
 	if isEnabled && media.Caption.Valid {
