@@ -24,7 +24,7 @@ func GetHLSFormats(videoURL string, thumbnail string, duration int64) ([]*models
 	videoID := matches[1]
 	hlsURL := fmt.Sprintf(hlsURLFormat, videoID)
 
-	formats, err := parser.ParseM3U8FromURL(hlsURL)
+	formats, err := parser.ParseM3U8FromURL(hlsURL, nil)
 	if err != nil {
 		return nil, err
 	}

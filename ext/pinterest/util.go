@@ -36,7 +36,7 @@ func ParseVideoObject(videoObj *Videos) ([]*models.MediaFormat, error) {
 			})
 		} else {
 			zap.S().Debugf("extracting HLS formats: %s", key)
-			hlsFormats, err := parser.ParseM3U8FromURL(video.URL)
+			hlsFormats, err := parser.ParseM3U8FromURL(video.URL, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hls formats: %w", err)
 			}

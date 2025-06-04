@@ -15,6 +15,7 @@ type DownloadConfig struct {
 	ProgressUpdater func(float64)     // optional function to report download progress
 	MaxInMemory     int               // maximum file size for in-memory downloads
 	Headers         map[string]string // custom HTTP headers for the request
+	DecryptionKey   *DecryptionKey    // decryption key for encrypted streams
 	Cookies         []*http.Cookie    // cookies to send with the request
 }
 

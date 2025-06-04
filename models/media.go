@@ -58,23 +58,25 @@ type Media struct {
 }
 
 type MediaFormat struct {
-	ID         uint             `json:"-"`
-	MediaID    uint             `gorm:"index:idx_media_format,priority:1;not null" json:"-"`
-	Type       enums.MediaType  `gorm:"not null;index:idx_media_type" json:"type"`
-	FormatID   string           `gorm:"not null;index" json:"format_id"`
-	FileID     string           `gorm:"not null;index" json:"-"`
-	VideoCodec enums.MediaCodec `json:"video_codec"`
-	AudioCodec enums.MediaCodec `json:"audio_codec"`
-	Duration   int64            `json:"duration"`
-	Width      int64            `json:"width"`
-	Height     int64            `json:"height"`
-	Bitrate    int64            `json:"bitrate"`
-	Title      string           `json:"title"`
-	Artist     string           `json:"artist"`
-	IsDefault  bool             `gorm:"default:false;index" json:"is_default"`
-	Segments   []string         `gorm:"-" json:"segments"`
-	FileSize   int64            `json:"-"`
-	Plugins    []Plugin         `gorm:"-" json:"-"`
+	ID            uint             `json:"-"`
+	MediaID       uint             `gorm:"index:idx_media_format,priority:1;not null" json:"-"`
+	Type          enums.MediaType  `gorm:"not null;index:idx_media_type" json:"type"`
+	FormatID      string           `gorm:"not null;index" json:"format_id"`
+	FileID        string           `gorm:"not null;index" json:"-"`
+	VideoCodec    enums.MediaCodec `json:"video_codec"`
+	AudioCodec    enums.MediaCodec `json:"audio_codec"`
+	Duration      int64            `json:"duration"`
+	Width         int64            `json:"width"`
+	Height        int64            `json:"height"`
+	Bitrate       int64            `json:"bitrate"`
+	Title         string           `json:"title"`
+	Artist        string           `json:"artist"`
+	IsDefault     bool             `gorm:"default:false;index" json:"is_default"`
+	Segments      []string         `gorm:"-" json:"segments"`
+	InitSegment   string           `gorm:"-" json:"init_segment"`
+	FileSize      int64            `json:"-"`
+	Plugins       []Plugin         `gorm:"-" json:"-"`
+	DecryptionKey *DecryptionKey   `gorm:"-" json:"decryption_key"`
 
 	CreatedAt time.Time      `json:"-"`
 	UpdatedAt time.Time      `json:"-"`

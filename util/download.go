@@ -70,6 +70,7 @@ func DownloadFile(
 
 func DownloadFileWithSegments(
 	ctx context.Context,
+	initSegmentURL string,
 	segmentURLs []string,
 	fileName string,
 	downloadConfig *models.DownloadConfig,
@@ -86,14 +87,34 @@ func DownloadFileWithSegments(
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create temporary directory: %w", err)
 	}
-
+	initSegmentFile, err := downloadFile(
+		ctx, initSegmentURL,
+		filepath.Join(tempDir, "init"),
+		downloadConfig,
+	)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to download init segment: %w", err)
+	}
 	downloadedFiles, err := downloadSegments(ctx, tempDir, segmentURLs, downloadConfig)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to download segments: %w", err)
 	}
-	zap.S().Debugf("merging segments %d segments", len(downloadedFiles))
-	mergedFilePath, err := libav.MergeSegments(downloadedFiles, fileName)
+	if downloadConfig.DecryptionKey != nil {
+		zap.S().Debug("decrypting segments")
+		err = DecryptSegmentsInPlace(
+			downloadedFiles,
+			downloadConfig.DecryptionKey.Key,
+			downloadConfig.DecryptionKey.IV,
+			downloadConfig.DecryptionKey.MediaSequence,
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to decrypt segments: %w", err)
+		}
+	}
+	zap.S().Debugf("merging %d segments", len(downloadedFiles)+1)
+	mergedFilePath, err := libav.MergeSegments(initSegmentFile, downloadedFiles, fileName)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to merge segments: %w", err)

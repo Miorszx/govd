@@ -27,6 +27,7 @@ func DownloadMediaItem(
 	}
 
 	downloadConfig := models.GetDownloadConfig(format.DownloadConfig)
+	downloadConfig.DecryptionKey = format.DecryptionKey
 
 	fileName := format.GetFileName()
 	var filePath string
@@ -71,7 +72,11 @@ func DownloadMediaItem(
 		}
 		filePath = path
 	} else {
-		path, err := util.DownloadFileWithSegments(ctx, format.Segments, fileName, downloadConfig)
+		path, err := util.DownloadFileWithSegments(
+			ctx, format.InitSegment,
+			format.Segments,
+			fileName, downloadConfig,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to download segments: %w", err)
 		}
@@ -89,7 +94,7 @@ func DownloadMediaItem(
 	if format.Type == enums.MediaTypeVideo && (format.Width == 0 || format.Height == 0 || format.Duration == 0) {
 		InsertVideoInfo(format, filePath)
 
-		// check if the extracted video duration is too long
+		// check if the extracted video duration exceeds limit
 		if util.ExceedsMaxDuration(format.Duration) {
 			return nil, util.ErrDurationTooLong
 		}

@@ -23,6 +23,11 @@ func MergeAudio(
 	// disable remuxing
 	downloadConfigCopy := *downloadConfig
 	downloadConfigCopy.Remux = false
+	if audioFormat.DecryptionKey != nil {
+		downloadConfigCopy.DecryptionKey = audioFormat.DecryptionKey
+	} else {
+		downloadConfigCopy.DecryptionKey = nil
+	}
 
 	// download the audio file
 	ctx, cancel := context.WithCancel(context.Background())
@@ -39,7 +44,8 @@ func MergeAudio(
 		)
 	} else {
 		audioFile, err = util.DownloadFileWithSegments(
-			ctx, audioFormat.Segments,
+			ctx, audioFormat.InitSegment,
+			audioFormat.Segments,
 			audioFormat.GetFileName(),
 			&downloadConfigCopy,
 		)
