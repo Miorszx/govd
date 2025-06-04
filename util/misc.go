@@ -2,6 +2,7 @@ package util
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"html"
 	"io"
@@ -147,8 +148,9 @@ func IsUserAdmin(
 
 func EscapeCaption(str string) string {
 	// we wont use html.EscapeString
-	// cuz it will escape all the characters
+	// because it will escape all the characters
 	// and we only need to escape < and >
+	// (to avoid telegram formatting issues)
 	chars := map[string]string{
 		"<": "&lt;",
 		">": "&gt;",
@@ -287,4 +289,31 @@ func StartDownloadsCleanup() {
 			<-ticker.C
 		}
 	}()
+}
+
+func ParseHexIV(ivStr string) ([]byte, error) {
+	if strings.HasPrefix(ivStr, "0x") || strings.HasPrefix(ivStr, "0X") {
+		ivStr = ivStr[2:]
+	}
+	iv, err := hex.DecodeString(ivStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex IV: %w", err)
+	}
+	if len(iv) != 16 {
+		return nil, fmt.Errorf("IV must be 16 bytes, got %d", len(iv))
+	}
+
+	return iv, nil
+}
+
+func GetCookieByName(
+	cookies []*http.Cookie,
+	name string,
+) *http.Cookie {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
 }

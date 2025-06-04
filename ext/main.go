@@ -2,6 +2,7 @@ package ext
 
 import (
 	"github.com/govdbot/govd/ext/instagram"
+	"github.com/govdbot/govd/ext/nicovideo"
 	"github.com/govdbot/govd/ext/ninegag"
 	"github.com/govdbot/govd/ext/pinterest"
 	"github.com/govdbot/govd/ext/reddit"
@@ -32,4 +33,5 @@ var List = []*models.Extractor{
 	redgifs.Extractor,
 	soundcloud.Extractor,
 	soundcloud.ShortExtractor,
+	nicovideo.Extractor,
 }
