@@ -31,7 +31,6 @@ func MergeVideoWithAudio(
 		[]*ffmpeg.Stream{videoStream, audioStream},
 		outputFile,
 		ffmpeg.KwArgs{
-			"map":      []string{"0:v:0", "1:a:0"},
 			"movflags": "+faststart",
 			"c:v":      "copy",
 			"c:a":      "copy",
