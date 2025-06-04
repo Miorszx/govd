@@ -71,7 +71,7 @@ func mergeFragmentedMP4(
 		totalBytes += segmentBytes
 	}
 
-	zap.S().Infof("merged fragmented MP4: written to %s (%s)", outputPath, humanize.Bytes(uint64(totalBytes)))
+	zap.S().Debugf("merged fragmented MP4: written to %s (%s)", outputPath, humanize.Bytes(uint64(totalBytes)))
 	return outputPath, nil
 }
 
@@ -109,7 +109,7 @@ func mergeRegularSegments(segmentPaths []string, outputPath string) (string, err
 		return "", errors.New("no valid segments found to merge")
 	}
 
-	zap.S().Infof("merged regular segments: written to %s (%s)", outputPath, humanize.Bytes(uint64(totalBytes)))
+	zap.S().Debugf("merged regular segments: written to %s (%s)", outputPath, humanize.Bytes(uint64(totalBytes)))
 	return outputPath, nil
 }
 
