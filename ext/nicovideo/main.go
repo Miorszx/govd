@@ -43,6 +43,9 @@ func GetVideo(ctx *models.DownloadContext) (*models.Media, error) {
 	if err != nil {
 		return nil, err
 	}
+	if serverResponse.Meta.Code == "FORBIDDEN" {
+		return nil, util.ErrUnavailable
+	}
 	if serverResponse.Data.Response.Video.IsPrivate {
 		return nil, util.ErrUnavailable
 	}

@@ -70,8 +70,10 @@ func GetServerResponse(
 	}
 
 	data := html.UnescapeString(string(matches[1]))
-
 	reader := strings.NewReader(data)
+
+	// debugging
+	logger.WriteFile("nv_server_response", data)
 
 	var serverResponse *ServerResponse
 	decoder := sonic.ConfigFastest.NewDecoder(reader)
@@ -79,6 +81,7 @@ func GetServerResponse(
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to decode response: %w", err)
 	}
+
 	return serverResponse, sessionID, nil
 }
 
