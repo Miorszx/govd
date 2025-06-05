@@ -18,6 +18,10 @@ func URLHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	if messageURL == "" {
 		return nil
 	}
+	if shouldSkip(ctx.EffectiveMessage) {
+		// skip processing if the message contains #skip hashtag
+		return nil
+	}
 	dlCtx, err := extractors.CtxByURL(messageURL)
 	if err != nil {
 		return nil
@@ -61,8 +65,27 @@ func URLFilter(msg *gotgbot.Message) bool {
 		message.Entity("url")(msg)
 }
 
+func shouldSkip(msg *gotgbot.Message) bool {
+	for _, entity := range msg.Entities {
+		if entity.Type != "hashtag" {
+			continue
+		}
+		parsedEntity := gotgbot.ParseEntity(
+			msg.Text,
+			entity,
+		)
+		if parsedEntity.Text == "#skip" {
+			return true
+		}
+	}
+	return false
+}
+
 func getMessageURL(msg *gotgbot.Message) string {
 	for _, entity := range msg.Entities {
+		if entity.Type != "url" {
+			continue
+		}
 		parsedEntity := gotgbot.ParseEntity(
 			msg.Text,
 			entity,
