@@ -29,7 +29,7 @@ var ShortExtractor = &models.Extractor{
 	Type:       enums.ExtractorTypeSingle,
 	Category:   enums.ExtractorCategoryMusic,
 	URLPattern: regexp.MustCompile(`https?:\/\/on\.soundcloud\.com\/(?P<id>\w+)`),
-	Host:       []string{"on.soundcloud"},
+	Host:       []string{"soundcloud"},
 	IsRedirect: true,
 	IsHidden:   true,
 
