@@ -158,6 +158,9 @@ func StoreMedias(
 	msgs []gotgbot.Message,
 	medias []*models.DownloadedMedia,
 ) error {
+	if !config.Env.Caching {
+		return nil
+	}
 	if len(medias) == 0 {
 		return errors.New("no media to store")
 	}

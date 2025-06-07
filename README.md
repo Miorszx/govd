@@ -120,6 +120,7 @@ you can configure the bot using the `.env` file. here are the available options:
 | MAX_FILE_SIZE       | max file size in mb                       | 1000                                |
 | MAX_FILE_SIZE       | max file size in mb                       | 1000                                |
 | WHITELIST           | list of allowed ids separated by commas   | none _(disabled)_                   |
+| CACHING             | whether to enable media caching           | true                                |
 | CAPTION_HEADER      | customizable caption's header             | -                                   |
 | CAPTION_DESCRIPTION | customizable caption's description        | -                                   |
 

@@ -126,6 +126,15 @@ func LoadEnv() error {
 			}
 		}
 	}
+	if value := os.Getenv("CACHING"); value != "" {
+		if caching, err := strconv.ParseBool(value); err == nil {
+			Env.Caching = caching
+		} else {
+			zap.S().Fatal("CACHING env is not a valid boolean")
+		}
+	} else {
+		zap.S().Warnf("CACHING is not set, using default %t", Env.Caching)
+	}
 	if value := os.Getenv("CAPTION_HEADER"); value != "" {
 		Env.CaptionHeader = value
 	}
@@ -151,6 +160,7 @@ func GetDefaultConfig() *models.EnvConfig {
 		MaxFileSize: 1000 * 1024 * 1024, // 1GB
 		RepoURL:     "https://github.com/govdbot/govd",
 		LogLevel:    "info",
+		Caching:     true,
 
 		CaptionHeader:      "<a href='{{url}}'>source</a> - @govd_bot",
 		CaptionDescription: "<blockquote expandable>{{text}}</blockquote>",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/govdbot/govd/config"
 	"github.com/govdbot/govd/database"
 	"github.com/govdbot/govd/models"
 
@@ -19,24 +20,26 @@ func HandleDefaultFormatDownload(
 	taskCtx context.Context,
 	dlCtx *models.DownloadContext,
 ) error {
-	storedMedias, err := database.GetDefaultMedias(
-		dlCtx.Extractor.CodeName,
-		dlCtx.MatchedContentID,
-	)
-	if err != nil {
-		return err
-	}
-
-	if len(storedMedias) > 0 {
-		zap.S().Debugf(
-			"found %d stored medias for %s (%s)",
-			len(storedMedias),
-			dlCtx.MatchedContentID,
+	if config.Env.Caching {
+		storedMedias, err := database.GetDefaultMedias(
 			dlCtx.Extractor.CodeName,
+			dlCtx.MatchedContentID,
 		)
-		return HandleDefaultStoredFormatDownload(
-			bot, ctx, dlCtx, storedMedias,
-		)
+		if err != nil {
+			return err
+		}
+
+		if len(storedMedias) > 0 {
+			zap.S().Debugf(
+				"found %d stored medias for %s (%s)",
+				len(storedMedias),
+				dlCtx.MatchedContentID,
+				dlCtx.Extractor.CodeName,
+			)
+			return HandleDefaultStoredFormatDownload(
+				bot, ctx, dlCtx, storedMedias,
+			)
+		}
 	}
 
 	response, err := dlCtx.Extractor.Run(dlCtx)

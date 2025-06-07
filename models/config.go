@@ -26,6 +26,7 @@ type EnvConfig struct {
 	LogLevel     string
 	LogFile      bool
 	Whitelist    []int64
+	Caching      bool
 
 	CaptionHeader      string
 	CaptionDescription string
