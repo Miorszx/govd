@@ -94,11 +94,14 @@ you can configure the bot using the `.env` file. here are the available options:
 | BOT_TOKEN          | telegram bot token               | none                                 |
 | CONCURRENT_UPDATES | max concurrent updates handled   | 50                                   |
 
-## downloads
+## media & files
 
-| variable       | description                    | default    |
-|----------------|--------------------------------|------------|
-| DOWNLOADS_DIR  | directory for downloaded files | downloads  |
+| variable       | description                     | default    |
+|----------------|---------------------------------|------------|
+| DOWNLOADS_DIR  | directory for downloaded files  | downloads  |
+| MAX_DURATION   | max duration (parsed string)    | 1h         |
+| MAX_FILE_SIZE  | max file size in mb             | 1000       |
+| CACHING        | whether to enable media caching | true       |
 
 ## proxying
 
@@ -108,30 +111,36 @@ you can configure the bot using the `.env` file. here are the available options:
 | HTTPS_PROXY  | https proxy       | none _(disabled)_  |
 | NO_PROXY     | no proxy domains  | none _(disabled)_  |
 
-## default settings
-configure default settings for groups. Group admins can override these settings by using commands.
-| variable                | description                                 | default                             |
-|-------------------------|---------------------------------------------|-------------------------------------|
-| DEFAULT_ENABLE_CAPTIONS | show original captions on messages          | false                               |
-| DEFAULT_ENABLE_SILENT   | omit error messages in groups (silent fail) | false                               |
-| DEFAULT_ENABLE_NSFW     | enable nsfw content in groups               | false                               |
-| DEFAULT_MEDIA_LIMIT     | max media files in a single message         | 10                                  |
+## security
 
-## other
+| variable    | description                             | default            |
+|-------------|-----------------------------------------|--------------------|
+| WHITELIST   | list of allowed ids separated by commas | none _(disabled)_  |
 
-| variable            | description                               | default                             |
-|---------------------|-------------------------------------------|-------------------------------------|
-| REPO_URL            | project repository url                    | https://github.com/govdbot/govd     |
-| PROFILER_PORT       | port for profiler http server (pprof)     | 0 _(disabled)_                      |
-| LOG_LEVEL           | log level (debug, info, warn, error)      | info                                |
-| LOG_FILE            | whether to enable file logging            | false                               |
-| MAX_DURATION        | max duration (parsed string)              | 1h                                  |
-| MAX_FILE_SIZE       | max file size in mb                       | 1000                                |
-| MAX_FILE_SIZE       | max file size in mb                       | 1000                                |
-| WHITELIST           | list of allowed ids separated by commas   | none _(disabled)_                   |
-| CACHING             | whether to enable media caching           | true                                |
-| CAPTION_HEADER      | customizable caption's header             | -                                   |
-| CAPTION_DESCRIPTION | customizable caption's description        | -                                   |
+## default groups settings
+
+| variable                | description                                 | default   |
+|-------------------------|---------------------------------------------|-----------|
+| DEFAULT_ENABLE_CAPTIONS | show original captions on messages          | false     |
+| DEFAULT_ENABLE_SILENT   | omit error messages in groups (silent fail) | false     |
+| DEFAULT_ENABLE_NSFW     | enable nsfw content in groups               | false     |
+| DEFAULT_MEDIA_LIMIT     | max media files in a single message         | 10        |
+
+## messages
+
+| variable            | description                        | default |
+|---------------------|------------------------------------|---------|
+| CAPTION_HEADER      | customizable caption's header      | -       |
+| CAPTION_DESCRIPTION | customizable caption's description | -       |
+
+## development
+
+| variable      | description                           | default                         |
+|---------------|---------------------------------------|---------------------------------|
+| REPO_URL      | project repository url                | https://github.com/govdbot/govd |
+| PROFILER_PORT | port for profiler http server (pprof) | 0 _(disabled)_                  |
+| LOG_LEVEL     | log level (debug, info, warn, error)  | info                            |
+| LOG_FILE      | whether to enable file logging        | false                           |
 
 ## extractors
 you can configure specific extractors options with `config.yaml` file ([learn more](CONFIGURATION.md)).

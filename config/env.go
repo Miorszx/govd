@@ -197,7 +197,6 @@ func GetDefaultConfig() *models.EnvConfig {
 		CaptionHeader:      "<a href='{{url}}'>source</a> - @govd_bot",
 		CaptionDescription: "<blockquote expandable>{{text}}</blockquote>",
 
-		// Default group settings
 		DefaultCaptions:        false,
 		DefaultSilent:          false,
 		DefaultNSFW:            false,
