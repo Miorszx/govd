@@ -141,6 +141,38 @@ func LoadEnv() error {
 	if value := os.Getenv("CAPTION_DESCRIPTION"); value != "" {
 		Env.CaptionDescription = value
 	}
+	if value := os.Getenv("DEFAULT_ENABLE_CAPTIONS"); value != "" {
+		if defaultCaptions, err := strconv.ParseBool(value); err == nil {
+			Env.DefaultCaptions = defaultCaptions
+		} else {
+			zap.S().Fatal("DEFAULT_ENABLE_CAPTIONS env is not a valid boolean")
+		}
+	}
+	if value := os.Getenv("DEFAULT_ENABLE_SILENT"); value != "" {
+		if defaultSilent, err := strconv.ParseBool(value); err == nil {
+			Env.DefaultSilent = defaultSilent
+		} else {
+			zap.S().Fatal("DEFAULT_ENABLE_SILENT env is not a valid boolean")
+		}
+	}
+	if value := os.Getenv("DEFAULT_ENABLE_NSFW"); value != "" {
+		if defaultNSFW, err := strconv.ParseBool(value); err == nil {
+			Env.DefaultNSFW = defaultNSFW
+		} else {
+			zap.S().Fatal("DEFAULT_ENABLE_NSFW env is not a valid boolean")
+		}
+	}
+	if value := os.Getenv("DEFAULT_MEDIA_LIMIT"); value != "" {
+		if defaultMediaLimit, err := strconv.Atoi(value); err == nil {
+			if defaultMediaLimit >= 1 && defaultMediaLimit <= 20 {
+				Env.DefaultMediaGroupLimit = defaultMediaLimit
+			} else {
+				zap.S().Fatal("DEFAULT_MEDIA_LIMIT must be between 1 and 20")
+			}
+		} else {
+			zap.S().Fatal("DEFAULT_MEDIA_LIMIT env is not a valid integer")
+		}
+	}
 	return nil
 }
 
@@ -164,5 +196,11 @@ func GetDefaultConfig() *models.EnvConfig {
 
 		CaptionHeader:      "<a href='{{url}}'>source</a> - @govd_bot",
 		CaptionDescription: "<blockquote expandable>{{text}}</blockquote>",
+
+		// Default group settings
+		DefaultCaptions:        false,
+		DefaultSilent:          false,
+		DefaultNSFW:            false,
+		DefaultMediaGroupLimit: 10,
 	}
 }
