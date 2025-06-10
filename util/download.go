@@ -87,14 +87,18 @@ func DownloadFileWithSegments(
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create temporary directory: %w", err)
 	}
-	initSegmentFile, err := downloadFile(
-		ctx, initSegmentURL,
-		filepath.Join(tempDir, "init"),
-		downloadConfig,
-	)
-	if err != nil {
-		os.RemoveAll(tempDir)
-		return "", fmt.Errorf("failed to download init segment: %w", err)
+	var initSegmentFile string
+	if initSegmentURL != "" {
+		segment, err := downloadFile(
+			ctx, initSegmentURL,
+			filepath.Join(tempDir, "init"),
+			downloadConfig,
+		)
+		if err != nil {
+			os.RemoveAll(tempDir)
+			return "", fmt.Errorf("failed to download init segment: %w", err)
+		}
+		initSegmentFile = segment
 	}
 	downloadedFiles, err := downloadSegments(ctx, tempDir, segmentURLs, downloadConfig)
 	if err != nil {
