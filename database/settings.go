@@ -1,29 +1,41 @@
 package database
 
 import (
+	"errors"
+
 	"github.com/govdbot/govd/config"
 	"github.com/govdbot/govd/models"
+	"gorm.io/gorm"
 )
 
 func GetGroupSettings(
 	chatID int64,
 ) (*models.GroupSettings, error) {
 	var groupSettings models.GroupSettings
+
 	err := DB.
 		Where(&models.GroupSettings{
 			ChatID: chatID,
 		}).
-		FirstOrCreate(&groupSettings, &models.GroupSettings{
-			ChatID:          chatID,
-			Captions:        &config.Env.DefaultCaptions,
-			Silent:          &config.Env.DefaultSilent,
-			NSFW:            &config.Env.DefaultNSFW,
-			MediaGroupLimit: config.Env.DefaultMediaGroupLimit,
-		}).
+		First(&groupSettings).
 		Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			groupSettings = models.GroupSettings{
+				ChatID:          chatID,
+				Captions:        &config.Env.DefaultCaptions,
+				Silent:          &config.Env.DefaultSilent,
+				NSFW:            &config.Env.DefaultNSFW,
+				MediaGroupLimit: config.Env.DefaultMediaGroupLimit,
+			}
+			err = DB.Create(&groupSettings).Error
+			if err != nil {
+				return nil, err
+			}
+		}
 		return nil, err
 	}
+
 	return &groupSettings, nil
 }
 
