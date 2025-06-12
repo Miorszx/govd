@@ -375,7 +375,7 @@ func (format *MediaFormat) GetInputMedia(
 	spoiler bool,
 ) (gotgbot.InputMedia, error) {
 	if format.FileID != "" {
-		return format.GetInputMediaWithFileID(messageCaption)
+		return format.GetInputMediaWithFileID(messageCaption, spoiler)
 	}
 
 	_, inputMediaType := format.GetFormatInfo()
@@ -453,15 +453,17 @@ func (format *MediaFormat) GetInputMedia(
 
 func (format *MediaFormat) GetInputMediaWithFileID(
 	messageCaption string,
+	spoiler bool,
 ) (gotgbot.InputMedia, error) {
 	_, inputMediaType := format.GetFormatInfo()
 	fileInputMedia := gotgbot.InputFileByID(format.FileID)
 	switch inputMediaType {
 	case fileTypeVideo:
 		return &gotgbot.InputMediaVideo{
-			Media:     fileInputMedia,
-			Caption:   messageCaption,
-			ParseMode: gotgbot.ParseModeHTML,
+			Media:      fileInputMedia,
+			Caption:    messageCaption,
+			ParseMode:  gotgbot.ParseModeHTML,
+			HasSpoiler: spoiler,
 		}, nil
 	case fileTypeAudio:
 		return &gotgbot.InputMediaAudio{
@@ -471,9 +473,10 @@ func (format *MediaFormat) GetInputMediaWithFileID(
 		}, nil
 	case fileTypePhoto:
 		return &gotgbot.InputMediaPhoto{
-			Media:     fileInputMedia,
-			Caption:   messageCaption,
-			ParseMode: gotgbot.ParseModeHTML,
+			Media:      fileInputMedia,
+			Caption:    messageCaption,
+			ParseMode:  gotgbot.ParseModeHTML,
+			HasSpoiler: spoiler,
 		}, nil
 	case fileTypeDocument:
 		return &gotgbot.InputMediaDocument{

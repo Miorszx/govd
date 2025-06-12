@@ -185,7 +185,7 @@ func HandleInlineCachedResult(
 ) error {
 	format := media.Format
 	messageCaption := FormatCaption(media, true)
-	inputMedia, err := format.GetInputMediaWithFileID(messageCaption)
+	inputMedia, err := format.GetInputMediaWithFileID(messageCaption, false)
 	if err != nil {
 		return err
 	}
