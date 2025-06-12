@@ -9,4 +9,5 @@ type DownloadContext struct {
 	MatchedGroups     map[string]string
 	GroupSettings     *GroupSettings
 	Extractor         *Extractor
+	IsSpoiler         bool
 }

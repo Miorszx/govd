@@ -29,6 +29,7 @@ func URLHandler(bot *gotgbot.Bot, ctx *ext.Context) error {
 	if dlCtx == nil || dlCtx.Extractor == nil {
 		return nil
 	}
+	dlCtx.IsSpoiler = isSpoiler(ctx.EffectiveMessage)
 	userID := ctx.EffectiveMessage.From.Id
 	if ctx.EffectiveMessage.Chat.Type != gotgbot.ChatTypePrivate {
 		settings, err := database.GetGroupSettings(ctx.EffectiveMessage.Chat.Id)
@@ -65,20 +66,30 @@ func URLFilter(msg *gotgbot.Message) bool {
 		message.Entity("url")(msg)
 }
 
-func shouldSkip(msg *gotgbot.Message) bool {
-	for _, entity := range msg.Entities {
-		if entity.Type != "hashtag" {
+func hashtagEntity(msg *gotgbot.Message, entity string) bool {
+	entity = "#" + entity
+	for _, ent := range msg.Entities {
+		if ent.Type != "hashtag" {
 			continue
 		}
 		parsedEntity := gotgbot.ParseEntity(
 			msg.Text,
-			entity,
+			ent,
 		)
-		if parsedEntity.Text == "#skip" {
+		if parsedEntity.Text == entity {
 			return true
 		}
 	}
 	return false
+}
+
+func shouldSkip(msg *gotgbot.Message) bool {
+	return hashtagEntity(msg, "skip")
+}
+
+func isSpoiler(msg *gotgbot.Message) bool {
+	return hashtagEntity(msg, "spoiler") ||
+		hashtagEntity(msg, "nsfw")
 }
 
 func getMessageURL(msg *gotgbot.Message) string {

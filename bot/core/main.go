@@ -108,6 +108,7 @@ func SendMedias(
 				media.FilePath,
 				media.ThumbnailFilePath,
 				caption,
+				dlCtx.IsSpoiler,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get input media: %w", err)

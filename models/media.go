@@ -372,6 +372,7 @@ func (format *MediaFormat) GetInputMedia(
 	filePath string,
 	thumbnailFilePath string,
 	messageCaption string,
+	spoiler bool,
 ) (gotgbot.InputMedia, error) {
 	if format.FileID != "" {
 		return format.GetInputMediaWithFileID(messageCaption)
@@ -419,6 +420,7 @@ func (format *MediaFormat) GetInputMedia(
 			Caption:           messageCaption,
 			SupportsStreaming: true,
 			ParseMode:         gotgbot.ParseModeHTML,
+			HasSpoiler:        spoiler,
 		}, nil
 	case fileTypeAudio:
 		return &gotgbot.InputMediaAudio{
@@ -432,9 +434,10 @@ func (format *MediaFormat) GetInputMedia(
 		}, nil
 	case fileTypePhoto:
 		return &gotgbot.InputMediaPhoto{
-			Media:     fileInputMedia,
-			Caption:   messageCaption,
-			ParseMode: gotgbot.ParseModeHTML,
+			Media:      fileInputMedia,
+			Caption:    messageCaption,
+			ParseMode:  gotgbot.ParseModeHTML,
+			HasSpoiler: spoiler,
 		}, nil
 	case fileTypeDocument:
 		return &gotgbot.InputMediaDocument{
