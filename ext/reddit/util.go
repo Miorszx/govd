@@ -5,7 +5,6 @@ import (
 	"regexp"
 
 	"github.com/govdbot/govd/models"
-	"github.com/govdbot/govd/util"
 	"github.com/govdbot/govd/util/parser"
 )
 
@@ -15,7 +14,10 @@ const (
 
 var videoURLPattern = regexp.MustCompile(`https?://v\.redd\.it/([^/]+)`)
 
-func GetHLSFormats(videoURL string, thumbnail string, duration int64) ([]*models.MediaFormat, error) {
+func GetHLSFormats(
+	videoURL string,
+	duration int64,
+) ([]*models.MediaFormat, error) {
 	matches := videoURLPattern.FindStringSubmatch(videoURL)
 	if len(matches) < 2 {
 		return nil, nil
@@ -31,9 +33,6 @@ func GetHLSFormats(videoURL string, thumbnail string, duration int64) ([]*models
 
 	for _, format := range formats {
 		format.Duration = duration
-		if thumbnail != "" {
-			format.Thumbnail = []string{util.FixURL(thumbnail)}
-		}
 	}
 
 	return formats, nil

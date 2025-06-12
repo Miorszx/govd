@@ -69,7 +69,7 @@ func GetFileThumbnail(
 	thumbnailFilePath := filepath.Join(fileDir, fileBaseName+".thumb.jpeg")
 
 	if len(format.Thumbnail) > 0 {
-		zap.S().Debug("downloading thumbnail from URL")
+		zap.S().Debugf("downloading thumbnail from URL: %s", format.Thumbnail)
 		file, err := util.DownloadFileInMemory(ctx, format.Thumbnail, downloadConfig)
 		if err != nil {
 			return "", fmt.Errorf("failed to download file in memory: %w", err)

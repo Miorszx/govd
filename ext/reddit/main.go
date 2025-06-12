@@ -109,7 +109,6 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 			if data.Preview.VideoPreview != nil {
 				formats, err := GetHLSFormats(
 					data.Preview.VideoPreview.FallbackURL,
-					image.Source.URL,
 					data.Preview.VideoPreview.Duration,
 				)
 				if err != nil {
@@ -131,7 +130,6 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 					VideoCodec: enums.MediaCodecAVC,
 					AudioCodec: enums.MediaCodecAAC,
 					URL:        []string{util.FixURL(image.Variants.MP4.Source.URL)},
-					Thumbnail:  []string{util.FixURL(image.Source.URL)},
 				})
 
 				return []*models.Media{media}, nil
@@ -193,15 +191,8 @@ func MediaListFromAPI(ctx *models.DownloadContext) ([]*models.Media, error) {
 		}
 
 		if redditVideo != nil {
-			thumbnail := data.Thumbnail
-
-			if (thumbnail == "nsfw" || thumbnail == "spoiler") && data.Preview != nil && len(data.Preview.Images) > 0 {
-				thumbnail = data.Preview.Images[0].Source.URL
-			}
-
 			formats, err := GetHLSFormats(
 				redditVideo.FallbackURL,
-				thumbnail,
 				redditVideo.Duration,
 			)
 			if err != nil {
