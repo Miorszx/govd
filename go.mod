@@ -16,6 +16,8 @@ require (
 	github.com/strukturag/libheif v1.19.7
 	github.com/sunfish-shogi/bufseekio v0.1.0
 	github.com/u2takey/ffmpeg-go v0.5.0
+	github.com/unki2aut/go-mpd v0.0.0-20250610073145-8336a8d84ee7
+	github.com/unki2aut/go-xsd-types v0.0.0-20200220223938-30e5405398f8
 	golang.org/x/image v0.26.0
 	golang.org/x/net v0.39.0
 	gopkg.in/yaml.v3 v3.0.1

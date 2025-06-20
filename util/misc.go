@@ -291,11 +291,11 @@ func StartDownloadsCleanup() {
 	}()
 }
 
-func ParseHexIV(ivStr string) ([]byte, error) {
-	if strings.HasPrefix(ivStr, "0x") || strings.HasPrefix(ivStr, "0X") {
-		ivStr = ivStr[2:]
+func ParseHex(str string) ([]byte, error) {
+	if strings.HasPrefix(str, "0x") || strings.HasPrefix(str, "0X") {
+		str = str[2:]
 	}
-	iv, err := hex.DecodeString(ivStr)
+	iv, err := hex.DecodeString(str)
 	if err != nil {
 		return nil, fmt.Errorf("invalid hex IV: %w", err)
 	}
