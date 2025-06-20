@@ -275,10 +275,12 @@ func ExtractBaseHost(rawURL string) (string, error) {
 }
 
 func RedactURLs(text string) string {
+	redacted := html.EscapeString("<redacted>")
 	urlRegex := regexp.MustCompile(`https?://[^\s"'<>]+`)
-	return urlRegex.ReplaceAllStringFunc(text, func(match string) string {
-		return html.EscapeString("<redacted url>")
-	})
+	ipRegex := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	text = ipRegex.ReplaceAllString(text, redacted)
+	text = urlRegex.ReplaceAllString(text, redacted)
+	return text
 }
 
 func StartDownloadsCleanup() {
