@@ -87,7 +87,7 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetail, error) {
 
 	awemeID := ctx.MatchedContentID
 	apiURL := fmt.Sprintf(
-		"https://%s/aweme/v1/aweme/detail/",
+		"https://%s/aweme/v1/multi/aweme/detail/",
 		apiHostname,
 	)
 	queryParams, err := BuildAPIQuery()
@@ -134,10 +134,21 @@ func GetVideoAPI(ctx *models.DownloadContext) (*AwemeDetail, error) {
 	if data.StatusCode == 2053 {
 		return nil, util.ErrUnavailable
 	}
-	if data.AwemeDetail == nil {
+	if len(data.AwemeDetails) == 0 {
 		return nil, ErrAwemeDetailNil
 	}
-	return data.AwemeDetail, nil
+	var awemeDetail *AwemeDetail
+	for i := range data.AwemeDetails {
+		detail := data.AwemeDetails[i]
+		if detail.AwemeID == awemeID {
+			awemeDetail = detail
+			break
+		}
+	}
+	if awemeDetail == nil {
+		return nil, ErrAwemeDetailNil
+	}
+	return awemeDetail, nil
 }
 
 func BuildAPIQuery() (url.Values, error) {
@@ -257,7 +268,7 @@ func GetRandomDeviceID() string {
 
 func BuildPostData(awemeID string) string {
 	data := url.Values{
-		"aweme_id":       []string{awemeID},
+		"aweme_ids":      []string{"[" + awemeID + "]"},
 		"request_source": []string{"0"},
 	}
 	return data.Encode()

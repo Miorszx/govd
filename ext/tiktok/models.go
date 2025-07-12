@@ -1,9 +1,9 @@
 package tiktok
 
 type Response struct {
-	AwemeDetail *AwemeDetail `json:"aweme_detail"`
-	StatusCode  int          `json:"status_code"`
-	StatusMsg   string       `json:"status_msg"`
+	AwemeDetails []*AwemeDetail `json:"aweme_details"`
+	StatusCode   int            `json:"status_code"`
+	StatusMsg    string         `json:"status_msg"`
 }
 
 type Cover struct {
