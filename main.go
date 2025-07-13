@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 
 	"github.com/govdbot/govd/bot"
 	"github.com/govdbot/govd/config"
@@ -58,6 +61,17 @@ func main() {
 
 	// setup bot client
 	go bot.Start()
+
+	// setup signal handler for graceful shutdown
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-c
+		zap.S().Info("received shutdown signal, cleaning up...")
+		util.CleanupOpenFiles()
+		os.Exit(0)
+	}()
 
 	select {}
 }

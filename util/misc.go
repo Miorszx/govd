@@ -239,22 +239,10 @@ func FixURL(url string) string {
 func CleanupDownloadsDir() {
 	dir := config.Env.DownloadsDirectory
 	zap.S().Debug("cleaning up downloads directory")
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if path == dir {
-			return nil
-		}
-		if time.Since(info.ModTime()) > 30*time.Minute {
-			if info.IsDir() {
-				os.RemoveAll(path)
-			} else {
-				os.Remove(path)
-			}
-		}
-		return nil
-	})
+
+	CleanupOpenFiles()
+
+	CleanupOldFiles(dir, 30*time.Minute)
 }
 
 func ExtractBaseHost(rawURL string) (string, error) {

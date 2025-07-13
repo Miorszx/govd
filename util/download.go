@@ -118,7 +118,8 @@ func DownloadFileWithSegments(
 		}
 	}
 	zap.S().Debugf("merging %d segments", len(downloadedFiles)+1)
-	mergedFilePath, err := libav.MergeSegments(initSegmentFile, downloadedFiles, fileName)
+	outputPath := filepath.Join(config.Env.DownloadsDirectory, fileName)
+	mergedFilePath, err := libav.MergeSegments(initSegmentFile, downloadedFiles, outputPath)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return "", fmt.Errorf("failed to merge segments: %w", err)
