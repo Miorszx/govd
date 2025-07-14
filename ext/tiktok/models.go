@@ -76,10 +76,10 @@ type WebImagePost struct {
 }
 
 type WebVideo struct {
-	Duration int64  `json:"duration"`
-	Height   int64  `json:"height"`
-	PlayAddr string `json:"playAddr"`
-	Width    int64  `json:"width"`
+	Duration int64        `json:"duration"`
+	Height   int64        `json:"height"`
+	PlayAddr *WebPlayAddr `json:"PlayAddrStruct"`
+	Width    int64        `json:"width"`
 }
 
 type WebImageURL struct {
@@ -88,4 +88,15 @@ type WebImageURL struct {
 
 type WebImage struct {
 	URL *WebImageURL `json:"imageURL"`
+}
+
+type WebPlayAddr struct {
+	FileHash string   `json:"FileHash"`
+	FileCs   string   `json:"FileCs"`
+	DataSize string   `json:"DataSize"`
+	Width    int64    `json:"Width"`
+	Height   int64    `json:"Height"`
+	URI      string   `json:"Uri"`
+	URLList  []string `json:"UrlList"`
+	URLKey   string   `json:"UrlKey"`
 }

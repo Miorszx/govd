@@ -192,15 +192,15 @@ func MediaListFromWeb(ctx *models.DownloadContext) ([]*models.Media, error) {
 		)
 		media.SetCaption(caption)
 		video := details.Video
-		if video.PlayAddr != "" {
+		if video.PlayAddr != nil {
 			media.AddFormat(&models.MediaFormat{
 				Type:       enums.MediaTypeVideo,
-				FormatID:   "video",
-				URL:        []string{video.PlayAddr},
+				FormatID:   video.PlayAddr.URI,
+				URL:        video.PlayAddr.URLList,
 				VideoCodec: enums.MediaCodecAVC,
 				AudioCodec: enums.MediaCodecAAC,
-				Width:      video.Width,
-				Height:     video.Height,
+				Width:      video.PlayAddr.Width,
+				Height:     video.PlayAddr.Height,
 				Duration:   video.Duration,
 				DownloadConfig: &models.DownloadConfig{
 					// avoid 403 error for videos
