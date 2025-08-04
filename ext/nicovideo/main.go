@@ -46,14 +46,15 @@ func GetVideo(ctx *models.DownloadContext) (*models.Media, error) {
 	if serverResponse.Meta.Code == "FORBIDDEN" {
 		return nil, util.ErrUnavailable
 	}
-	if serverResponse.Data.Response.Video.IsPrivate {
+	video := serverResponse.Data.Response.Video
+	if video.IsPrivate {
 		return nil, util.ErrUnavailable
 	}
 	cookies = append(cookies, sessionID)
 
-	media.SetCaption(serverResponse.Data.Response.Video.Title)
-	media.NSFW = serverResponse.Data.Response.Video.Rating.IsAdult
-	duration := serverResponse.Data.Response.Video.Duration
+	media.SetCaption(video.Title)
+	media.NSFW = video.Rating.IsAdult
+	duration := video.Duration
 
 	formats, err := GetFormats(client, cookies, serverResponse)
 	if err != nil {
