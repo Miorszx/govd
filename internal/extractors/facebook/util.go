@@ -700,6 +700,7 @@ func findVideoSection(body []byte, videoID string) []byte {
 func unescapeFacebookURL(s string) string {
 	s = strings.ReplaceAll(s, `\/`, "/")
 	s = unescapeUnicode(s)
+	s = html.UnescapeString(s)
 	return s
 }
 
