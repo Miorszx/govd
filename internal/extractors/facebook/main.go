@@ -23,15 +23,13 @@ var ShareExtractor = &models.Extractor{
 	Redirect: true,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
-		// FB share links often return 400/429 due to anti-bot, retry with backoff
-		// Use impersonate client already set via config (chrome TLS)
 		var lastErr error
 		for attempt := 1; attempt <= 3; attempt++ {
 			finalURL, err := ctx.FetchLocation(
 				ctx.ContentURL,
 				&networking.RequestParams{Headers: webHeaders},
 			)
-			if err == nil && finalURL != "" {
+			if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
 				return &models.ExtractorResponse{URL: finalURL}, nil
 			}
 			if err != nil {
@@ -41,6 +39,31 @@ var ShareExtractor = &models.Extractor{
 			}
 			if attempt < 3 {
 				time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+			}
+		}
+		// Fallback: fetch body (some share/v return 200 with og:url meta)
+		resp, err := ctx.Fetch(
+			"GET",
+			ctx.ContentURL,
+			&networking.RequestParams{Headers: webHeaders},
+		)
+		if err == nil {
+			defer resp.Body.Close()
+			// Use final URL from response request if redirected via http client
+			if resp.Request != nil && resp.Request.URL.String() != ctx.ContentURL {
+				return &models.ExtractorResponse{URL: resp.Request.URL.String()}, nil
+			}
+			// Try parse og:url from body
+			body := make([]byte, 20000)
+			n, _ := resp.Body.Read(body)
+			body = body[:n]
+			if len(body) > 0 {
+				if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: string(m[1])}, nil
+				}
+				if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: string(m[1])}, nil
+				}
 			}
 		}
 		return nil, fmt.Errorf("failed to follow share redirect: %w", lastErr)
@@ -53,7 +76,7 @@ var Extractor = &models.Extractor{
 
 	URLPattern: regexp.MustCompile(
 		`https?://(?:(?:www|m|mbasic)\.)?facebook\.com/` +
-			`(?:watch/?\?(?:[^&]*&)*v=|(?:reel|videos?|posts?)/|[^/]+/(?:videos|posts|reels?)/)` +
+			`(?:watch/?\?(?:[^&]*&)*v=|(?:reel|videos?|posts?|permalink)/|groups/[^/]+/(?:permalink|posts|videos|reels?)/|[^/]+/(?:videos|posts|reels?)/)` +
 			`(?P<id>[a-zA-Z0-9]+)`,
 	),
 	Host: facebookHost,

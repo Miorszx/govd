@@ -308,31 +308,13 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 }
 
 // findCaptionAnchoredToID looks for the caption belonging to a specific videoID.
-// FB reel pages contain multiple reels in the feed; each reel's JSON block looks like:
-// {"message":{"text":"..."},"id":"<VIDEO_ID>"}. We search backwards from each occurrence
-// of "id":"VIDEO_ID" for the nearest message text within 15KB.
-// This prevents picking a longer caption from a different reel in the same page.
-//
-// Uses pure caption path from Facebook's data structure:
-//   creation_story.comet_sections.message.story.message.text  (pure, no category)
-//   vs context_layout which contains dirty category prefix
+// Search both sides of ID marker for nearest message, collect best.
 func findCaptionAnchoredToID(body []byte, videoID string) string {
 	if videoID == "" {
 		return ""
 	}
-	// First: anchored pure search near videoID (most accurate, like IG edge_media_to_caption)
-	if videoID != "" {
-		if pure := findPureCaptionAnchored(body, videoID); pure != "" {
-			return pure
-		}
-	}
-	// Second: global pure search (single-video pages)
-	if pure := findPureFacebookCaption(body); pure != "" {
-		return pure
-	}
-
-	// Fallback: anchored message search near video ID, skip if inside context_layout (dirty)
 	idMarker := []byte(`"id":"` + videoID + `"`)
+	var best string
 	for offset := 0; ; {
 		idx := bytes.Index(body[offset:], idMarker)
 		if idx == -1 {
@@ -343,28 +325,51 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 		if start < 0 {
 			start = 0
 		}
-		window := body[start:absIdx]
-		// Filter dirty context_layout in last 1200 chars
-		tailStart := len(window) - 1200
-		if tailStart < 0 {
-			tailStart = 0
+		end := absIdx + 15000
+		if end > len(body) {
+			end = len(body)
 		}
-		tail := string(window[tailStart:])
-		if strings.Contains(tail, "context_layout") {
-			offset = absIdx + len(idMarker)
-			continue
-		}
+		window := body[start:end]
 		all := messagePattern.FindAllSubmatch(window, -1)
-		if len(all) > 0 {
-			last := all[len(all)-1]
-			if len(last) >= 2 {
-				candidate := string(last[1])
-				if len(candidate) >= 3 {
-					return candidate
+		for i := len(all) - 1; i >= 0; i-- {
+			m := all[i]
+			if len(m) < 2 {
+				continue
+			}
+			pos := bytes.Index(window, m[0])
+			if pos != -1 {
+				cs := pos - 500
+				if cs < 0 {
+					cs = 0
 				}
+				if strings.Contains(string(window[cs:pos]), "context_layout") {
+					continue
+				}
+			}
+			candidate := string(m[1])
+			if len(candidate) < 3 {
+				continue
+			}
+			candidate = cleanFacebookCaption(candidate)
+			if candidate == "" {
+				continue
+			}
+			if len(candidate) > len(best) {
+				best = candidate
 			}
 		}
 		offset = absIdx + len(idMarker)
+	}
+	if best != "" {
+		return best
+	}
+	if videoID != "" {
+		if pure := findPureCaptionAnchored(body, videoID); pure != "" {
+			return pure
+		}
+	}
+	if pure := findPureFacebookCaption(body); pure != "" {
+		return pure
 	}
 	return ""
 }
@@ -656,15 +661,22 @@ func cleanFacebookCaption(s string) string {
 		rest := strings.TrimSpace(strings.Join(parts[1:], "\n\n"))
 		if first == "" || rest == "" {
 			// fall through
-		} else if looksLikeFBPageName(first) && len(rest) > len(first) {
-			return rest
-		}
-		// Additional: if first part is short and rest contains hashtag, and first does not contain hashtag, strip first
-		if !strings.Contains(first, "#") && strings.Contains(rest, "#") {
-			if len(first) <= 80 && len(rest) > len(first) {
-				wordsFirst := len(strings.Fields(first))
-				if wordsFirst <= 10 {
-					return rest
+		} else {
+			if isOnlyHashtags(rest) {
+				return s
+			}
+			if looksLikeFBPageName(first) && len(rest) > len(first) {
+				return rest
+			}
+			if !strings.Contains(first, "#") && !strings.Contains(first, "❌") && !strings.Contains(first, "✅") && strings.Contains(rest, "#") {
+				restWithoutTags := stripHashtags(rest)
+				if len(strings.TrimSpace(restWithoutTags)) >= 10 {
+					if len(first) <= 80 {
+						wordsFirst := len(strings.Fields(first))
+						if wordsFirst <= 6 {
+							return rest
+						}
+					}
 				}
 			}
 		}
@@ -675,11 +687,62 @@ func cleanFacebookCaption(s string) string {
 	if len(lines) >= 2 {
 		first := strings.TrimSpace(lines[0])
 		rest := strings.TrimSpace(strings.Join(lines[1:], "\n"))
-		if first != "" && rest != "" && looksLikeFBPageName(first) && len(rest) > len(first) {
-			return rest
+		if first != "" && rest != "" {
+			lowerRest := strings.ToLower(rest)
+			if strings.Contains(lowerRest, "random memes from my phone") {
+				if looksLikeFBPageName(first) || len(strings.Fields(first)) <= 6 {
+					if !isOnlyHashtags(rest) {
+						return rest
+					}
+				}
+			}
+			if len(strings.Fields(first)) <= 2 && strings.Contains(rest, "#") {
+				if looksLikeFBPageName(first) && len(rest) > len(first) {
+					if !isOnlyHashtags(rest) {
+						return rest
+					}
+				}
+			}
 		}
 	}
 	return s
+}
+
+func isOnlyHashtags(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	tokens := strings.Fields(s)
+	if len(tokens) == 0 {
+		return false
+	}
+	hashtagCount := 0
+	for _, t := range tokens {
+		if strings.HasPrefix(t, "#") {
+			hashtagCount++
+		}
+	}
+	if float64(hashtagCount)/float64(len(tokens)) >= 0.7 {
+		for _, t := range tokens {
+			if !strings.HasPrefix(t, "#") && len(t) > 3 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func stripHashtags(s string) string {
+	tokens := strings.Fields(s)
+	var kept []string
+	for _, t := range tokens {
+		if !strings.HasPrefix(t, "#") {
+			kept = append(kept, t)
+		}
+	}
+	return strings.Join(kept, " ")
 }
 
 func looksLikeFBPageName(s string) bool {
@@ -687,7 +750,6 @@ func looksLikeFBPageName(s string) bool {
 	if s == "" {
 		return false
 	}
-	// Page names are typically short, no hashtags, no URLs, no emoji-heavy
 	if len(s) > 80 {
 		return false
 	}
@@ -697,21 +759,18 @@ func looksLikeFBPageName(s string) bool {
 	if strings.Contains(s, "http://") || strings.Contains(s, "https://") {
 		return false
 	}
-	// If it looks like a sentence with many words but no hashtag, still could be caption
-	// Heuristic: if it contains newline, not page name
 	if strings.Contains(s, "\n") {
 		return false
 	}
-	// Page category is typically short (few words)
-	// Longer text is likely actual caption – keep it
-	// So we check: if first part is <= 10 words and second part exists, it's likely page name/prefix
+	if strings.Contains(s, "❌") || strings.Contains(s, "✅") {
+		return false
+	}
 	words := strings.Fields(s)
-	if len(words) <= 10 {
-		if len(s) <= 60 {
+	if len(words) <= 4 {
+		if len(s) <= 40 {
 			return true
 		}
 	}
-	// Additional heuristic: common FB junk prefixes that appear alone
 	lower := strings.ToLower(s)
 	junkPrefixes := []string{"general", "meme", "funny", "reels", "viral"}
 	for _, jp := range junkPrefixes {
@@ -719,11 +778,13 @@ func looksLikeFBPageName(s string) bool {
 			return true
 		}
 	}
-	// If it contains no hashtag and is significantly shorter than typical caption and contains only few words, treat as prefix
-	if len(words) <= 8 && len(s) <= 50 && !strings.Contains(s, ".") && !strings.Contains(s, "?") && !strings.Contains(s, "!") {
-		// could be like "I can feel you pain bro" – 6 words, no punctuation except maybe emoji
-		// If it has emoji and short, likely prefix/reaction, not main caption
-		return true
+	if len(words) <= 6 && len(s) <= 50 && !strings.Contains(s, ".") && !strings.Contains(s, "?") && !strings.Contains(s, "!") {
+		if len(words) <= 4 {
+			return true
+		}
+		if len(s) <= 30 {
+			return true
+		}
 	}
 	return false
 }
