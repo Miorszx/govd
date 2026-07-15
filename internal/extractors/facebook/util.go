@@ -55,6 +55,12 @@ var (
 	ogTitlePattern = regexp.MustCompile(
 		`<meta\s+property="og:title"\s+content="([^"]*)"\s*/?>`,
 	)
+	ogImagePattern = regexp.MustCompile(
+		`<meta[^>]+property="og:image"[^>]+content="([^"]+)"`,
+	)
+	scontentPattern = regexp.MustCompile(
+		`https://[^"]*scontent[^"]*\.(?:jpg|png)`,
+	)
 	messagePattern = regexp.MustCompile(
 		`"(?:message|attached_story)"\s*:\s*\{\s*"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`,
 	)
@@ -175,8 +181,14 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// find the section belonging to the requested video
 	section := findVideoSection(body, videoID)
 	if section == nil {
-		// fall back to full body for reel/post pages with a single video
-		section = body
+		// For photo posts like share/p, dash_mpd_debug not found, body contains feed with random videos
+		// Don't fallback to full body if it has many videos (feed) to avoid returning unrelated video
+		if bytes.Count(body, []byte("progressive_url")) > 3 {
+			// Likely feed or photo post, try image extraction later, skip video fallback
+			section = []byte{}
+		} else {
+			section = body
+		}
 	}
 
 	if match := hdURLPattern.FindSubmatch(section); len(match) >= 2 {
@@ -195,11 +207,24 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// on the full body (single-video posts/reels) so the extraction does
 	// not falsely fail. Caption extraction already runs against body.
 	if data.HDURL == "" && data.SDURL == "" {
-		if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
-			data.HDURL = unescapeFacebookURL(string(match[1]))
-		}
-		if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
-			data.SDURL = unescapeFacebookURL(string(match[1]))
+		// Don't fallback to full body if we already determined it's feed/photo (section empty)
+		if len(section) == 0 {
+			// Try image extraction for photo posts
+			if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
+				data.ImageURL = unescapeFacebookURL(string(match[1]))
+			}
+			if data.ImageURL == "" {
+				if match := scontentPattern.FindSubmatch(body); len(match) >= 1 {
+					data.ImageURL = unescapeFacebookURL(string(match[0]))
+				}
+			}
+		} else {
+			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.HDURL = unescapeFacebookURL(string(match[1]))
+			}
+			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.SDURL = unescapeFacebookURL(string(match[1]))
+			}
 		}
 	}
 	// title can be anywhere in the page
