@@ -209,14 +209,21 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 	}
 
 	if len(formats) == 0 {
-		// Both formats either failed to extract or exceed the active
-		// Bot API upload limit. Surface the friendlier "too large"
-		// error if we know at least one format was just oversized so
-		// the user understands why.
-		if (data.HDURL != "" && hdSize > tgLimit) || (data.SDURL != "" && sdSize > tgLimit) {
-			return nil, util.ErrTelegramFileTooLarge
+		// Photo post? Try image fallback
+		if data.ImageURL != "" {
+			formats = append(formats, &models.MediaFormat{
+				FormatID: "image",
+				Type:     database.MediaTypePhoto,
+				URL:      []string{data.ImageURL},
+			})
+		} else {
+			// Both formats either failed to extract or exceed the active
+			// Bot API upload limit.
+			if (data.HDURL != "" && hdSize > tgLimit) || (data.SDURL != "" && sdSize > tgLimit) {
+				return nil, util.ErrTelegramFileTooLarge
+			}
+			return nil, fmt.Errorf("no video formats found")
 		}
-		return nil, fmt.Errorf("no video formats found")
 	}
 
 	item.AddFormats(formats...)
