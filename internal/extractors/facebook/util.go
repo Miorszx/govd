@@ -611,11 +611,32 @@ func cleanFacebookCaption(s string) string {
 	if s == "" {
 		return ""
 	}
-	// Normalize: \r\n -> \n
+	// FB JSON encodes newlines as \n literal, not real newline - decode them
+	// Also handle double-escaped \\n from HTML-embedded JSON
+	s = strings.ReplaceAll(s, "\\n", "\n")
+	s = strings.ReplaceAll(s, "\\r", "")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
+	// Normalize: \r\n -> \n (after decoding)
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "")
 	// Split by double newline – FB separates page name and caption with \n\n
 	parts := strings.Split(s, "\n\n")
 	if len(parts) >= 2 {
+		// New: if any later part contains distinctive meme series marker "Random memes from my phone"
+		// or contains hashtags #reels etc and first part short, treat earlier parts as prefix and return from marker onwards
+		lowerFull := strings.ToLower(s)
+		// check for series marker
+		if idx := strings.Index(lowerFull, "random memes from my phone"); idx != -1 {
+			for i, p := range parts {
+				if strings.Contains(strings.ToLower(p), "random memes from my phone") {
+					rest := strings.TrimSpace(strings.Join(parts[i:], "\n\n"))
+					if rest != "" {
+						return rest
+					}
+					break
+				}
+			}
+		}
 		first := strings.TrimSpace(parts[0])
 		// If first part itself contains single newline, e.g. category newline caption
 		// then first line of it may be the page name
@@ -638,10 +659,18 @@ func cleanFacebookCaption(s string) string {
 		} else if looksLikeFBPageName(first) && len(rest) > len(first) {
 			return rest
 		}
+		// Additional: if first part is short and rest contains hashtag, and first does not contain hashtag, strip first
+		if !strings.Contains(first, "#") && strings.Contains(rest, "#") {
+			if len(first) <= 80 && len(rest) > len(first) {
+				wordsFirst := len(strings.Fields(first))
+				if wordsFirst <= 10 {
+					return rest
+				}
+			}
+		}
 		return s
 	}
 	// Fallback: try single newline split if first line looks like page name
-	// e.g. category newline actual caption
 	lines := strings.Split(s, "\n")
 	if len(lines) >= 2 {
 		first := strings.TrimSpace(lines[0])
@@ -659,7 +688,7 @@ func looksLikeFBPageName(s string) bool {
 		return false
 	}
 	// Page names are typically short, no hashtags, no URLs, no emoji-heavy
-	if len(s) > 60 {
+	if len(s) > 80 {
 		return false
 	}
 	if strings.Contains(s, "#") {
@@ -673,27 +702,28 @@ func looksLikeFBPageName(s string) bool {
 	if strings.Contains(s, "\n") {
 		return false
 	}
-	// If it has many words (e.g. full sentence), treat as part of caption
 	// Page category is typically short (few words)
 	// Longer text is likely actual caption – keep it
-	// So we check: if first part is <= 3 words and second part exists, it's likely page name
+	// So we check: if first part is <= 10 words and second part exists, it's likely page name/prefix
 	words := strings.Fields(s)
-	if len(words) <= 4 {
-		// Check if it looks like a category/name (e.g. short category names)
-		// No punctuation heavy, not a full sentence
-		if len(s) <= 40 {
+	if len(words) <= 10 {
+		if len(s) <= 60 {
 			return true
 		}
 	}
 	// Additional heuristic: common FB junk prefixes that appear alone
 	lower := strings.ToLower(s)
 	junkPrefixes := []string{"general", "meme", "funny", "reels", "viral"}
-	// If first part is exactly a short category-like word, treat as page name
-	// e.g. category contains certain keywords + short length
 	for _, jp := range junkPrefixes {
-		if strings.HasPrefix(lower, jp) && len(s) <= 30 {
+		if strings.HasPrefix(lower, jp) && len(s) <= 40 {
 			return true
 		}
+	}
+	// If it contains no hashtag and is significantly shorter than typical caption and contains only few words, treat as prefix
+	if len(words) <= 8 && len(s) <= 50 && !strings.Contains(s, ".") && !strings.Contains(s, "?") && !strings.Contains(s, "!") {
+		// could be like "I can feel you pain bro" – 6 words, no punctuation except maybe emoji
+		// If it has emoji and short, likely prefix/reaction, not main caption
+		return true
 	}
 	return false
 }

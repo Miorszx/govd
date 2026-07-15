@@ -3,6 +3,7 @@ package facebook
 import (
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/govdbot/govd/internal/database"
 	"github.com/govdbot/govd/internal/models"
@@ -22,14 +23,27 @@ var ShareExtractor = &models.Extractor{
 	Redirect: true,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
-		finalURL, err := ctx.FetchLocation(
-			ctx.ContentURL,
-			&networking.RequestParams{Headers: webHeaders},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to follow share redirect: %w", err)
+		// FB share links often return 400/429 due to anti-bot, retry with backoff
+		// Use impersonate client already set via config (chrome TLS)
+		var lastErr error
+		for attempt := 1; attempt <= 3; attempt++ {
+			finalURL, err := ctx.FetchLocation(
+				ctx.ContentURL,
+				&networking.RequestParams{Headers: webHeaders},
+			)
+			if err == nil && finalURL != "" {
+				return &models.ExtractorResponse{URL: finalURL}, nil
+			}
+			if err != nil {
+				lastErr = err
+			} else {
+				lastErr = fmt.Errorf("empty redirect location")
+			}
+			if attempt < 3 {
+				time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+			}
 		}
-		return &models.ExtractorResponse{URL: finalURL}, nil
+		return nil, fmt.Errorf("failed to follow share redirect: %w", lastErr)
 	},
 }
 
