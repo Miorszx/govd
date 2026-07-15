@@ -1,63 +1,31 @@
 package main
 import (
-"fmt"
-"io"
-"net/http"
+"fmt"; "io"; "net/http"; "os"; "regexp"
 "github.com/govdbot/govd/internal/config"
 "github.com/govdbot/govd/internal/util"
 "github.com/govdbot/govd/internal/logger"
 "github.com/govdbot/govd/internal/networking"
 )
 func main(){
-config.Load()
-logger.Init()
+config.Load(); logger.Init()
 cookies:=util.GetExtractorCookies("facebook")
 client:=networking.NewHTTPClient(&networking.NewHTTPClientOptions{Cookies: cookies, Impersonate: true})
 headers:=map[string]string{
- "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
- "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+ "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 }
-tests:=[]string{
-"https://www.facebook.com/share/p/1DK7Xm5tcL/",
-"https://www.facebook.com/share/1HKdWKVXwn/",
-}
-for _,u:=range tests{
- fmt.Printf("\n=== FETCH %s desktop ===\n",u)
- params:=&networking.RequestParams{Cookies: cookies, Headers: headers}
- resp,err:=client.Fetch(http.MethodGet, u, params)
- if err!=nil{fmt.Printf("err %v\n",err);continue}
- b,_:=io.ReadAll(resp.Body)
- resp.Body.Close()
- s:=string(b)
- fmt.Printf("len %d final %s status %d\n",len(s), resp.Request.URL.String(), resp.StatusCode)
- if len(s)<2000{
-  fmt.Printf("body %.1000s\n", s)
- } else {
-  fmt.Printf("head %.500s\n", s[:500])
-  // save full to /tmp for grep
-  // quick search for story
-  if len(s)>50000{
-   // already have
-  }
-  // look for 1DK7Xm5tcL inside
-  idx:=0
-  for i:=0;i<3;i++{
-   pos:=indexOf(s[idx:], "1DK7Xm5tcL")
-   if pos>=0{
-    fmt.Printf("found 1DK7Xm5tcL at %d: %.200s\n", idx+pos, s[idx+pos-50:idx+pos+150])
-    idx+=pos+10
-   } else {break}
-  }
-  pos:=indexOf(s, "post_id")
-  if pos>=0{
-   fmt.Printf("post_id ctx %.300s\n", s[pos-20:pos+100])
-  }
+u:="https://www.facebook.com/share/p/1FtTAuWcPo/"
+params:=&networking.RequestParams{Cookies: cookies, Headers: headers}
+resp,err:=client.Fetch(http.MethodGet, u, params)
+if err!=nil{return}
+b,_:=io.ReadAll(resp.Body); resp.Body.Close()
+os.WriteFile("/tmp/new_body.html", b, 0644)
+fmt.Printf("wrote %d\n", len(b))
+s:=string(b)
+for _,kw:=range []string{"post_id","story_fbid","top_level_post_id","photo_id","fbid","story_token"}{
+ re:=regexp.MustCompile(kw+`[^0-9]*(\d{10,})`)
+ ms:=re.FindAllStringSubmatch(s, 10)
+ for _,m:=range ms{
+  fmt.Printf("%s => %s\n",kw,m[1])
  }
 }
-}
-func indexOf(s, sub string) int{
- for i:=0;i<=len(s)-len(sub);i++{
-  if s[i:i+len(sub)]==sub{return i}
- }
- return -1
 }
