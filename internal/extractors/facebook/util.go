@@ -19,7 +19,7 @@ import (
 )
 
 var webHeaders = map[string]string{
-	"User-Agent":                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+	"User-Agent":                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 	"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 	"Accept-Language":           "en-US,en;q=0.5",
 	"Sec-Fetch-Dest":            "document",
@@ -238,16 +238,23 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		candidates = append(candidates, s)
 	}
 
-	// If we have an anchored caption (message directly tied to this video ID), it wins outright
+	// Anchored caption wins only if substantial (len>=15 or has hashtag or contains series marker)
+	// This avoids picking "Admin" or short UI labels from feed
 	if anchoredCaption != "" {
-		// decode it through same pipeline
 		anchoredCaption = strings.TrimSpace(html.UnescapeString(unescapeUnicode(anchoredCaption)))
 		if len(anchoredCaption) >= 3 && !strings.EqualFold(anchoredCaption, "facebook") {
 			anchoredCaption = cleanFacebookCaption(anchoredCaption)
 			if anchoredCaption != "" {
-				data.Title = anchoredCaption
-				if data.HDURL != "" || data.SDURL != "" {
-					return data, nil
+				lowerA := strings.ToLower(anchoredCaption)
+				isSubstantial := len(anchoredCaption) >= 15 || strings.Contains(anchoredCaption, "#") || strings.Contains(lowerA, "random memes from my phone")
+				if isSubstantial {
+					data.Title = anchoredCaption
+					if data.HDURL != "" || data.SDURL != "" {
+						return data, nil
+					}
+				} else {
+					// not substantial, treat as candidate
+					candidates = append(candidates, anchoredCaption)
 				}
 			}
 		}
@@ -308,13 +315,14 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 }
 
 // findCaptionAnchoredToID looks for the caption belonging to a specific videoID.
-// Search both sides of ID marker for nearest message, collect best.
+// Search only before ID marker for closest message, to avoid picking next video's caption.
 func findCaptionAnchoredToID(body []byte, videoID string) string {
 	if videoID == "" {
 		return ""
 	}
 	idMarker := []byte(`"id":"` + videoID + `"`)
 	var best string
+	bestDist := 1000000
 	for offset := 0; ; {
 		idx := bytes.Index(body[offset:], idMarker)
 		if idx == -1 {
@@ -325,11 +333,7 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 		if start < 0 {
 			start = 0
 		}
-		end := absIdx + 15000
-		if end > len(body) {
-			end = len(body)
-		}
-		window := body[start:end]
+		window := body[start:absIdx]
 		all := messagePattern.FindAllSubmatch(window, -1)
 		for i := len(all) - 1; i >= 0; i-- {
 			m := all[i]
@@ -354,8 +358,10 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 			if candidate == "" {
 				continue
 			}
-			if len(candidate) > len(best) {
+			dist := absIdx - (start + pos)
+			if best == "" || dist < bestDist || (dist == bestDist && len(candidate) > len(best)) {
 				best = candidate
+				bestDist = dist
 			}
 		}
 		offset = absIdx + len(idMarker)
@@ -373,6 +379,7 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 	}
 	return ""
 }
+
 
 // findPureCaptionAnchored searches pure caption path anchored near specific videoID
 func findPureCaptionAnchored(body []byte, videoID string) string {

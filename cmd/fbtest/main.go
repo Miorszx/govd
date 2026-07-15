@@ -27,7 +27,7 @@ for idx, u := range urls {
 fmt.Printf("\n=== [%d/%d] %s ===\n", idx+1, len(urls), u)
 ctx := extractors.FromURL(u)
 if ctx == nil {
-fmt.Printf("FAIL: no extractor matched\n")
+fmt.Printf("FAIL: no extractor matched (FromURL nil)\n")
 continue
 }
 fmt.Printf("initial ID=%s\n", ctx.ContentID)
@@ -37,10 +37,10 @@ fmt.Printf("FAIL initial: %v\n", err)
 continue
 }
 if resp.URL != "" {
-fmt.Printf("REDIRECT -> %s\n", resp.URL[:100])
+fmt.Printf("REDIRECT -> %.120s\n", resp.URL)
 ctx2 := extractors.FromURL(resp.URL)
 if ctx2 == nil {
-fmt.Printf("FAIL no extractor redirect\n")
+fmt.Printf("FAIL no extractor redirect for %s\n", resp.URL)
 continue
 }
 fmt.Printf("redirect ID=%s\n", ctx2.ContentID)
@@ -51,17 +51,18 @@ continue
 }
 if resp2.Media != nil {
 c := resp2.Media.Caption
-if len(c) > 150 { fmt.Printf("CAPTION len=%d: %q...\n", len(c), c[:150]) } else { fmt.Printf("CAPTION len=%d: %q\n", len(c), c) }
-fmt.Printf("ITEMS=%d formats=%d\n", len(resp2.Media.Items), func() int { if len(resp2.Media.Items)>0 {return len(resp2.Media.Items[0].Formats)}; return 0 }())
+if len(c) > 200 { fmt.Printf("CAPTION len=%d: %q...\n", len(c), c[:200]) } else { fmt.Printf("CAPTION len=%d: %q\n", len(c), c) }
+fmt.Printf("ITEMS=%d\n", len(resp2.Media.Items))
 } else {
 fmt.Printf("NO MEDIA after redirect\n")
 }
 } else if resp.Media != nil {
 c := resp.Media.Caption
 fmt.Printf("CAPTION len=%d: %q\n", len(c), c)
+fmt.Printf("ITEMS=%d\n", len(resp.Media.Items))
 } else {
 fmt.Printf("NO MEDIA\n")
 }
-time.Sleep(500*time.Millisecond)
+time.Sleep(700*time.Millisecond)
 }
 }
