@@ -631,6 +631,8 @@ func cleanFacebookCaption(s string) string {
 	// Normalize: \r\n -> \n (after decoding)
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "")
+	// Unescape \/ -> / (FB escapes slashes in JSON)
+	s = strings.ReplaceAll(s, "\\/", "/")
 	// Split by double newline – FB separates page name and caption with \n\n
 	parts := strings.Split(s, "\n\n")
 	if len(parts) >= 2 {
