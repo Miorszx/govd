@@ -241,16 +241,12 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	data := &VideoData{}
 
 	// find the section belonging to the requested video
+	// NEVER fallback to full body when section not found - this prevents photo posts like share/p
+	// returning random video from feed (Ayah Bopley bug). All video pages have dash_mpd_debug marker,
+	// so section==nil means it's a photo/album post or blocked page - return image or error.
 	section := findVideoSection(body, videoID)
 	if section == nil {
-		// For photo posts like share/p, dash_mpd_debug not found, body contains feed with random videos
-		// Don't fallback to full body if it has many videos (feed) to avoid returning unrelated video
-		if bytes.Count(body, []byte("progressive_url")) > 3 {
-			// Likely feed or photo post, try image extraction later, skip video fallback
-			section = []byte{}
-		} else {
-			section = body
-		}
+		section = []byte{}
 	}
 
 	if match := hdURLPattern.FindSubmatch(section); len(match) >= 2 {
