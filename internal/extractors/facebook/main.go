@@ -64,6 +64,16 @@ var ShareExtractor = &models.Extractor{
 				if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(body); len(m) == 2 {
 					return &models.ExtractorResponse{URL: string(m[1])}, nil
 				}
+				// For share/p which is story.php, FB embeds post_id / story_fbid in JSON
+				if m := regexp.MustCompile(`"post_id"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
+				}
+				if m := regexp.MustCompile(`"story_fbid"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
+				}
+				if m := regexp.MustCompile(`"top_level_post_id"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
+				}
 			}
 		}
 		return nil, fmt.Errorf("failed to follow share redirect: %w", lastErr)
@@ -76,7 +86,7 @@ var Extractor = &models.Extractor{
 
 	URLPattern: regexp.MustCompile(
 		`https?://(?:(?:www|m|mbasic)\.)?facebook\.com/` +
-			`(?:watch/?\?(?:[^&]*&)*v=|(?:reel|videos?|posts?|permalink)/|groups/[^/]+/(?:permalink|posts|videos|reels?)/|[^/]+/(?:videos|posts|reels?)/)` +
+			`(?:watch/?\?(?:[^&]*&)*v=|(?:reel|videos?|posts?|permalink)/|groups/[^/]+/(?:permalink|posts|videos|reels?)/|[^/]+/(?:videos|posts|reels?)/|story\.php\?(?:.*&)?(?:story_fbid|fbid|post_id)=)` +
 			`(?P<id>[a-zA-Z0-9]+)`,
 	),
 	Host: facebookHost,
