@@ -227,10 +227,26 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				    }
 				    for _, raw := range scontentPattern.FindAllString(string(body2), 15) {
 				        u := unescapeFacebookURL(raw)
-				        // dedup
+				        if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") {
+				            continue
+				        }
+				        fn := u
+				        if idx := strings.Index(fn, "?"); idx != -1 {
+				            fn = fn[:idx]
+				        }
+				        if idx := strings.LastIndex(fn, "/"); idx != -1 {
+				            fn = fn[idx+1:]
+				        }
 				        dup := false
 				        for _, e := range urls {
-				            if e == u {
+				            ef := e
+				            if idx := strings.Index(ef, "?"); idx != -1 {
+				                ef = ef[:idx]
+				            }
+				            if idx := strings.LastIndex(ef, "/"); idx != -1 {
+				                ef = ef[idx+1:]
+				            }
+				            if ef == fn {
 				                dup = true
 				                break
 				            }
@@ -303,9 +319,26 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			}
 			for _, raw := range scontentPattern.FindAllString(string(body), 15) {
 				u := unescapeFacebookURL(raw)
+				if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") {
+					continue
+				}
+				fn := u
+				if idx := strings.Index(fn, "?"); idx != -1 {
+					fn = fn[:idx]
+				}
+				if idx := strings.LastIndex(fn, "/"); idx != -1 {
+					fn = fn[idx+1:]
+				}
 				dup := false
 				for _, e := range urls {
-					if e == u {
+					ef := e
+					if idx := strings.Index(ef, "?"); idx != -1 {
+						ef = ef[:idx]
+					}
+					if idx := strings.LastIndex(ef, "/"); idx != -1 {
+						ef = ef[idx+1:]
+					}
+					if ef == fn {
 						dup = true
 						break
 					}
