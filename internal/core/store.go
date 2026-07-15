@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -10,7 +9,6 @@ import (
 	"github.com/govdbot/govd/internal/logger"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/util"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -52,13 +50,13 @@ func StoreMedia(
 		Nsfw: media.NSFW,
 	})
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			// unique violation, media already exists
-			logger.L.Debugf("media %s already exists in database", media.ContentID)
-			return nil
-		}
 		return err
+	}
+
+	// On conflict (upsert), old items are deleted so new caption/file_id takes effect.
+	if err := qtx.DeleteMediaItemsByMediaID(ctx, mediaID); err != nil {
+		// log but don't fail - next insert will still work if items already gone
+		logger.L.Warnf("failed to delete old media items %d: %v", mediaID, err)
 	}
 
 	for i := range media.Items {
@@ -141,22 +139,35 @@ func ParseStoredMedia(
 	extractor *models.Extractor,
 	mediaRow *database.GetMediaByContentIDRow,
 ) (*models.Media, error) {
-	itemRows, err := database.Q().GetMediaItems(ctx, mediaRow.ID)
+	// Optimized: single JOIN query fetches items+formats in one roundtrip (fixes N+1)
+	rows, err := database.Q().GetMediaItemsWithFormats(ctx, mediaRow.ID)
 	if err != nil {
 		return nil, err
 	}
-	if len(itemRows) == 0 {
+	if len(rows) == 0 {
 		return nil, fmt.Errorf("no media items found")
 	}
 
-	items := make([]*models.MediaItem, 0, len(itemRows))
-	for _, row := range itemRows {
-		format, err := database.Q().GetMediaFormat(ctx, row.ID)
-		if err != nil {
-			return nil, err
+	items := make([]*models.MediaItem, 0, len(rows))
+	for _, r := range rows {
+		// Reconstruct GetMediaFormatRow from joined row
+		fRow := database.GetMediaFormatRow{
+			FormatID:   r.FormatID,
+			ItemID:     r.ItemID_2,
+			FileID:     r.FileID,
+			Type:       r.Type,
+			AudioCodec: r.AudioCodec,
+			VideoCodec: r.VideoCodec,
+			Duration:   r.Duration,
+			FileSize:   r.FileSize,
+			Title:      r.Title,
+			Artist:     r.Artist,
+			Width:      r.Width,
+			Height:     r.Height,
+			Bitrate:    r.Bitrate,
 		}
 		items = append(items, &models.MediaItem{
-			Formats: []*models.MediaFormat{parseFormatFromDB(&format)},
+			Formats: []*models.MediaFormat{parseFormatFromDB(&fRow)},
 		})
 	}
 
