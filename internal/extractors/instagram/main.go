@@ -26,28 +26,17 @@ var Extractor = &models.Extractor{
 	Redirect:   false,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
-		// method 1: get media from GQL web API
-		media, err1 := GetGQLMedia(ctx)
-		if err1 == nil {
-			return &models.ExtractorResponse{
-				Media: media,
-			}, nil
+		// Primary (and only) method: GraphQL web_info endpoint (instaloader
+		// PR #2706). This returns carousel/album children as JSON with no
+		// browser required. Fallbacks removed — the other methods rely on
+		// revoked doc_ids / 3rd-party services that no longer work.
+		media, err := GetWebpageMedia(ctx)
+		if err != nil {
+			return nil, err
 		}
-		// method 2: get media from embed page
-		media, err2 := GetEmbedMedia(ctx)
-		if err2 == nil {
-			return &models.ExtractorResponse{
-				Media: media,
-			}, nil
-		}
-		// method 3: get media from 3rd party service (unlikely)
-		media, err3 := GetIGramPost(ctx)
-		if err3 == nil {
-			return &models.ExtractorResponse{
-				Media: media,
-			}, nil
-		}
-		return nil, fmt.Errorf("all methods failed: %w; %w; %w", err1, err2, err3)
+		return &models.ExtractorResponse{
+			Media: media,
+		}, nil
 	},
 }
 
@@ -83,99 +72,6 @@ var ShareURLExtractor = &models.Extractor{
 		}
 		return &models.ExtractorResponse{URL: redirectURL}, nil
 	},
-}
-
-func GetGQLMedia(ctx *models.ExtractorContext) (*models.Media, error) {
-	graphData, err := GetGQLData(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get graph data: %w", err)
-	}
-	return ParseGQLMedia(ctx, graphData.ShortcodeMedia)
-}
-
-func GetEmbedMedia(ctx *models.ExtractorContext) (*models.Media, error) {
-	embedURL := fmt.Sprintf(
-		"https://www.instagram.com/p/%s/embed/captioned",
-		ctx.ContentID,
-	)
-	resp, err := ctx.Fetch(
-		http.MethodGet,
-		embedURL,
-		&networking.RequestParams{
-			Headers: webHeaders,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	logger.WriteFile("ig_embed_response", resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get embed page: %s", resp.Status)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-	graphData, err := ParseEmbedGQL(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse embed page: %w", err)
-	}
-	return ParseGQLMedia(ctx, graphData)
-}
-
-func GetIGramPost(ctx *models.ExtractorContext) (*models.Media, error) {
-	details, err := GetPostFromIGram(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get post: %w", err)
-	}
-
-	media := ctx.NewMedia()
-	for _, obj := range details.Items {
-		item := media.NewItem()
-		if len(obj.URL) == 0 {
-			return nil, fmt.Errorf("no media url found")
-		}
-		urlObj := obj.URL[0]
-		contentURL, err := GetCDNURL(urlObj.URL)
-		if err != nil {
-			return nil, err
-		}
-		thumbnailURL, err := GetCDNURL(obj.Thumb)
-		if err != nil {
-			return nil, err
-		}
-		fileExt := urlObj.Ext
-		formatID := urlObj.Type
-		switch fileExt {
-		case "mp4":
-			item.AddFormats(&models.MediaFormat{
-				FormatID:     formatID,
-				Type:         database.MediaTypeVideo,
-				URL:          []string{contentURL},
-				VideoCodec:   database.MediaCodecAvc,
-				AudioCodec:   database.MediaCodecAac,
-				ThumbnailURL: []string{thumbnailURL},
-			},
-			)
-		case "jpg", "png", "webp", "heic", "jpeg":
-			item.AddFormats(&models.MediaFormat{
-				Type:     database.MediaTypePhoto,
-				FormatID: formatID,
-				URL:      []string{contentURL},
-			})
-		default:
-			return nil, fmt.Errorf("unknown format: %s", fileExt)
-		}
-	}
-
-	if len(media.Items) == 0 {
-		return nil, fmt.Errorf("no media found")
-	}
-
-	return media, nil
 }
 
 func GetIGramStory(ctx *models.ExtractorContext) (*models.Media, error) {

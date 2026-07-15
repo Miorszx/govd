@@ -29,7 +29,7 @@ type EnvConfig struct {
 	MetricsPort  int
 	LogLevel     zapcore.Level
 	Whitelist    []int64
-	Caching      bool
+	Caching bool
 	Admins       []int64
 
 	CaptionsHeader      string
