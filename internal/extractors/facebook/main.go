@@ -1,7 +1,10 @@
 package facebook
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"time"
 
@@ -53,10 +56,32 @@ var ShareExtractor = &models.Extractor{
 			if resp.Request != nil && resp.Request.URL.String() != ctx.ContentURL {
 				return &models.ExtractorResponse{URL: resp.Request.URL.String()}, nil
 			}
-			// Try parse og:url from body
-			body := make([]byte, 20000)
-			n, _ := resp.Body.Read(body)
-			body = body[:n]
+			// Try parse og:url from body - desktop UA often returns 400 for share/p, try iPhone UA
+			bodyAll, _ := io.ReadAll(resp.Body)
+			// If body doesn't contain S:_I or post_id (photo post), try iPhone UA which returns 47KB with data
+			if !bytes.Contains(bodyAll, []byte("post_id")) && !bytes.Contains(bodyAll, []byte("S:_I")) {
+				// try iPhone UA for share/p photo posts
+				resp2, err2 := ctx.Fetch(
+					http.MethodGet,
+					ctx.ContentURL,
+					&networking.RequestParams{
+						Headers: map[string]string{
+							"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+						},
+					},
+				)
+				if err2 == nil {
+					bodyAll2, _ := io.ReadAll(resp2.Body)
+					resp2.Body.Close()
+					if len(bodyAll2) > len(bodyAll) {
+						bodyAll = bodyAll2
+					}
+				}
+			}
+			if len(bodyAll) > 50000 {
+				bodyAll = bodyAll[:50000]
+			}
+			body := bodyAll
 			if len(body) > 0 {
 				if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(body); len(m) == 2 {
 					return &models.ExtractorResponse{URL: string(m[1])}, nil
@@ -65,6 +90,12 @@ var ShareExtractor = &models.Extractor{
 					return &models.ExtractorResponse{URL: string(m[1])}, nil
 				}
 				// For share/p which is story.php, FB embeds post_id / story_fbid in JSON
+				// S:_I{page_id}:{post_id}: gives both for photo posts like 1FtTAuWcPo
+				if m := regexp.MustCompile(`S:_I(\d+):(\d+):`).FindSubmatch(body); len(m) == 3 {
+					pageID := string(m[1])
+					postID := string(m[2])
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + postID + "&id=" + pageID}, nil
+				}
 				if m := regexp.MustCompile(`"post_id"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
 					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
 				}
@@ -86,7 +117,7 @@ var Extractor = &models.Extractor{
 
 	URLPattern: regexp.MustCompile(
 		`https?://(?:(?:www|m|mbasic)\.)?facebook\.com/` +
-			`(?:watch/?\?(?:[^&]*&)*v=|(?:reel|videos?|posts?|permalink)/|groups/[^/]+/(?:permalink|posts|videos|reels?)/|[^/]+/(?:videos|posts|reels?)/|story\.php\?(?:.*&)?(?:story_fbid|fbid|post_id)=)` +
+			`(?:watch/?\?(?:[^&]*&)*v=|(?:reel|videos?|posts?|permalink)/|groups/[^/]+/(?:permalink|posts|videos|reels?)/|[^/]+/(?:videos|posts|reels?)/|story\.php\?.*?(?:story_fbid|fbid)=)` +
 			`(?P<id>[a-zA-Z0-9]+)`,
 	),
 	Host: facebookHost,

@@ -169,6 +169,68 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		return data, nil
 	}
 
+	// Fallback for photo posts like share/p: try mbasic for og:image
+	// ContentURL like story.php?story_fbid=POST_ID&id=PAGE_ID
+	if lastErr != nil && len(ctx.ContentID) > 0 {
+		// try to get pageID from contentURL id= param
+		var pageID string
+		if m := regexp.MustCompile(`[?&]id=(\d+)`).FindStringSubmatch(contentURL); len(m) == 2 {
+			pageID = m[1]
+		}
+		// If no pageID, try to get it from S:_I token by fetching story.php with iPhone UA (for 1FtTAuWcPo etc)
+		if pageID == "" {
+			storyURL := fmt.Sprintf("https://www.facebook.com/story.php?story_fbid=%s", ctx.ContentID)
+			respS, errS := ctx.Fetch(
+				http.MethodGet,
+				storyURL,
+				&networking.RequestParams{
+					Headers: map[string]string{
+						"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+					},
+				},
+			)
+			if errS == nil && respS.StatusCode == 200 {
+				bodyS, _ := io.ReadAll(respS.Body)
+				respS.Body.Close()
+				if m := regexp.MustCompile(`S:_I(\d+):(\d+):`).FindSubmatch(bodyS); len(m) == 3 {
+					pageID = string(m[1])
+				}
+			}
+		}
+		if pageID != "" {
+			mbasicURL := fmt.Sprintf("https://mbasic.facebook.com/%s/posts/%s/", pageID, ctx.ContentID)
+			// iPhone UA gives og:image for new photo posts like 1FtTAuWcPo
+			resp2, err2 := ctx.Fetch(
+				http.MethodGet,
+				mbasicURL,
+				&networking.RequestParams{
+					Headers: map[string]string{
+						"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+					},
+				},
+			)
+			if err2 == nil && resp2.StatusCode == 200 {
+				body2, _ := io.ReadAll(resp2.Body)
+				resp2.Body.Close()
+				if len(body2) > 1000 {
+					// try og:image
+					if match := ogImagePattern.FindSubmatch(body2); len(match) >= 2 {
+						return &VideoData{
+							ImageURL: unescapeFacebookURL(string(match[1])),
+							Title:    "",
+						}, nil
+					}
+					if match := scontentPattern.FindSubmatch(body2); len(match) >= 1 {
+						return &VideoData{
+							ImageURL: unescapeFacebookURL(string(match[0])),
+							Title:    "",
+						}, nil
+					}
+				}
+			}
+		}
+	}
+
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no video URLs found in page")
 	}
