@@ -310,7 +310,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 // findCaptionAnchoredToID looks for the caption belonging to a specific videoID.
 // FB reel pages contain multiple reels in the feed; each reel's JSON block looks like:
 // {"message":{"text":"..."},"id":"<VIDEO_ID>"}. We search backwards from each occurrence
-// of "id":"VIDEO_ID" for the nearest message text within 8KB.
+// of "id":"VIDEO_ID" for the nearest message text within 15KB.
 // This prevents picking a longer caption from a different reel in the same page.
 //
 // Uses pure caption path from Facebook's data structure:
@@ -320,49 +320,132 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 	if videoID == "" {
 		return ""
 	}
-	// Pure caption path search: creation_story -> comet_sections -> message -> story -> message -> text
-	// Nested structure via byte scan to avoid heavy regex backtrack
-	// Look for creation_story then within next 4KB find comet_sections -> message -> story -> message -> text
+	// First: anchored pure search near videoID (most accurate, like IG edge_media_to_caption)
+	if videoID != "" {
+		if pure := findPureCaptionAnchored(body, videoID); pure != "" {
+			return pure
+		}
+	}
+	// Second: global pure search (single-video pages)
 	if pure := findPureFacebookCaption(body); pure != "" {
 		return pure
 	}
 
-	// Fallback: anchored search near video ID, but skip if inside context_layout (dirty)
+	// Fallback: anchored message search near video ID, skip if inside context_layout (dirty)
 	idMarker := []byte(`"id":"` + videoID + `"`)
-	// Find all occurrences of the id marker
 	for offset := 0; ; {
 		idx := bytes.Index(body[offset:], idMarker)
 		if idx == -1 {
 			break
 		}
 		absIdx := offset + idx
-		// Look backwards up to 8000 bytes for message pattern
-		start := absIdx - 8000
+		start := absIdx - 15000
 		if start < 0 {
 			start = 0
 		}
 		window := body[start:absIdx]
-		// Filter: if window contains context_layout in last 1000 chars, it's dirty category field
-		// Pure field should be from content, not context_layout
-		// Check last 1000 chars of window for context_layout marker
-		tailStart := len(window) - 1000
+		// Filter dirty context_layout in last 1200 chars
+		tailStart := len(window) - 1200
 		if tailStart < 0 {
 			tailStart = 0
 		}
 		tail := string(window[tailStart:])
 		if strings.Contains(tail, "context_layout") {
-			// This window is likely dirty (contains category info)
 			offset = absIdx + len(idMarker)
 			continue
 		}
-		// The message should be relatively close before the id
-		if match := messagePattern.FindSubmatch(window); len(match) >= 2 {
-			// There might be multiple messages in window; take the last one (closest to id)
-			all := messagePattern.FindAllSubmatch(window, -1)
-			if len(all) > 0 {
-				last := all[len(all)-1]
-				if len(last) >= 2 {
-					candidate := string(last[1])
+		all := messagePattern.FindAllSubmatch(window, -1)
+		if len(all) > 0 {
+			last := all[len(all)-1]
+			if len(last) >= 2 {
+				candidate := string(last[1])
+				if len(candidate) >= 3 {
+					return candidate
+				}
+			}
+		}
+		offset = absIdx + len(idMarker)
+	}
+	return ""
+}
+
+// findPureCaptionAnchored searches pure caption path anchored near specific videoID
+func findPureCaptionAnchored(body []byte, videoID string) string {
+	idMarker := []byte(`"id":"` + videoID + `"`)
+	for offset := 0; ; {
+		idx := bytes.Index(body[offset:], idMarker)
+		if idx == -1 {
+			break
+		}
+		absIdx := offset + idx
+		// Look backwards 20KB for creation_story block belonging to this video
+		start := absIdx - 20000
+		if start < 0 {
+			start = 0
+		}
+		window := body[start:absIdx]
+		// Search creation_story within this anchored window (closest to ID)
+		// Take last occurrence of creation_story in window
+		csIdx := bytes.LastIndex(window, []byte(`"creation_story"`))
+		if csIdx != -1 {
+			csAbs := start + csIdx
+			end := csAbs + 6000
+			if end > len(body) {
+				end = len(body)
+			}
+			csWindow := body[csAbs:end]
+			if bytes.Contains(csWindow, []byte(`"comet_sections"`)) && bytes.Contains(csWindow, []byte(`"message"`)) {
+				matches := messagePattern.FindAllSubmatch(csWindow, -1)
+				for i := len(matches) - 1; i >= 0; i-- {
+					m := matches[i]
+					if len(m) < 2 {
+						continue
+					}
+					matchPos := bytes.Index(csWindow, m[0])
+					if matchPos == -1 {
+						continue
+					}
+					checkStart := matchPos - 500
+					if checkStart < 0 {
+						checkStart = 0
+					}
+					preceding := string(csWindow[checkStart:matchPos])
+					if strings.Contains(preceding, "context_layout") {
+						continue
+					}
+					candidate := string(m[1])
+					if len(candidate) >= 3 {
+						return candidate
+					}
+				}
+			}
+		}
+		// Also try content path in same anchored window
+		contentIdx := bytes.LastIndex(window, []byte(`"content"`))
+		if contentIdx != -1 {
+			cAbs := start + contentIdx
+			end := cAbs + 6000
+			if end > len(body) {
+				end = len(body)
+			}
+			cWindow := body[cAbs:end]
+			if bytes.Contains(cWindow, []byte(`"comet_sections"`)) && bytes.Contains(cWindow, []byte(`"message"`)) {
+				matches := messagePattern.FindAllSubmatch(cWindow, -1)
+				for i := len(matches) - 1; i >= 0; i-- {
+					m := matches[i]
+					if len(m) < 2 {
+						continue
+					}
+					matchPos := bytes.Index(cWindow, m[0])
+					checkStart := matchPos - 500
+					if checkStart < 0 {
+						checkStart = 0
+					}
+					preceding := string(cWindow[checkStart:matchPos])
+					if strings.Contains(preceding, "context_layout") {
+						continue
+					}
+					candidate := string(m[1])
 					if len(candidate) >= 3 {
 						return candidate
 					}
