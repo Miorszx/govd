@@ -219,19 +219,42 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				body2, _ := io.ReadAll(resp2.Body)
 				resp2.Body.Close()
 				if len(body2) > 1000 {
-					// try og:image
-					if match := ogImagePattern.FindSubmatch(body2); len(match) >= 2 {
-						return &VideoData{
-							ImageURL: unescapeFacebookURL(string(match[1])),
-							Title:    "",
-						}, nil
-					}
-					if match := scontentPattern.FindSubmatch(body2); len(match) >= 1 {
-						return &VideoData{
-							ImageURL: unescapeFacebookURL(string(match[0])),
-							Title:    "",
-						}, nil
-					}
+				    // Collect all images for album posts (e.g. 4 Gambar) - og:image + all scontent
+				    var urls []string
+				    if m := ogImagePattern.FindSubmatch(body2); len(m) >= 2 {
+				        u := unescapeFacebookURL(string(m[1]))
+				        urls = append(urls, u)
+				    }
+				    for _, raw := range scontentPattern.FindAllString(string(body2), 15) {
+				        u := unescapeFacebookURL(raw)
+				        // dedup
+				        dup := false
+				        for _, e := range urls {
+				            if e == u {
+				                dup = true
+				                break
+				            }
+				        }
+				        if dup {
+				            continue
+				        }
+				        urls = append(urls, u)
+				    }
+				    if len(urls) > 0 {
+				        if len(urls) > 10 {
+				            urls = urls[:10]
+				        }
+				        if len(urls) == 1 {
+				            return &VideoData{
+				                ImageURL: urls[0],
+				                Title:    "",
+				            }, nil
+				        }
+				        return &VideoData{
+				            ImageURLs: urls,
+				            Title:     "",
+				        }, nil
+				    }
 				}
 			}
 		}
@@ -273,13 +296,33 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	if data.HDURL == "" && data.SDURL == "" {
 		// Don't fallback to full body if we already determined it's feed/photo (section empty)
 		if len(section) == 0 {
-			// Try image extraction for photo posts
+			// Try image extraction for photo posts - support album 4 gambar
+			var urls []string
 			if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
-				data.ImageURL = unescapeFacebookURL(string(match[1]))
+				urls = append(urls, unescapeFacebookURL(string(match[1])))
 			}
-			if data.ImageURL == "" {
-				if match := scontentPattern.FindSubmatch(body); len(match) >= 1 {
-					data.ImageURL = unescapeFacebookURL(string(match[0]))
+			for _, raw := range scontentPattern.FindAllString(string(body), 15) {
+				u := unescapeFacebookURL(raw)
+				dup := false
+				for _, e := range urls {
+					if e == u {
+						dup = true
+						break
+					}
+				}
+				if dup {
+					continue
+				}
+				urls = append(urls, u)
+			}
+			if len(urls) > 0 {
+				if len(urls) > 10 {
+					urls = urls[:10]
+				}
+				if len(urls) == 1 {
+					data.ImageURL = urls[0]
+				} else {
+					data.ImageURLs = urls
 				}
 			}
 		} else {

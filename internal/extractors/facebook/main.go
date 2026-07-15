@@ -240,7 +240,23 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 	}
 
 	if len(formats) == 0 {
-		// Photo post? Try image fallback
+		// Photo post? Try image fallback - support album with multiple images (e.g. 4 Gambar)
+		if len(data.ImageURLs) > 0 {
+			for i, u := range data.ImageURLs {
+				var it *models.MediaItem
+				if i == 0 {
+					it = item
+				} else {
+					it = media.NewItem()
+				}
+				it.AddFormats(&models.MediaFormat{
+					FormatID: fmt.Sprintf("image%d", i),
+					Type:     database.MediaTypePhoto,
+					URL:      []string{u},
+				})
+			}
+			return media, nil
+		}
 		if data.ImageURL != "" {
 			formats = append(formats, &models.MediaFormat{
 				FormatID: "image",
