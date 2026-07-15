@@ -177,7 +177,13 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		if m := regexp.MustCompile(`[?&]id=(\d+)`).FindStringSubmatch(contentURL); len(m) == 2 {
 			pageID = m[1]
 		}
-		// If no pageID, try to get it from S:_I token by fetching story.php with iPhone UA (for 1FtTAuWcPo etc)
+		// If no pageID, try from path like /{page_id}/posts/{post_id}/ for bare share/<id> like 1CKF4qojsQ
+		if pageID == "" {
+		    if m := regexp.MustCompile(`facebook\.com/(\d+)/(?:posts|videos|reels|permalink)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+		        pageID = m[1]
+		    }
+		}
+		// If still no pageID, try to get it from S:_I token by fetching story.php with iPhone UA (for 1FtTAuWcPo etc)
 		if pageID == "" {
 			storyURL := fmt.Sprintf("https://www.facebook.com/story.php?story_fbid=%s", ctx.ContentID)
 			respS, errS := ctx.Fetch(
