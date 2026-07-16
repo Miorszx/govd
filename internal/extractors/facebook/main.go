@@ -240,6 +240,20 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 	}
 
 	if len(formats) == 0 {
+		// For reel/video, never fallback to image - fixes "keluar gamba lmao bukan video reel"
+		// Reel must be video, not photo thumbnail
+		isReelURL := false
+		if ctx.ContentURL != "" {
+			if bytes.Contains([]byte(ctx.ContentURL), []byte("/reel/")) || bytes.Contains([]byte(ctx.ContentURL), []byte("/watch")) {
+				isReelURL = true
+			}
+		}
+		if isReelURL {
+			if (data.HDURL != "" && hdSize > tgLimit) || (data.SDURL != "" && sdSize > tgLimit) {
+				return nil, util.ErrTelegramFileTooLarge
+			}
+			return nil, fmt.Errorf("no video formats found")
+		}
 		// Photo post? Try image fallback - support album with multiple images (e.g. 4 Gambar)
 		if len(data.ImageURLs) > 0 {
 			for i, u := range data.ImageURLs {
@@ -264,8 +278,6 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 				URL:      []string{data.ImageURL},
 			})
 		} else {
-			// Both formats either failed to extract or exceed the active
-			// Bot API upload limit.
 			if (data.HDURL != "" && hdSize > tgLimit) || (data.SDURL != "" && sdSize > tgLimit) {
 				return nil, util.ErrTelegramFileTooLarge
 			}
