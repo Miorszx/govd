@@ -183,6 +183,12 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		        pageID = m[1]
 		    }
 		}
+		// For group posts like groups/2807075776107813/posts/3505374679611249/ (19Fea5TgkK/ & 19HrxCEJWd/)
+		if pageID == "" {
+		    if m := regexp.MustCompile(`facebook\.com/groups/(\d+)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+		        pageID = m[1]
+		    }
+		}
 		// If still no pageID, try to get it from S:_I token by fetching story.php with iPhone UA (for 1FtTAuWcPo etc)
 		if pageID == "" {
 			storyURL := fmt.Sprintf("https://www.facebook.com/story.php?story_fbid=%s", ctx.ContentID)
