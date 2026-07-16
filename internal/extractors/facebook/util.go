@@ -176,6 +176,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	if lastErr != nil && len(ctx.ContentID) > 0 {
 		// try to get pageID from contentURL id= param
 		var pageID string
+		var bestBody []byte
 		if m := regexp.MustCompile(`[?&]id=(\d+)`).FindStringSubmatch(contentURL); len(m) == 2 {
 			pageID = m[1]
 		}
@@ -226,10 +227,11 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				unescapedForMatch := strings.ReplaceAll(strBody, `\/`, "/")
 				for _, raw := range scontentPattern.FindAllString(unescapedForMatch, 30) {
 					u := upgradeFBImageToHD(unescapeFacebookURL(raw))
-					if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "t39.30808-2") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "emoji") {
+					// Filter junk: require signed URL (oh=) and exclude tiny/profile frames and keyframes
+					if !strings.Contains(u, "oh=") {
 						continue
 					}
-					if strings.Contains(u, "_s.jpg") || strings.Contains(u, "_q.jpg") || strings.Contains(u, "40x40") || strings.Contains(u, "50x50") {
+					if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "t39.30808-2") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "emoji") || strings.Contains(u, "m1/v/t6") || strings.Contains(u, "/t45.") || strings.Contains(u, "s120x120") || strings.Contains(u, "p120x120") || strings.Contains(u, "s64x64") || strings.Contains(u, "p64x64") || strings.Contains(u, "_s.jpg") || strings.Contains(u, "_q.jpg") {
 						continue
 					}
 					fn := u
@@ -263,21 +265,45 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				}
 			}
 		if pageID != "" {
+			// Retry mbasic fetch up to 6 times to get the large album body (248KB) which contains all 3 images
+			// Small body (46KB) only has 1 image, large body (248KB) has 3 images with oh= signatures
 			mbasicURL := fmt.Sprintf("https://mbasic.facebook.com/%s/posts/%s/", pageID, ctx.ContentID)
-			resp2, err2 := ctx.Fetch(
-				http.MethodGet,
-				mbasicURL,
-				&networking.RequestParams{
-					Headers: map[string]string{
-						"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+			for mbAttempt := 1; mbAttempt <= 6; mbAttempt++ {
+				if mbAttempt > 1 {
+					time.Sleep(time.Duration(mbAttempt*300) * time.Millisecond)
+				}
+				resp2, err2 := ctx.Fetch(
+					http.MethodGet,
+					mbasicURL,
+					&networking.RequestParams{
+						Headers: map[string]string{
+							"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+						},
 					},
-				},
-			)
-			if err2 == nil && resp2.StatusCode == 200 {
+				)
+				if err2 != nil || resp2.StatusCode != 200 {
+					if resp2 != nil {
+						resp2.Body.Close()
+					}
+					continue
+				}
 				body2, _ := io.ReadAll(resp2.Body)
 				resp2.Body.Close()
+				if len(body2) < 1000 {
+					continue
+				}
+				// keep best (largest) body
+				if bestBody == nil || len(body2) > len(bestBody) {
+					bestBody = body2
+				}
+				// if we already have a large body with multiple scontent, break early
+				if len(body2) > 150000 {
+					break
+				}
+			}
+			if bestBody != nil {
 				// og:image first
-				if m := ogImagePattern.FindSubmatch(body2); len(m) >= 2 {
+				if m := ogImagePattern.FindSubmatch(bestBody); len(m) >= 2 {
 					u := upgradeFBImageToHD(unescapeFacebookURL(string(m[1])))
 					fn := u
 					if idx := strings.Index(fn, "?"); idx != -1 {
@@ -304,7 +330,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						allUrls = append(allUrls, u)
 					}
 				}
-				collectFunc(body2)
+				collectFunc(bestBody)
 			}
 		}
 		// Fallback photo.php?fbid=POST_ID with desktop UA - contains all album images (GabrielVelasco approach pure-Go)
@@ -327,18 +353,25 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			if len(allUrls) > 10 {
 				allUrls = allUrls[:10]
 			}
-			if len(allUrls) == 1 {
-				return &VideoData{
-					ImageURL: upgradeFBImageToHD(allUrls[0]),
-					Title:    "",
-				}, nil
-			}
 			for i := range allUrls {
 				allUrls[i] = upgradeFBImageToHD(allUrls[i])
 			}
+			// try extract caption from bestBody if available
+			caption := ""
+			if bestBody != nil {
+				if m := ogDescPattern.FindSubmatch(bestBody); len(m) >= 2 {
+					caption = html.UnescapeString(string(m[1]))
+				}
+			}
+			if len(allUrls) == 1 {
+				return &VideoData{
+					ImageURL: allUrls[0],
+					Title:    caption,
+				}, nil
+			}
 			return &VideoData{
 				ImageURLs: allUrls,
-				Title:     "",
+				Title:     caption,
 			}, nil
 		}
 	}
@@ -386,7 +419,10 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			}
 			for _, raw := range scontentPattern.FindAllString(string(body), 15) {
 				u := upgradeFBImageToHD(unescapeFacebookURL(raw))
-				if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") {
+				if !strings.Contains(u, "oh=") {
+					continue
+				}
+				if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "t39.30808-2") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "m1/v/t6") || strings.Contains(u, "s120x120") || strings.Contains(u, "p120x120") {
 					continue
 				}
 				fn := u
@@ -539,6 +575,10 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	}
 	data.Title = best
 
+	// For photo posts we already have ImageURL/ImageURLs, return even if no video URLs
+	if data.ImageURL != "" || len(data.ImageURLs) > 0 {
+		return data, nil
+	}
 	if data.HDURL == "" && data.SDURL == "" {
 		return nil, fmt.Errorf("no video URLs found in page")
 	}
