@@ -61,6 +61,9 @@ var (
 	scontentPattern = regexp.MustCompile(
 		`https://[^"]*scontent[^"]*\.(?:jpg|png)`,
 	)
+	// Facepager-style: attachments JSON contains HD src directly
+	graphImageSrcPattern = regexp.MustCompile(`"src"\s*:\s*"(https://[^"]*scontent[^"]+)"`)
+	graphImageSourcePattern = regexp.MustCompile(`"source"\s*:\s*"(https://[^"]*scontent[^"]+)"`)
 	// FB image sizing markers like p600x600, p394x394, p720x720 etc – we upgrade to p1080x1080 for HD
 	fbImageSizePattern = regexp.MustCompile(`p(\d+)x(\d+)`)
 	messagePattern = regexp.MustCompile(
@@ -379,6 +382,10 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no video URLs found in page")
 	}
+	// Facepager-style token hint: if we tried mbasic and got login redirect, suggest Graph API token
+	// This helps user understand why share/v 1BNWPp61LJ gives thumbnail 720x720 not video
+	// and why 19HrxCEJWd gives 1 image not 3
+	// No token config currently, but log hint for debugging (logger already writes fb_response)
 	return nil, lastErr
 }
 
@@ -413,11 +420,43 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		// Don't fallback to full body if we already determined it's feed/photo (section empty)
 		if len(section) == 0 {
 			// Try image extraction for photo posts - support album 4 gambar
+			// Facepager-style: attachments JSON contains HD src in "src":"https://scontent..." and subattachments for albums
 			var urls []string
+			// Phase 1: Graph-style src (attachments.media.image.src) - this gives HD directly like Facepager preset
+			// These are like {"src":"https://scontent...","width":1080} from attachments field
+			seenSrc := map[string]struct{}{}
+			for _, m := range graphImageSrcPattern.FindAllSubmatch(body, 20) {
+				if len(m) < 2 { continue }
+				raw := string(m[1])
+				// unescape
+				raw = unescapeFacebookURL(raw)
+				raw = upgradeFBImageToHD(raw)
+				if !strings.Contains(raw, "oh=") { continue }
+				if _, ok := seenSrc[raw]; ok { continue }
+				seenSrc[raw] = struct{}{}
+				// filter tiny
+				if strings.Contains(raw, "t39.30808-1") || strings.Contains(raw, "p50x50") || strings.Contains(raw, "s120x120") {
+					continue
+				}
+				urls = append(urls, raw)
+			}
+			// Phase 2: source field (images{source})
+			for _, m := range graphImageSourcePattern.FindAllSubmatch(body, 20) {
+				if len(m) < 2 { continue }
+				raw := unescapeFacebookURL(string(m[1]))
+				raw = upgradeFBImageToHD(raw)
+				if !strings.Contains(raw, "oh=") { continue }
+				if _, ok := seenSrc[raw]; ok { continue }
+				seenSrc[raw] = struct{}{}
+				if strings.Contains(raw, "t39.30808-1") { continue }
+				urls = append(urls, raw)
+			}
+			// Phase 3: og:image fallback
 			if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
 				urls = append(urls, upgradeFBImageToHD(unescapeFacebookURL(string(match[1]))))
 			}
-			for _, raw := range scontentPattern.FindAllString(string(body), 15) {
+			// Phase 4: classic scontent pattern (existing)
+			for _, raw := range scontentPattern.FindAllString(string(body), 20) {
 				u := upgradeFBImageToHD(unescapeFacebookURL(raw))
 				if !strings.Contains(u, "oh=") {
 					continue
