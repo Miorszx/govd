@@ -203,9 +203,59 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				}
 			}
 		}
+		// Combined fallback for album posts: mbasic + photo.php (like GabrielVelasco repo selenium scroll, but pure-Go)
+		// mbasic gives 1 image, photo.php with desktop UA gives 10 scontent including album images (handles https:// and https:\/\/ escaped)
+		var allUrls []string
+		collectFunc := func(body []byte) {
+			if len(body) < 1000 {
+				return
+			}
+			// Find both https:// and https:\/\/ escaped variants
+			// First unescape \/
+				strBody := string(body)
+				// Also handle escaped scontent: https:\/\/scontent...
+				// Replace \/ with / for matching
+				unescapedForMatch := strings.ReplaceAll(strBody, `\/`, "/")
+				for _, raw := range scontentPattern.FindAllString(unescapedForMatch, 30) {
+					u := unescapeFacebookURL(raw)
+					if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "t39.30808-2") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "emoji") {
+						continue
+					}
+					if strings.Contains(u, "_s.jpg") || strings.Contains(u, "_q.jpg") || strings.Contains(u, "40x40") || strings.Contains(u, "50x50") {
+						continue
+					}
+					fn := u
+					if idx := strings.Index(fn, "?"); idx != -1 {
+						fn = fn[:idx]
+					}
+					if idx := strings.LastIndex(fn, "/"); idx != -1 {
+						fn = fn[idx+1:]
+					}
+					if fn == "" {
+						continue
+					}
+					dup := false
+					for _, e := range allUrls {
+						ef := e
+						if idx := strings.Index(ef, "?"); idx != -1 {
+							ef = ef[:idx]
+						}
+						if idx := strings.LastIndex(ef, "/"); idx != -1 {
+							ef = ef[idx+1:]
+						}
+						if ef == fn {
+							dup = true
+							break
+						}
+					}
+					if dup {
+						continue
+					}
+					allUrls = append(allUrls, u)
+				}
+			}
 		if pageID != "" {
 			mbasicURL := fmt.Sprintf("https://mbasic.facebook.com/%s/posts/%s/", pageID, ctx.ContentID)
-			// iPhone UA gives og:image for new photo posts like 1FtTAuWcPo
 			resp2, err2 := ctx.Fetch(
 				http.MethodGet,
 				mbasicURL,
@@ -218,61 +268,67 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			if err2 == nil && resp2.StatusCode == 200 {
 				body2, _ := io.ReadAll(resp2.Body)
 				resp2.Body.Close()
-				if len(body2) > 1000 {
-				    // Collect all images for album posts (e.g. 4 Gambar) - og:image + all scontent
-				    var urls []string
-				    if m := ogImagePattern.FindSubmatch(body2); len(m) >= 2 {
-				        u := unescapeFacebookURL(string(m[1]))
-				        urls = append(urls, u)
-				    }
-				    for _, raw := range scontentPattern.FindAllString(string(body2), 15) {
-				        u := unescapeFacebookURL(raw)
-				        if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") {
-				            continue
-				        }
-				        fn := u
-				        if idx := strings.Index(fn, "?"); idx != -1 {
-				            fn = fn[:idx]
-				        }
-				        if idx := strings.LastIndex(fn, "/"); idx != -1 {
-				            fn = fn[idx+1:]
-				        }
-				        dup := false
-				        for _, e := range urls {
-				            ef := e
-				            if idx := strings.Index(ef, "?"); idx != -1 {
-				                ef = ef[:idx]
-				            }
-				            if idx := strings.LastIndex(ef, "/"); idx != -1 {
-				                ef = ef[idx+1:]
-				            }
-				            if ef == fn {
-				                dup = true
-				                break
-				            }
-				        }
-				        if dup {
-				            continue
-				        }
-				        urls = append(urls, u)
-				    }
-				    if len(urls) > 0 {
-				        if len(urls) > 10 {
-				            urls = urls[:10]
-				        }
-				        if len(urls) == 1 {
-				            return &VideoData{
-				                ImageURL: urls[0],
-				                Title:    "",
-				            }, nil
-				        }
-				        return &VideoData{
-				            ImageURLs: urls,
-				            Title:     "",
-				        }, nil
-				    }
+				// og:image first
+				if m := ogImagePattern.FindSubmatch(body2); len(m) >= 2 {
+					u := unescapeFacebookURL(string(m[1]))
+					fn := u
+					if idx := strings.Index(fn, "?"); idx != -1 {
+						fn = fn[:idx]
+					}
+					if idx := strings.LastIndex(fn, "/"); idx != -1 {
+						fn = fn[idx+1:]
+					}
+					dup := false
+					for _, e := range allUrls {
+						ef := e
+						if idx := strings.Index(ef, "?"); idx != -1 {
+							ef = ef[:idx]
+						}
+						if idx := strings.LastIndex(ef, "/"); idx != -1 {
+							ef = ef[idx+1:]
+						}
+						if ef == fn {
+							dup = true
+							break
+						}
+					}
+					if !dup {
+						allUrls = append(allUrls, u)
+					}
 				}
+				collectFunc(body2)
 			}
+		}
+		// Fallback photo.php?fbid=POST_ID with desktop UA - contains all album images (GabrielVelasco approach pure-Go)
+		photoURL := fmt.Sprintf("https://www.facebook.com/photo.php?fbid=%s", ctx.ContentID)
+		respPhoto, errPhoto := ctx.Fetch(
+			http.MethodGet,
+			photoURL,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+				},
+			},
+		)
+		if errPhoto == nil && respPhoto.StatusCode == 200 {
+			bodyPhoto, _ := io.ReadAll(respPhoto.Body)
+			respPhoto.Body.Close()
+			collectFunc(bodyPhoto)
+		}
+		if len(allUrls) > 0 {
+			if len(allUrls) > 10 {
+				allUrls = allUrls[:10]
+			}
+			if len(allUrls) == 1 {
+				return &VideoData{
+					ImageURL: allUrls[0],
+					Title:    "",
+				}, nil
+			}
+			return &VideoData{
+				ImageURLs: allUrls,
+				Title:     "",
+			}, nil
 		}
 	}
 
