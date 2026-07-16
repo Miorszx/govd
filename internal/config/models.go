@@ -43,6 +43,11 @@ type EnvConfig struct {
 	DefaultDeleteLinks     bool
 
 	AutomaticLanguageDetection bool
+
+	// Facebook Graph API (Option B) - for HD photo/video extraction
+	FacebookAppID       string
+	FacebookAppSecret   string
+	FacebookAccessToken string
 }
 
 type ExtractorConfig struct {

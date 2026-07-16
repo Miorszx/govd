@@ -41,6 +41,9 @@ func loadFromEnv() {
 	parseEnvLanguage("DEFAULT_LANGUAGE", &Env.DefaultLanguage, false)
 	parseEnvBool("DEFAULT_DELETE_LINKS", &Env.DefaultDeleteLinks, false)
 	parseEnvBool("AUTOMATIC_LANGUAGE_DETECTION", &Env.AutomaticLanguageDetection, false)
+	parseEnvString("FACEBOOK_APP_ID", &Env.FacebookAppID, false)
+	parseEnvString("FACEBOOK_APP_SECRET", &Env.FacebookAppSecret, false)
+	parseEnvString("FACEBOOK_ACCESS_TOKEN", &Env.FacebookAccessToken, false)
 }
 
 func GetDefaultConfig() *EnvConfig {
