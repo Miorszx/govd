@@ -61,6 +61,8 @@ var (
 	scontentPattern = regexp.MustCompile(
 		`https://[^"]*scontent[^"]*\.(?:jpg|png)`,
 	)
+	// FB image sizing markers like p600x600, p394x394, p720x720 etc – we upgrade to p1080x1080 for HD
+	fbImageSizePattern = regexp.MustCompile(`p(\d+)x(\d+)`)
 	messagePattern = regexp.MustCompile(
 		`"(?:message|attached_story)"\s*:\s*\{\s*"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`,
 	)
@@ -223,7 +225,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				// Replace \/ with / for matching
 				unescapedForMatch := strings.ReplaceAll(strBody, `\/`, "/")
 				for _, raw := range scontentPattern.FindAllString(unescapedForMatch, 30) {
-					u := unescapeFacebookURL(raw)
+					u := upgradeFBImageToHD(unescapeFacebookURL(raw))
 					if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "t39.30808-2") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "emoji") {
 						continue
 					}
@@ -276,7 +278,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				resp2.Body.Close()
 				// og:image first
 				if m := ogImagePattern.FindSubmatch(body2); len(m) >= 2 {
-					u := unescapeFacebookURL(string(m[1]))
+					u := upgradeFBImageToHD(unescapeFacebookURL(string(m[1])))
 					fn := u
 					if idx := strings.Index(fn, "?"); idx != -1 {
 						fn = fn[:idx]
@@ -327,9 +329,12 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 			if len(allUrls) == 1 {
 				return &VideoData{
-					ImageURL: allUrls[0],
+					ImageURL: upgradeFBImageToHD(allUrls[0]),
 					Title:    "",
 				}, nil
+			}
+			for i := range allUrls {
+				allUrls[i] = upgradeFBImageToHD(allUrls[i])
 			}
 			return &VideoData{
 				ImageURLs: allUrls,
@@ -377,10 +382,10 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			// Try image extraction for photo posts - support album 4 gambar
 			var urls []string
 			if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
-				urls = append(urls, unescapeFacebookURL(string(match[1])))
+				urls = append(urls, upgradeFBImageToHD(unescapeFacebookURL(string(match[1]))))
 			}
 			for _, raw := range scontentPattern.FindAllString(string(body), 15) {
-				u := unescapeFacebookURL(raw)
+				u := upgradeFBImageToHD(unescapeFacebookURL(raw))
 				if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") {
 					continue
 				}
@@ -1144,6 +1149,28 @@ func unescapeUnicode(s string) string {
 }
 
 // decodeHex4 parses a 4-char hex sequence (e.g. "D83E") into a rune.
+func upgradeFBImageToHD(u string) string {
+	if u == "" {
+		return u
+	}
+	if !strings.Contains(u, "scontent") {
+		return u
+	}
+	upgraded := fbImageSizePattern.ReplaceAllStringFunc(u, func(m string) string {
+		sub := fbImageSizePattern.FindStringSubmatch(m)
+		if len(sub) < 3 {
+			return m
+		}
+		var w int
+		fmt.Sscanf(sub[1], "%d", &w)
+		if w >= 1080 {
+			return m
+		}
+		return "p1080x1080"
+	})
+	return upgraded
+}
+
 func decodeHex4(h string) (rune, bool) {
 	var r rune
 	for j := 0; j < 4; j++ {
