@@ -59,6 +59,9 @@ var (
 	ogImagePattern = regexp.MustCompile(
 		`<meta[^>]+property="og:image"[^>]+content="([^"]+)"`,
 	)
+	ogVideoPattern = regexp.MustCompile(
+		`<meta[^>]+property="og:video"[^>]+content="([^"]+)"`,
+	)
 	scontentPattern = regexp.MustCompile(
 		`https://[^"]*scontent[^"]*\.(?:jpg|png)`,
 	)
@@ -595,6 +598,36 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
 				data.SDURL = unescapeFacebookURL(string(match[1]))
 			}
+			// og:video fallback for m.facebook.com reels with flagged cookies (sve_sd mp4)
+			if data.HDURL == "" && data.SDURL == "" {
+				if m := ogVideoPattern.FindSubmatch(body); len(m) >= 2 {
+					u := unescapeFacebookURL(string(m[1]))
+					u = strings.ReplaceAll(u, "&amp;", "&")
+					if strings.Contains(u, ".mp4") || strings.Contains(u, "video") {
+						data.SDURL = u
+					}
+				}
+			}
+			// browser_native_* / playable_url fallback for m pages
+			if data.HDURL == "" && data.SDURL == "" {
+				if m := regexp.MustCompile(`"browser_native_hd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+					data.HDURL = unescapeFacebookURL(string(m[1]))
+				}
+				if m := regexp.MustCompile(`"browser_native_sd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+					data.SDURL = unescapeFacebookURL(string(m[1]))
+				}
+				if data.HDURL == "" {
+					if m := regexp.MustCompile(`"playable_url_quality_hd"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+						data.HDURL = unescapeFacebookURL(string(m[1]))
+					}
+				}
+				if data.SDURL == "" {
+					if m := regexp.MustCompile(`"playable_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+						data.SDURL = unescapeFacebookURL(string(m[1]))
+					}
+				}
+			}
+			// last resort thumbnail
 			if data.HDURL == "" && data.SDURL == "" {
 				if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
 					data.ImageURL = unescapeFacebookURL(string(match[1]))
