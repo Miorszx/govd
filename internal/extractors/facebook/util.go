@@ -13,6 +13,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/govdbot/govd/internal/config"
 	"github.com/govdbot/govd/internal/logger"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/networking"
@@ -85,6 +86,74 @@ var (
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	contentURL := strings.Replace(ctx.ContentURL, "m.facebook.com", "www.facebook.com", 1)
 	contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "www.facebook.com", 1)
+
+	// Option B: Try Graph API first for HD (if FACEBOOK_ACCESS_TOKEN set)
+	// This gives HD src without oh= signature issue (no 403) and handles albums + videos
+	// Supports: share/p, share/v, permalink, etc
+	// Photo: {pageID}_{postID}?fields=attachments{media{image{src,width,height}},subattachments}
+	// Video: {videoID}?fields=source,format
+	if config.Env.FacebookAccessToken != "" {
+		// Extract pageID and postID for Graph API
+		var pageID, postID string
+		if m := regexp.MustCompile(`[?&]id=(\d+)`).FindStringSubmatch(contentURL); len(m) == 2 {
+			pageID = m[1]
+			postID = ctx.ContentID
+		}
+		if pageID == "" {
+			if m := regexp.MustCompile(`facebook\.com/(\d+)/(?:posts|videos|reels|permalink)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+				pageID = m[1]
+				if postID == "" {
+					postID = ctx.ContentID
+				}
+			}
+		}
+		if pageID == "" {
+			if m := regexp.MustCompile(`facebook\.com/groups/(\d+)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+				pageID = m[1]
+				if postID == "" {
+					postID = ctx.ContentID
+				}
+			}
+		}
+		// For bare share/<id> like 1CKF4qojsQ, try to get pageID via S:_I if token exists, but we have postID from ctx
+		// Also extract photoIDs from contentID for direct photo lookup (for p albums)
+		var photoIDs []string
+		if len(ctx.ContentID) > 10 {
+			// If contentID looks like a post ID, use it as postID
+			if postID == "" {
+				postID = ctx.ContentID
+			}
+		}
+		// Try Graph API for photo album HD
+		if postID != "" {
+			if gd, err := tryGraphAPIHD(ctx, pageID, postID, photoIDs); err == nil && gd != nil {
+				// Upgrade any remaining p600 to p1080 (should already be HD from Graph, but keep)
+				if gd.ImageURL != "" {
+					gd.ImageURL = upgradeFBImageToHD(gd.ImageURL)
+				}
+				for i := range gd.ImageURLs {
+					gd.ImageURLs[i] = upgradeFBImageToHD(gd.ImageURLs[i])
+				}
+				return gd, nil
+			}
+		}
+		// Try Graph API for video (share/v, reel, etc)
+		if ctx.ContentID != "" {
+			if gv, err := tryGraphAPIVideo(ctx, ctx.ContentID); err == nil && gv != nil {
+				if gv.HDURL != "" || gv.SDURL != "" || gv.ImageURL != "" {
+					return gv, nil
+				}
+			}
+		}
+		// Also try with postID as videoID if ContentID is share ID like 1BNWPp61LJ which resolves to group permalink
+		if postID != "" && postID != ctx.ContentID {
+			if gv, err := tryGraphAPIVideo(ctx, postID); err == nil && gv != nil {
+				if gv.HDURL != "" || gv.SDURL != "" {
+					return gv, nil
+				}
+			}
+		}
+	}
 
 	// convert watch URLs to reel permalink,
 	// /watch/?v=XXX pages return wrong video data when scraped
