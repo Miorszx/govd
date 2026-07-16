@@ -87,6 +87,12 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	contentURL := strings.Replace(ctx.ContentURL, "m.facebook.com", "www.facebook.com", 1)
 	contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "www.facebook.com", 1)
 
+	// For reels, use m.facebook.com directly with iPhone UA (faster, avoids 1542 Error)
+	isReel := strings.Contains(contentURL, "/reel/")
+	if isReel {
+		contentURL = strings.Replace(contentURL, "www.facebook.com", "m.facebook.com", 1)
+	}
+
 	// Option B: Try Graph API first for HD (if FACEBOOK_ACCESS_TOKEN set)
 	// This gives HD src without oh= signature issue (no 403) and handles albums + videos
 	// Supports: share/p, share/v, permalink, etc
@@ -159,6 +165,10 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// /watch/?v=XXX pages return wrong video data when scraped
 	if strings.Contains(contentURL, "/watch") && ctx.ContentID != "" {
 		contentURL = "https://www.facebook.com/reel/" + ctx.ContentID
+		isReel = true
+		if !strings.Contains(contentURL, "m.facebook.com") {
+			contentURL = strings.Replace(contentURL, "www.facebook.com", "m.facebook.com", 1)
+		}
 	}
 
 	// Facebook serves variable HTML: sometimes a full video page (with
@@ -178,11 +188,20 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			time.Sleep(sleepMS)
 		}
 
+		reqHeaders := webHeaders
+		if isReel {
+			reqHeaders = map[string]string{
+				"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Accept-Language": "en-US,en;q=0.5",
+			}
+		}
+
 		resp, err := ctx.Fetch(
 			http.MethodGet,
 			contentURL,
 			&networking.RequestParams{
-				Headers: webHeaders,
+				Headers: reqHeaders,
 			},
 		)
 		if err != nil {
@@ -575,6 +594,24 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			}
 			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
 				data.SDURL = unescapeFacebookURL(string(match[1]))
+			}
+			if data.HDURL == "" && data.SDURL == "" {
+				if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
+					data.ImageURL = unescapeFacebookURL(string(match[1]))
+				}
+				if data.ImageURL == "" {
+					for _, raw := range scontentPattern.FindAllString(string(body), 5) {
+						u := unescapeFacebookURL(raw)
+						if !strings.Contains(u, "oh=") {
+							continue
+						}
+						if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") {
+							continue
+						}
+						data.ImageURL = u
+						break
+					}
+				}
 			}
 		}
 	}
