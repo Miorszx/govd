@@ -77,6 +77,28 @@ var ShareExtractor = &models.Extractor{
 						bodyAll = bodyAll2
 					}
 				}
+				// For group photo posts like 19Fea5TgkK/, www/share/p iPhone gives 47418 no og:url, but mbasic/share/p iPhone gives 46838 with og:url groups/2807075776107813/posts/3505374679611249/ + og:image single
+				if !bytes.Contains(bodyAll, []byte("post_id")) && !bytes.Contains(bodyAll, []byte("S:_I")) {
+					resp3, err3 := ctx.Fetch(
+						http.MethodGet,
+						fmt.Sprintf("https://mbasic.facebook.com/share/p/%s/", ctx.ContentID),
+						&networking.RequestParams{
+							Headers: map[string]string{
+								"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+							},
+						},
+					)
+					if err3 == nil {
+						bodyAll3, _ := io.ReadAll(resp3.Body)
+						resp3.Body.Close()
+						if len(bodyAll3) > len(bodyAll) {
+							bodyAll = bodyAll3
+						} else if len(bodyAll3) > 1000 {
+							// mbasic iPhone 46838 has og:url even if smaller than www 47412
+							bodyAll = bodyAll3
+						}
+					}
+				}
 			}
 			if len(bodyAll) > 50000 {
 				bodyAll = bodyAll[:50000]
