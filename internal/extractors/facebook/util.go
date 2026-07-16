@@ -1196,6 +1196,15 @@ func upgradeFBImageToHD(u string) string {
 	if !strings.Contains(u, "scontent") {
 		return u
 	}
+	// For dst-webp_p394x394_q70 URLs, upgrading stp breaks oh= signature (403 mismatch)
+	// Only upgrade images that have ctp= (cp0_dst-jpg...ctp=p600) which keeps signature valid
+	// Test: p600 with ctp -> 78KB 200 OK, p394 dst-webp -> 403 mismatch
+	if strings.Contains(u, "p394x394") && strings.Contains(u, "dst-webp") {
+		return u // keep original, don't break signature
+	}
+	if strings.Contains(u, "p843x403") {
+		return u // also breaks sig
+	}
 	upgraded := fbImageSizePattern.ReplaceAllStringFunc(u, func(m string) string {
 		sub := fbImageSizePattern.FindStringSubmatch(m)
 		if len(sub) < 3 {
