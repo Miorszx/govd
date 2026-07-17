@@ -3,9 +3,11 @@ package facebook
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/govdbot/govd/internal/database"
@@ -27,6 +29,23 @@ var ShareExtractor = &models.Extractor{
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
 		var lastErr error
+
+		// For bare share (no r|v|p prefix), try mbasic/share/{id}/ iPhone first
+		// This gives photo albums with multiple images + caption directly
+		isBareShare := true
+		for _, p := range []string{"/share/r/", "/share/v/", "/share/p/"} {
+			if bytes.Contains([]byte(ctx.ContentURL), []byte(p)) {
+				isBareShare = false
+				break
+			}
+		}
+		if isBareShare {
+			media, err := tryMbasicShareAlbum(ctx)
+			if err == nil && media != nil && len(media.Items) > 0 {
+				return &models.ExtractorResponse{Media: media}, nil
+			}
+		}
+
 		for attempt := 1; attempt <= 3; attempt++ {
 			finalURL, err := ctx.FetchLocation(
 				ctx.ContentURL,
@@ -311,5 +330,126 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 	}
 
 	item.AddFormats(formats...)
+	return media, nil
+}
+
+// tryMbasicShareAlbum fetches mbasic.facebook.com/share/{id}/ with iPhone UA
+// and extracts photo album images + caption. Returns nil if not a photo album.
+// FB returns inconsistent body sizes (46KB light vs 248KB full), so we retry
+// until we get a large body with multiple scontent images.
+func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
+	mbasicURL := fmt.Sprintf("https://mbasic.facebook.com/share/%s/", ctx.ContentID)
+	var bestBody []byte
+	for attempt := 1; attempt <= 5; attempt++ {
+		if attempt > 1 {
+			time.Sleep(time.Duration(attempt*400) * time.Millisecond)
+		}
+		resp, err := ctx.Fetch(
+			http.MethodGet,
+			mbasicURL,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					"Accept-Language": "en-US,en;q=0.5",
+				},
+			},
+		)
+		if err != nil || resp.StatusCode != 200 {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if len(body) < 1000 {
+			continue
+		}
+		if bestBody == nil || len(body) > len(bestBody) {
+			bestBody = body
+		}
+		// If we have a large body with multiple scontent, we're done
+		if len(body) > 150000 {
+			break
+		}
+	}
+	if bestBody == nil {
+		return nil, fmt.Errorf("mbasic share fetch failed after retries")
+	}
+	body := bestBody
+
+	// Extract caption from og:description
+	var caption string
+	if m := ogDescPattern.FindSubmatch(body); len(m) >= 2 {
+		caption = html.UnescapeString(string(m[1]))
+	}
+
+	// Collect all scontent image URLs, dedup by filename
+	var allUrls []string
+	seen := map[string]bool{}
+	for _, raw := range scontentPattern.FindAllString(string(body), -1) {
+		u := unescapeFacebookURL(raw)
+		// Skip profile/small images
+		if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") ||
+			strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") ||
+			strings.Contains(u, "emoji") {
+			continue
+		}
+		fn := u
+		if idx := strings.Index(fn, "?"); idx != -1 {
+			fn = fn[:idx]
+		}
+		if idx := strings.LastIndex(fn, "/"); idx != -1 {
+			fn = fn[idx+1:]
+		}
+		if seen[fn] {
+			continue
+		}
+		seen[fn] = true
+		allUrls = append(allUrls, u)
+	}
+
+	// Also check og:image
+	if m := ogImagePattern.FindSubmatch(body); len(m) >= 2 {
+		u := unescapeFacebookURL(string(m[1]))
+		fn := u
+		if idx := strings.Index(fn, "?"); idx != -1 {
+			fn = fn[:idx]
+		}
+		if idx := strings.LastIndex(fn, "/"); idx != -1 {
+			fn = fn[idx+1:]
+		}
+		if !seen[fn] {
+			seen[fn] = true
+			allUrls = append(allUrls, u)
+		}
+	}
+
+	if len(allUrls) == 0 {
+		return nil, fmt.Errorf("no images found in mbasic share")
+	}
+
+	// Do NOT upgradeFBImageToHD - hash (oh/oe) is tied to original resolution.
+	// Upgrading p600->p1080 causes "Bad URL hash" error. Keep original URLs.
+
+	// Build media with multiple items
+	media := ctx.NewMedia()
+	if caption != "" {
+		media.SetCaption(caption)
+	}
+	for i, u := range allUrls {
+		var item *models.MediaItem
+		if i == 0 {
+			item = media.NewItem()
+		} else {
+			item = media.NewItem()
+		}
+		item.AddFormats(&models.MediaFormat{
+			FormatID: fmt.Sprintf("image%d", i),
+			Type:     database.MediaTypePhoto,
+			URL:      []string{u},
+		})
+	}
 	return media, nil
 }
