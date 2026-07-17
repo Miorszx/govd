@@ -310,27 +310,20 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		// Even if video URLs found but caption is empty, do NOT fail —
 		// video itself is valid, caption is best-effort.
 		_ = body
-		// For reel, try plugins/video.php for HD - gives hd_src even with flagged cookies (208KB endpoint)
-		if isReel && data.HDURL == "" && data.SDURL != "" {
-			hdPlugins, sdPlugins := tryFetchHDFromPlugins(ctx, ctx.ContentID)
-			if hdPlugins != "" {
-				data.HDURL = hdPlugins
-				if data.SDURL == "" && sdPlugins != "" {
-					data.SDURL = sdPlugins
+		// Reel: fallback to plugins/video.php for HD (desktop UA returns hd_src even with flagged cookies)
+		if isReel {
+			if data.HDURL == "" {
+				if hd, sd := tryFetchHDFromPlugins(ctx, ctx.ContentID); hd != "" || sd != "" {
+					if hd != "" {
+						data.HDURL = hd
+					}
+					if data.SDURL == "" && sd != "" {
+						data.SDURL = sd
+					}
+					if data.HDURL != "" || data.SDURL != "" {
+						return data, nil
+					}
 				}
-			}
-		}
-		// Also if only SD from plugins, try again
-		if isReel && data.HDURL == "" && data.SDURL == "" {
-			hdPlugins, sdPlugins := tryFetchHDFromPlugins(ctx, ctx.ContentID)
-			if hdPlugins != "" {
-				data.HDURL = hdPlugins
-			}
-			if sdPlugins != "" {
-				data.SDURL = sdPlugins
-			}
-			if data.HDURL != "" || data.SDURL != "" {
-				return data, nil
 			}
 		}
 		return data, nil
