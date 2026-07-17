@@ -190,6 +190,39 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		}
 	}
 
+	// For reels, if still no HD, try plugins/video.php desktop UA which exposes hd_src
+	// plugins gives 273KB with hd_src 720p vs mbasic 79KB with only og:video SD
+	if isReel && data.HDURL == "" {
+		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
+		respP, errP := ctx.Fetch(
+			http.MethodGet,
+			pluginsURL,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+				},
+			},
+		)
+		if errP == nil && respP.StatusCode == 200 {
+			bodyP, _ := io.ReadAll(respP.Body)
+			respP.Body.Close()
+			if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(bodyP); len(m) >= 2 {
+				u := unescapeFacebookURL(string(m[1]))
+				u = strings.ReplaceAll(u, `\u0025`, `%`)
+				u = strings.ReplaceAll(u, `\u0026`, `&`)
+				u = strings.ReplaceAll(u, `&amp;`, `&`)
+				data.HDURL = u
+			}
+			if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(bodyP); len(m) >= 2 && data.SDURL == "" {
+				u := unescapeFacebookURL(string(m[1]))
+				u = strings.ReplaceAll(u, `\u0025`, `%`)
+				u = strings.ReplaceAll(u, `\u0026`, `&`)
+				u = strings.ReplaceAll(u, `&amp;`, `&`)
+				data.SDURL = u
+			}
+		}
+	}
+
 	// For reels, ensure we have video URLs (not just thumbnail)
 	if isReel && data.HDURL == "" && data.SDURL == "" {
 		if data.ImageURL != "" {
