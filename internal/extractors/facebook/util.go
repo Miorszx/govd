@@ -122,20 +122,88 @@ func tryFetchHDFromPlugins(ctx *models.ExtractorContext, videoID string) (string
 
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch")
-	
-	// DIRECT mbasic only - no www/m fallback, no Graph API, no retry chain
-	// mbasic.facebook.com has less bot detection, returns full page with video/images
-	var contentURL string
+
+	// REEL: HD only via plugins/video.php desktop UA - single fetch, no fallback
+	// plugins exposes hd_src 720p that mbasic/www/m don't have
 	if isReel {
-		contentURL = "https://mbasic.facebook.com/reel/" + ctx.ContentID
-	} else {
-		// Photo post / share / permalink - use mbasic with original path
-		contentURL = ctx.ContentURL
-		contentURL = strings.Replace(contentURL, "www.facebook.com", "mbasic.facebook.com", 1)
-		contentURL = strings.Replace(contentURL, "m.facebook.com", "mbasic.facebook.com", 1)
+		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
+		resp, err := ctx.Fetch(
+			http.MethodGet,
+			pluginsURL,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+				},
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch plugins: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to get plugins page: %s", resp.Status)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read plugins body: %w", err)
+		}
+
+		logger.WriteFile("fb_response", resp)
+
+		data := &VideoData{}
+
+		// Extract hd_src (720p HD)
+		if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+			u := unescapeFacebookURL(string(m[1]))
+			u = strings.ReplaceAll(u, `\u0025`, `%`)
+			u = strings.ReplaceAll(u, `\u0026`, `&`)
+			u = strings.ReplaceAll(u, `&amp;`, `&`)
+			data.HDURL = u
+		}
+
+		// Extract caption from <title> or og:description
+		if m := htmlTitlePattern.FindSubmatch(body); len(m) >= 2 {
+			t := unescapeUnicode(string(m[1]))
+			t = html.UnescapeString(t)
+			t = strings.TrimSpace(t)
+			// Remove zero-width unicode chars
+			t = strings.Map(func(r rune) rune {
+				switch r {
+				case 0x200E, 0x200F, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF:
+					return -1
+				}
+				return r
+			}, t)
+			t = strings.TrimSpace(t)
+			if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
+				t = t[:idx]
+			}
+			if idx := strings.LastIndex(t, " | "); idx != -1 {
+				suffix := t[idx+3:]
+				if len(suffix) < 50 && !strings.Contains(suffix, "#") && suffix != "" {
+					t = t[:idx]
+				}
+			}
+			t = strings.TrimSpace(t)
+			if len(t) > 0 && !strings.EqualFold(t, "Facebook") && !strings.HasPrefix(strings.ToLower(t), "log in") {
+				data.Title = t
+			}
+		}
+
+		if data.HDURL == "" {
+			return nil, fmt.Errorf("no HD video found (hd_src missing)")
+		}
+
+		return data, nil
 	}
 
-	// Single fetch - no retry, no fallback
+	// PHOTO POST / SHARE / PERMALINK: direct mbasic - single fetch
+	contentURL := ctx.ContentURL
+	contentURL = strings.Replace(contentURL, "www.facebook.com", "mbasic.facebook.com", 1)
+	contentURL = strings.Replace(contentURL, "m.facebook.com", "mbasic.facebook.com", 1)
+
 	resp, err := ctx.Fetch(
 		http.MethodGet,
 		contentURL,
@@ -176,59 +244,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	data, err := parseVideoFromBody(body, ctx.ContentID)
 	if err != nil {
 		return nil, err
-	}
-
-	// For reels, if parseVideoFromBody only found thumbnail, try og:video directly from body
-	// mbasic reel pages have og:video but parseVideoFromBody may miss it due to section anchoring
-	if isReel && data.HDURL == "" && data.SDURL == "" {
-		if m := ogVideoPattern.FindSubmatch(body); len(m) >= 2 {
-			u := unescapeFacebookURL(string(m[1]))
-			u = strings.ReplaceAll(u, "&amp;", "&")
-			if strings.Contains(u, ".mp4") || strings.Contains(u, "video") {
-				data.SDURL = u
-			}
-		}
-	}
-
-	// For reels, if still no HD, try plugins/video.php desktop UA which exposes hd_src
-	// plugins gives 273KB with hd_src 720p vs mbasic 79KB with only og:video SD
-	if isReel && data.HDURL == "" {
-		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
-		respP, errP := ctx.Fetch(
-			http.MethodGet,
-			pluginsURL,
-			&networking.RequestParams{
-				Headers: map[string]string{
-					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-				},
-			},
-		)
-		if errP == nil && respP.StatusCode == 200 {
-			bodyP, _ := io.ReadAll(respP.Body)
-			respP.Body.Close()
-			if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(bodyP); len(m) >= 2 {
-				u := unescapeFacebookURL(string(m[1]))
-				u = strings.ReplaceAll(u, `\u0025`, `%`)
-				u = strings.ReplaceAll(u, `\u0026`, `&`)
-				u = strings.ReplaceAll(u, `&amp;`, `&`)
-				data.HDURL = u
-			}
-			if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(bodyP); len(m) >= 2 && data.SDURL == "" {
-				u := unescapeFacebookURL(string(m[1]))
-				u = strings.ReplaceAll(u, `\u0025`, `%`)
-				u = strings.ReplaceAll(u, `\u0026`, `&`)
-				u = strings.ReplaceAll(u, `&amp;`, `&`)
-				data.SDURL = u
-			}
-		}
-	}
-
-	// For reels, ensure we have video URLs (not just thumbnail)
-	if isReel && data.HDURL == "" && data.SDURL == "" {
-		if data.ImageURL != "" {
-			return nil, fmt.Errorf("reel video not found, only thumbnail")
-		}
-		return nil, fmt.Errorf("no video URLs found in reel page")
 	}
 
 	return data, nil
