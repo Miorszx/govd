@@ -67,7 +67,7 @@ var (
 		`<meta[^>]+property="og:video"[^>]+content="([^"]+)"`,
 	)
 	scontentPattern = regexp.MustCompile(
-		`https://[^"]*scontent[^"]*\.(?:jpg|png)`,
+		`https://[^"\s]*scontent[^"\s]*`,
 	)
 	// Facepager-style: attachments JSON contains HD src directly
 	graphImageSrcPattern = regexp.MustCompile(`"src"\s*:\s*"(https://[^"]*scontent[^"]+)"`)
