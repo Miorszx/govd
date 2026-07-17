@@ -13,6 +13,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/govdbot/govd/internal/config"
 	"github.com/govdbot/govd/internal/logger"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/networking"
@@ -58,9 +59,17 @@ var (
 	ogImagePattern = regexp.MustCompile(
 		`<meta[^>]+property="og:image"[^>]+content="([^"]+)"`,
 	)
+	ogVideoPattern = regexp.MustCompile(
+		`<meta[^>]+property="og:video"[^>]+content="([^"]+)"`,
+	)
 	scontentPattern = regexp.MustCompile(
 		`https://[^"]*scontent[^"]*\.(?:jpg|png)`,
 	)
+	// Facepager-style: attachments JSON contains HD src directly
+	graphImageSrcPattern = regexp.MustCompile(`"src"\s*:\s*"(https://[^"]*scontent[^"]+)"`)
+	graphImageSourcePattern = regexp.MustCompile(`"source"\s*:\s*"(https://[^"]*scontent[^"]+)"`)
+	// FB image sizing markers like p600x600, p394x394, p720x720 etc – we upgrade to p1080x1080 for HD
+	fbImageSizePattern = regexp.MustCompile(`p(\d+)x(\d+)`)
 	messagePattern = regexp.MustCompile(
 		`"(?:message|attached_story)"\s*:\s*\{\s*"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`,
 	)
@@ -128,6 +137,84 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		}
 	}
 
+	// Option B: Try Graph API first for HD (if FACEBOOK_ACCESS_TOKEN set)
+	// This gives HD src without oh= signature issue (no 403) and handles albums + videos
+	// Supports: share/p, share/v, permalink, etc
+	// Photo: {pageID}_{postID}?fields=attachments{media{image{src,width,height}},subattachments}
+	// Video: {videoID}?fields=source,format
+	if config.Env.FacebookAccessToken != "" {
+		// Extract pageID and postID for Graph API
+		var pageID, postID string
+		if m := regexp.MustCompile(`[?&]id=(\d+)`).FindStringSubmatch(contentURL); len(m) == 2 {
+			pageID = m[1]
+			postID = ctx.ContentID
+		}
+		if pageID == "" {
+			if m := regexp.MustCompile(`facebook\.com/(\d+)/(?:posts|videos|reels|permalink)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+				pageID = m[1]
+				if postID == "" {
+					postID = ctx.ContentID
+				}
+			}
+		}
+		if pageID == "" {
+			if m := regexp.MustCompile(`facebook\.com/groups/(\d+)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+				pageID = m[1]
+				if postID == "" {
+					postID = ctx.ContentID
+				}
+			}
+		}
+		// For bare share/<id> like 1CKF4qojsQ, try to get pageID via S:_I if token exists, but we have postID from ctx
+		// Also extract photoIDs from contentID for direct photo lookup (for p albums)
+		var photoIDs []string
+		if len(ctx.ContentID) > 10 {
+			// If contentID looks like a post ID, use it as postID
+			if postID == "" {
+				postID = ctx.ContentID
+			}
+		}
+		// Try Graph API for photo album HD
+		if postID != "" {
+			if gd, err := tryGraphAPIHD(ctx, pageID, postID, photoIDs); err == nil && gd != nil {
+				// Upgrade any remaining p600 to p1080 (should already be HD from Graph, but keep)
+				if gd.ImageURL != "" {
+					gd.ImageURL = upgradeFBImageToHD(gd.ImageURL)
+				}
+				for i := range gd.ImageURLs {
+					gd.ImageURLs[i] = upgradeFBImageToHD(gd.ImageURLs[i])
+				}
+				return gd, nil
+			}
+		}
+		// Try Graph API for video (share/v, reel, etc)
+		if ctx.ContentID != "" {
+			if gv, err := tryGraphAPIVideo(ctx, ctx.ContentID); err == nil && gv != nil {
+				if gv.HDURL != "" || gv.SDURL != "" || gv.ImageURL != "" {
+					return gv, nil
+				}
+			}
+		}
+		// Also try with postID as videoID if ContentID is share ID like 1BNWPp61LJ which resolves to group permalink
+		if postID != "" && postID != ctx.ContentID {
+			if gv, err := tryGraphAPIVideo(ctx, postID); err == nil && gv != nil {
+				if gv.HDURL != "" || gv.SDURL != "" {
+					return gv, nil
+				}
+			}
+		}
+	}
+
+	// convert watch URLs to reel permalink,
+	// /watch/?v=XXX pages return wrong video data when scraped
+	if strings.Contains(contentURL, "/watch") && ctx.ContentID != "" {
+		contentURL = "https://www.facebook.com/reel/" + ctx.ContentID
+		isReel = true
+		if !strings.Contains(contentURL, "m.facebook.com") {
+			contentURL = strings.Replace(contentURL, "www.facebook.com", "m.facebook.com", 1)
+		}
+	}
+
 	// Facebook serves variable HTML: sometimes a full video page (with
 	// progressive_url + caption), sometimes a light/blocked variant with
 	// neither, sometimes HTTP 400/429 anti-bot. A follow-up request frequently
@@ -148,8 +235,8 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		reqHeaders := webHeaders
 		if isReel {
 			reqHeaders = map[string]string{
-				"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 				"Accept-Language": "en-US,en;q=0.5",
 			}
 		}
@@ -213,6 +300,15 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 			return nil, err
 		}
+		if isReel && data.HDURL == "" && data.SDURL == "" && data.ImageURL != "" {
+			lastErr = fmt.Errorf("thumbnail only, retrying for video")
+			if attempt < maxAttempts {
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+		}
+		// Even if video URLs found but caption is empty, do NOT fail —
+		// video itself is valid, caption is best-effort.
 		_ = body
 		// For reel, try plugins/video.php for HD - gives hd_src even with flagged cookies (208KB endpoint)
 		if isReel && data.HDURL == "" && data.SDURL != "" {
@@ -240,9 +336,218 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		return data, nil
 	}
 
+	// Fallback for photo posts like share/p: try mbasic for og:image
+	// ContentURL like story.php?story_fbid=POST_ID&id=PAGE_ID
+	if lastErr != nil && len(ctx.ContentID) > 0 {
+		// try to get pageID from contentURL id= param
+		var pageID string
+		var bestBody []byte
+		if m := regexp.MustCompile(`[?&]id=(\d+)`).FindStringSubmatch(contentURL); len(m) == 2 {
+			pageID = m[1]
+		}
+		// If no pageID, try from path like /{page_id}/posts/{post_id}/ for bare share/<id> like 1CKF4qojsQ
+		if pageID == "" {
+		    if m := regexp.MustCompile(`facebook\.com/(\d+)/(?:posts|videos|reels|permalink)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+		        pageID = m[1]
+		    }
+		}
+		// For group posts like groups/2807075776107813/posts/3505374679611249/ (19Fea5TgkK/ & 19HrxCEJWd/)
+		if pageID == "" {
+		    if m := regexp.MustCompile(`facebook\.com/groups/(\d+)/`).FindStringSubmatch(contentURL); len(m) == 2 {
+		        pageID = m[1]
+		    }
+		}
+		// If still no pageID, try to get it from S:_I token by fetching story.php with iPhone UA (for 1FtTAuWcPo etc)
+		if pageID == "" {
+			storyURL := fmt.Sprintf("https://www.facebook.com/story.php?story_fbid=%s", ctx.ContentID)
+			respS, errS := ctx.Fetch(
+				http.MethodGet,
+				storyURL,
+				&networking.RequestParams{
+					Headers: map[string]string{
+						"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+					},
+				},
+			)
+			if errS == nil && respS.StatusCode == 200 {
+				bodyS, _ := io.ReadAll(respS.Body)
+				respS.Body.Close()
+				if m := regexp.MustCompile(`S:_I(\d+):(\d+):`).FindSubmatch(bodyS); len(m) == 3 {
+					pageID = string(m[1])
+				}
+			}
+		}
+		// Combined fallback for album posts: mbasic + photo.php (like GabrielVelasco repo selenium scroll, but pure-Go)
+		// mbasic gives 1 image, photo.php with desktop UA gives 10 scontent including album images (handles https:// and https:\/\/ escaped)
+		var allUrls []string
+		collectFunc := func(body []byte) {
+			if len(body) < 1000 {
+				return
+			}
+			// Find both https:// and https:\/\/ escaped variants
+			// First unescape \/
+				strBody := string(body)
+				// Also handle escaped scontent: https:\/\/scontent...
+				// Replace \/ with / for matching
+				unescapedForMatch := strings.ReplaceAll(strBody, `\/`, "/")
+				for _, raw := range scontentPattern.FindAllString(unescapedForMatch, 30) {
+					u := upgradeFBImageToHD(unescapeFacebookURL(raw))
+					// Filter junk: require signed URL (oh=) and exclude tiny/profile frames and keyframes
+					if !strings.Contains(u, "oh=") {
+						continue
+					}
+					if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "t39.30808-2") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "emoji") || strings.Contains(u, "m1/v/t6") || strings.Contains(u, "/t45.") || strings.Contains(u, "s120x120") || strings.Contains(u, "p120x120") || strings.Contains(u, "s64x64") || strings.Contains(u, "p64x64") || strings.Contains(u, "_s.jpg") || strings.Contains(u, "_q.jpg") {
+						continue
+					}
+					fn := u
+					if idx := strings.Index(fn, "?"); idx != -1 {
+						fn = fn[:idx]
+					}
+					if idx := strings.LastIndex(fn, "/"); idx != -1 {
+						fn = fn[idx+1:]
+					}
+					if fn == "" {
+						continue
+					}
+					dup := false
+					for _, e := range allUrls {
+						ef := e
+						if idx := strings.Index(ef, "?"); idx != -1 {
+							ef = ef[:idx]
+						}
+						if idx := strings.LastIndex(ef, "/"); idx != -1 {
+							ef = ef[idx+1:]
+						}
+						if ef == fn {
+							dup = true
+							break
+						}
+					}
+					if dup {
+						continue
+					}
+					allUrls = append(allUrls, u)
+				}
+			}
+		if pageID != "" {
+			// Retry mbasic fetch up to 6 times to get the large album body (248KB) which contains all 3 images
+			// Small body (46KB) only has 1 image, large body (248KB) has 3 images with oh= signatures
+			mbasicURL := fmt.Sprintf("https://mbasic.facebook.com/%s/posts/%s/", pageID, ctx.ContentID)
+			for mbAttempt := 1; mbAttempt <= 6; mbAttempt++ {
+				if mbAttempt > 1 {
+					time.Sleep(time.Duration(mbAttempt*300) * time.Millisecond)
+				}
+				resp2, err2 := ctx.Fetch(
+					http.MethodGet,
+					mbasicURL,
+					&networking.RequestParams{
+						Headers: map[string]string{
+							"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+						},
+					},
+				)
+				if err2 != nil || resp2.StatusCode != 200 {
+					if resp2 != nil {
+						resp2.Body.Close()
+					}
+					continue
+				}
+				body2, _ := io.ReadAll(resp2.Body)
+				resp2.Body.Close()
+				if len(body2) < 1000 {
+					continue
+				}
+				// keep best (largest) body
+				if bestBody == nil || len(body2) > len(bestBody) {
+					bestBody = body2
+				}
+				// if we already have a large body with multiple scontent, break early
+				if len(body2) > 150000 {
+					break
+				}
+			}
+			if bestBody != nil {
+				// og:image first
+				if m := ogImagePattern.FindSubmatch(bestBody); len(m) >= 2 {
+					u := upgradeFBImageToHD(unescapeFacebookURL(string(m[1])))
+					fn := u
+					if idx := strings.Index(fn, "?"); idx != -1 {
+						fn = fn[:idx]
+					}
+					if idx := strings.LastIndex(fn, "/"); idx != -1 {
+						fn = fn[idx+1:]
+					}
+					dup := false
+					for _, e := range allUrls {
+						ef := e
+						if idx := strings.Index(ef, "?"); idx != -1 {
+							ef = ef[:idx]
+						}
+						if idx := strings.LastIndex(ef, "/"); idx != -1 {
+							ef = ef[idx+1:]
+						}
+						if ef == fn {
+							dup = true
+							break
+						}
+					}
+					if !dup {
+						allUrls = append(allUrls, u)
+					}
+				}
+				collectFunc(bestBody)
+			}
+		}
+		// Fallback photo.php?fbid=POST_ID with desktop UA - contains all album images (GabrielVelasco approach pure-Go)
+		photoURL := fmt.Sprintf("https://www.facebook.com/photo.php?fbid=%s", ctx.ContentID)
+		respPhoto, errPhoto := ctx.Fetch(
+			http.MethodGet,
+			photoURL,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+				},
+			},
+		)
+		if errPhoto == nil && respPhoto.StatusCode == 200 {
+			bodyPhoto, _ := io.ReadAll(respPhoto.Body)
+			respPhoto.Body.Close()
+			collectFunc(bodyPhoto)
+		}
+		if len(allUrls) > 0 {
+			if len(allUrls) > 10 {
+				allUrls = allUrls[:10]
+			}
+			for i := range allUrls {
+				allUrls[i] = upgradeFBImageToHD(allUrls[i])
+			}
+			// try extract caption from bestBody if available
+			caption := ""
+			if bestBody != nil {
+				if m := ogDescPattern.FindSubmatch(bestBody); len(m) >= 2 {
+					caption = html.UnescapeString(string(m[1]))
+				}
+			}
+			if len(allUrls) == 1 {
+				return &VideoData{
+					ImageURL: allUrls[0],
+					Title:    caption,
+				}, nil
+			}
+			return &VideoData{
+				ImageURLs: allUrls,
+				Title:     caption,
+			}, nil
+		}
+	}
+
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no video URLs found in page")
 	}
+	// Facepager-style token hint: if we tried mbasic and got login redirect, suggest Graph API token
+	// This helps user understand why share/v 1BNWPp61LJ gives thumbnail 720x720 not video
+	// and why 19HrxCEJWd gives 1 image not 3
+	// No token config currently, but log hint for debugging (logger already writes fb_response)
 	return nil, lastErr
 }
 
@@ -274,46 +579,142 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// on the full body (single-video posts/reels) so the extraction does
 	// not falsely fail. Caption extraction already runs against body.
 	if data.HDURL == "" && data.SDURL == "" {
-		if len(section) != 0 {
-			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.HDURL = unescapeFacebookURL(string(match[1]))
+		// Don't fallback to full body if we already determined it's feed/photo (section empty)
+		if len(section) == 0 {
+			// Try image extraction for photo posts - support album 4 gambar
+			// Facepager-style: attachments JSON contains HD src in "src":"https://scontent..." and subattachments for albums
+			var urls []string
+			// Phase 1: Graph-style src (attachments.media.image.src) - this gives HD directly like Facepager preset
+			// These are like {"src":"https://scontent...","width":1080} from attachments field
+			seenSrc := map[string]struct{}{}
+			for _, m := range graphImageSrcPattern.FindAllSubmatch(body, 20) {
+				if len(m) < 2 { continue }
+				raw := string(m[1])
+				// unescape
+				raw = unescapeFacebookURL(raw)
+				raw = upgradeFBImageToHD(raw)
+				if !strings.Contains(raw, "oh=") { continue }
+				if _, ok := seenSrc[raw]; ok { continue }
+				seenSrc[raw] = struct{}{}
+				// filter tiny
+				if strings.Contains(raw, "t39.30808-1") || strings.Contains(raw, "p50x50") || strings.Contains(raw, "s120x120") {
+					continue
+				}
+				urls = append(urls, raw)
 			}
-			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.SDURL = unescapeFacebookURL(string(match[1]))
+			// Phase 2: source field (images{source})
+			for _, m := range graphImageSourcePattern.FindAllSubmatch(body, 20) {
+				if len(m) < 2 { continue }
+				raw := unescapeFacebookURL(string(m[1]))
+				raw = upgradeFBImageToHD(raw)
+				if !strings.Contains(raw, "oh=") { continue }
+				if _, ok := seenSrc[raw]; ok { continue }
+				seenSrc[raw] = struct{}{}
+				if strings.Contains(raw, "t39.30808-1") { continue }
+				urls = append(urls, raw)
 			}
-		}
-		if data.HDURL == "" && data.SDURL == "" {
-			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.HDURL = unescapeFacebookURL(string(match[1]))
+			// Phase 3: og:image fallback
+			if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
+				urls = append(urls, upgradeFBImageToHD(unescapeFacebookURL(string(match[1]))))
 			}
-			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.SDURL = unescapeFacebookURL(string(match[1]))
+			// Phase 4: classic scontent pattern (existing)
+			for _, raw := range scontentPattern.FindAllString(string(body), 20) {
+				u := upgradeFBImageToHD(unescapeFacebookURL(raw))
+				if !strings.Contains(u, "oh=") {
+					continue
+				}
+				if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "t39.30808-2") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "m1/v/t6") || strings.Contains(u, "s120x120") || strings.Contains(u, "p120x120") {
+					continue
+				}
+				fn := u
+				if idx := strings.Index(fn, "?"); idx != -1 {
+					fn = fn[:idx]
+				}
+				if idx := strings.LastIndex(fn, "/"); idx != -1 {
+					fn = fn[idx+1:]
+				}
+				dup := false
+				for _, e := range urls {
+					ef := e
+					if idx := strings.Index(ef, "?"); idx != -1 {
+						ef = ef[:idx]
+					}
+					if idx := strings.LastIndex(ef, "/"); idx != -1 {
+						ef = ef[idx+1:]
+					}
+					if ef == fn {
+						dup = true
+						break
+					}
+				}
+				if dup {
+					continue
+				}
+				urls = append(urls, u)
 			}
-		}
-		if data.HDURL == "" && data.SDURL == "" {
-			if m := regexp.MustCompile(`<meta[^>]+property="og:video"[^>]+content="([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-				u := unescapeFacebookURL(string(m[1]))
-				u = strings.ReplaceAll(u, "&amp;", "&")
-				if strings.Contains(u, ".mp4") {
-					data.SDURL = u
+			if len(urls) > 0 {
+				if len(urls) > 10 {
+					urls = urls[:10]
+				}
+				if len(urls) == 1 {
+					data.ImageURL = urls[0]
+				} else {
+					data.ImageURLs = urls
 				}
 			}
-		}
-		if data.HDURL == "" && data.SDURL == "" {
-			if m := regexp.MustCompile(`"browser_native_hd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-				data.HDURL = unescapeFacebookURL(string(m[1]))
+		} else {
+			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.HDURL = unescapeFacebookURL(string(match[1]))
 			}
-			if m := regexp.MustCompile(`"browser_native_sd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-				data.SDURL = unescapeFacebookURL(string(m[1]))
+			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.SDURL = unescapeFacebookURL(string(match[1]))
 			}
-			if data.HDURL == "" {
-				if m := regexp.MustCompile(`"playable_url_quality_hd"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+			// og:video fallback for m.facebook.com reels with flagged cookies (sve_sd mp4)
+			if data.HDURL == "" && data.SDURL == "" {
+				if m := ogVideoPattern.FindSubmatch(body); len(m) >= 2 {
+					u := unescapeFacebookURL(string(m[1]))
+					u = strings.ReplaceAll(u, "&amp;", "&")
+					if strings.Contains(u, ".mp4") || strings.Contains(u, "video") {
+						data.SDURL = u
+					}
+				}
+			}
+			// browser_native_* / playable_url fallback for m pages
+			if data.HDURL == "" && data.SDURL == "" {
+				if m := regexp.MustCompile(`"browser_native_hd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
 					data.HDURL = unescapeFacebookURL(string(m[1]))
 				}
-			}
-			if data.SDURL == "" {
-				if m := regexp.MustCompile(`"playable_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+				if m := regexp.MustCompile(`"browser_native_sd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
 					data.SDURL = unescapeFacebookURL(string(m[1]))
+				}
+				if data.HDURL == "" {
+					if m := regexp.MustCompile(`"playable_url_quality_hd"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+						data.HDURL = unescapeFacebookURL(string(m[1]))
+					}
+				}
+				if data.SDURL == "" {
+					if m := regexp.MustCompile(`"playable_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+						data.SDURL = unescapeFacebookURL(string(m[1]))
+					}
+				}
+			}
+			// last resort thumbnail
+			if data.HDURL == "" && data.SDURL == "" {
+				if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
+					data.ImageURL = unescapeFacebookURL(string(match[1]))
+				}
+				if data.ImageURL == "" {
+					for _, raw := range scontentPattern.FindAllString(string(body), 5) {
+						u := unescapeFacebookURL(raw)
+						if !strings.Contains(u, "oh=") {
+							continue
+						}
+						if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") {
+							continue
+						}
+						data.ImageURL = u
+						break
+					}
 				}
 			}
 		}
@@ -423,6 +824,10 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	}
 	data.Title = best
 
+	// For photo posts we already have ImageURL/ImageURLs, return even if no video URLs
+	if data.ImageURL != "" || len(data.ImageURLs) > 0 {
+		return data, nil
+	}
 	if data.HDURL == "" && data.SDURL == "" {
 		return nil, fmt.Errorf("no video URLs found in page")
 	}
@@ -1033,6 +1438,37 @@ func unescapeUnicode(s string) string {
 }
 
 // decodeHex4 parses a 4-char hex sequence (e.g. "D83E") into a rune.
+func upgradeFBImageToHD(u string) string {
+	if u == "" {
+		return u
+	}
+	if !strings.Contains(u, "scontent") {
+		return u
+	}
+	// For dst-webp_p394x394_q70 URLs, upgrading stp breaks oh= signature (403 mismatch)
+	// Only upgrade images that have ctp= (cp0_dst-jpg...ctp=p600) which keeps signature valid
+	// Test: p600 with ctp -> 78KB 200 OK, p394 dst-webp -> 403 mismatch
+	if strings.Contains(u, "p394x394") && strings.Contains(u, "dst-webp") {
+		return u // keep original, don't break signature
+	}
+	if strings.Contains(u, "p843x403") {
+		return u // also breaks sig
+	}
+	upgraded := fbImageSizePattern.ReplaceAllStringFunc(u, func(m string) string {
+		sub := fbImageSizePattern.FindStringSubmatch(m)
+		if len(sub) < 3 {
+			return m
+		}
+		var w int
+		fmt.Sscanf(sub[1], "%d", &w)
+		if w >= 1080 {
+			return m
+		}
+		return "p1080x1080"
+	})
+	return upgraded
+}
+
 func decodeHex4(h string) (rune, bool) {
 	var r rune
 	for j := 0; j < 4; j++ {
