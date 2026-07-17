@@ -48,6 +48,10 @@ var (
 	titlePattern = regexp.MustCompile(
 		`"title"\s*:\s*\{\s*"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`,
 	)
+	// HTML <title> tag - for m.facebook.com reels where og:title/og:description are truncated but <title> has full caption
+	htmlTitlePattern = regexp.MustCompile(
+		`<title[^>]*>([^<]+)</title>`,
+	)
 	// FB modern pages embed the post caption in several places.
 	// These are tried in order; the longest non-empty match wins.
 	ogDescPattern = regexp.MustCompile(
@@ -715,6 +719,30 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// title can be anywhere in the page
 	if match := titlePattern.FindSubmatch(body); len(match) >= 2 {
 		data.Title = unescapeUnicode(string(match[1]))
+	}
+	// HTML <title> tag often has fuller caption than og:title for m reels - prefer it if longer
+	if match := htmlTitlePattern.FindSubmatch(body); len(match) >= 2 {
+		t := unescapeUnicode(string(match[1]))
+		t = html.UnescapeString(t)
+		t = strings.TrimSpace(t)
+		// Remove trailing "| Facebook" and "| PageName" suffixes from <title> tag (e.g. "... #CS2 | SameerGamer | Facebook")
+		// Pattern: split by " | " and keep only parts before known FB metadata markers
+		if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
+			t = t[:idx]
+		}
+		// Also strip trailing page name like " | SameerGamer" if it looks like metadata (short, no spaces, camelCase)
+		if idx := strings.LastIndex(t, " | "); idx != -1 {
+			suffix := t[idx+3:]
+			// If suffix looks like a page name (no spaces, length < 30, starts with uppercase) strip it
+			if len(suffix) < 30 && !strings.Contains(suffix, " ") && suffix != "" {
+				t = t[:idx]
+			}
+		}
+		t = strings.TrimSpace(t)
+		// Skip generic "Facebook" title
+		if len(t) > len(data.Title) && !strings.EqualFold(t, "Facebook") && !strings.HasPrefix(strings.ToLower(t), "log in") {
+			data.Title = t
+		}
 	}
 
 	// Facebook stores the post caption / description in several places
