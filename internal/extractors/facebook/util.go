@@ -77,14 +77,55 @@ var (
 	)
 )
 
-func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
-	contentURL := strings.Replace(ctx.ContentURL, "m.facebook.com", "www.facebook.com", 1)
-	contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "www.facebook.com", 1)
+func tryFetchHDFromPlugins(ctx *models.ExtractorContext, videoID string) (string, string) {
+	// Plugins endpoint gives hd_src only with desktop UA - iPhone UA returns 63719 no HD
+	pluginsURL := "https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/reel/" + videoID + "&show_text=0"
+	resp, err := ctx.Fetch(
+		"GET",
+		pluginsURL,
+		&networking.RequestParams{
+			Headers: webHeaders,
+		},
+	)
+	if err != nil {
+		return "", ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", ""
+	}
+	var hd, sd string
+	if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+		hd = unescapeFacebookURL(string(m[1]))
+		hd = strings.ReplaceAll(hd, `\/`, "/")
+		hd = strings.ReplaceAll(hd, "&amp;", "&")
+	}
+	if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+		sd = unescapeFacebookURL(string(m[1]))
+		sd = strings.ReplaceAll(sd, `\/`, "/")
+		sd = strings.ReplaceAll(sd, "&amp;", "&")
+	}
+	return hd, sd
+}
 
-	// convert watch URLs to reel permalink,
-	// /watch/?v=XXX pages return wrong video data when scraped
-	if strings.Contains(contentURL, "/watch") && ctx.ContentID != "" {
-		contentURL = "https://www.facebook.com/reel/" + ctx.ContentID
+func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
+	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch")
+	contentURL := ctx.ContentURL
+	if isReel {
+		contentURL = strings.Replace(contentURL, "www.facebook.com", "m.facebook.com", 1)
+		contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "m.facebook.com", 1)
+		if strings.Contains(contentURL, "/watch") && ctx.ContentID != "" {
+			contentURL = "https://m.facebook.com/reel/" + ctx.ContentID
+		}
+	} else {
+		contentURL = strings.Replace(contentURL, "m.facebook.com", "www.facebook.com", 1)
+		contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "www.facebook.com", 1)
+		if strings.Contains(contentURL, "/watch") && ctx.ContentID != "" {
+			contentURL = "https://www.facebook.com/reel/" + ctx.ContentID
+			isReel = true
+			contentURL = strings.Replace(contentURL, "www.facebook.com", "m.facebook.com", 1)
+		}
 	}
 
 	// Facebook serves variable HTML: sometimes a full video page (with
@@ -104,11 +145,20 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			time.Sleep(sleepMS)
 		}
 
+		reqHeaders := webHeaders
+		if isReel {
+			reqHeaders = map[string]string{
+				"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Accept-Language": "en-US,en;q=0.5",
+			}
+		}
+
 		resp, err := ctx.Fetch(
 			http.MethodGet,
 			contentURL,
 			&networking.RequestParams{
-				Headers: webHeaders,
+				Headers: reqHeaders,
 			},
 		)
 		if err != nil {
@@ -163,14 +213,33 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 			return nil, err
 		}
-		// Even if video URLs found but caption is empty, do NOT fail —
-		// video itself is valid, caption is best-effort.
 		_ = body
+		// For reel, try plugins/video.php for HD - gives hd_src even with flagged cookies (208KB endpoint)
+		if isReel && data.HDURL == "" && data.SDURL != "" {
+			hdPlugins, sdPlugins := tryFetchHDFromPlugins(ctx, ctx.ContentID)
+			if hdPlugins != "" {
+				data.HDURL = hdPlugins
+				if data.SDURL == "" && sdPlugins != "" {
+					data.SDURL = sdPlugins
+				}
+			}
+		}
+		// Also if only SD from plugins, try again
+		if isReel && data.HDURL == "" && data.SDURL == "" {
+			hdPlugins, sdPlugins := tryFetchHDFromPlugins(ctx, ctx.ContentID)
+			if hdPlugins != "" {
+				data.HDURL = hdPlugins
+			}
+			if sdPlugins != "" {
+				data.SDURL = sdPlugins
+			}
+			if data.HDURL != "" || data.SDURL != "" {
+				return data, nil
+			}
+		}
 		return data, nil
 	}
 
-	// Photo image fetching removed per user request - dont try mbasic/photo.php to avoid single-image for 4 Gambar albums
-	// This prevents random Ayah Bopley video and also avoids returning 1 gambar for 4 gambar posts
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no video URLs found in page")
 	}
@@ -205,15 +274,47 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// on the full body (single-video posts/reels) so the extraction does
 	// not falsely fail. Caption extraction already runs against body.
 	if data.HDURL == "" && data.SDURL == "" {
-		// Don't fallback to full body if we already determined it's feed/photo (section empty)
-		// Photo image fetching removed per user request - dont try mbasic/photo.php to avoid single-image for 4 Gambar albums
-		// Just return no URLs for photo posts - will surface as error [no video] not random video
 		if len(section) != 0 {
 			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
 				data.HDURL = unescapeFacebookURL(string(match[1]))
 			}
 			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
 				data.SDURL = unescapeFacebookURL(string(match[1]))
+			}
+		}
+		if data.HDURL == "" && data.SDURL == "" {
+			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.HDURL = unescapeFacebookURL(string(match[1]))
+			}
+			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.SDURL = unescapeFacebookURL(string(match[1]))
+			}
+		}
+		if data.HDURL == "" && data.SDURL == "" {
+			if m := regexp.MustCompile(`<meta[^>]+property="og:video"[^>]+content="([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+				u := unescapeFacebookURL(string(m[1]))
+				u = strings.ReplaceAll(u, "&amp;", "&")
+				if strings.Contains(u, ".mp4") {
+					data.SDURL = u
+				}
+			}
+		}
+		if data.HDURL == "" && data.SDURL == "" {
+			if m := regexp.MustCompile(`"browser_native_hd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+				data.HDURL = unescapeFacebookURL(string(m[1]))
+			}
+			if m := regexp.MustCompile(`"browser_native_sd_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+				data.SDURL = unescapeFacebookURL(string(m[1]))
+			}
+			if data.HDURL == "" {
+				if m := regexp.MustCompile(`"playable_url_quality_hd"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+					data.HDURL = unescapeFacebookURL(string(m[1]))
+				}
+			}
+			if data.SDURL == "" {
+				if m := regexp.MustCompile(`"playable_url"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+					data.SDURL = unescapeFacebookURL(string(m[1]))
+				}
 			}
 		}
 	}
