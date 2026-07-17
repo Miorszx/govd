@@ -178,6 +178,18 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		return nil, err
 	}
 
+	// For reels, if parseVideoFromBody only found thumbnail, try og:video directly from body
+	// mbasic reel pages have og:video but parseVideoFromBody may miss it due to section anchoring
+	if isReel && data.HDURL == "" && data.SDURL == "" {
+		if m := ogVideoPattern.FindSubmatch(body); len(m) >= 2 {
+			u := unescapeFacebookURL(string(m[1]))
+			u = strings.ReplaceAll(u, "&amp;", "&")
+			if strings.Contains(u, ".mp4") || strings.Contains(u, "video") {
+				data.SDURL = u
+			}
+		}
+	}
+
 	// For reels, ensure we have video URLs (not just thumbnail)
 	if isReel && data.HDURL == "" && data.SDURL == "" {
 		if data.ImageURL != "" {
@@ -314,6 +326,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 				data.SDURL = unescapeFacebookURL(string(match[1]))
 			}
 			// og:video fallback for m.facebook.com reels with flagged cookies (sve_sd mp4)
+			// PRIORITY: for reels, og:video is more reliable than og:image thumbnail
 			if data.HDURL == "" && data.SDURL == "" {
 				if m := ogVideoPattern.FindSubmatch(body); len(m) >= 2 {
 					u := unescapeFacebookURL(string(m[1]))
@@ -342,7 +355,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 					}
 				}
 			}
-			// last resort thumbnail
+			// last resort thumbnail - ONLY if not a reel (reels should have video URL)
 			if data.HDURL == "" && data.SDURL == "" {
 				if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
 					data.ImageURL = unescapeFacebookURL(string(match[1]))
