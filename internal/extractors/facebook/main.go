@@ -3,6 +3,8 @@ package facebook
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"time"
 
@@ -40,6 +42,91 @@ var ShareExtractor = &models.Extractor{
 			}
 			if attempt < 3 {
 				time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+			}
+		}
+		// Fallback: fetch body (some share/v return 200 with og:url meta)
+		resp, err := ctx.Fetch(
+			"GET",
+			ctx.ContentURL,
+			&networking.RequestParams{Headers: webHeaders},
+		)
+		if err == nil {
+			defer resp.Body.Close()
+			// Use final URL from response request if redirected via http client
+			if resp.Request != nil && resp.Request.URL.String() != ctx.ContentURL {
+				return &models.ExtractorResponse{URL: resp.Request.URL.String()}, nil
+			}
+			// Try parse og:url from body - desktop UA often returns 400 for share/p, try iPhone UA
+			bodyAll, _ := io.ReadAll(resp.Body)
+			// If body doesn't contain S:_I or post_id (photo post), try iPhone UA which returns 47KB with data
+			if !bytes.Contains(bodyAll, []byte("post_id")) && !bytes.Contains(bodyAll, []byte("S:_I")) {
+				// try iPhone UA for share/p photo posts
+				resp2, err2 := ctx.Fetch(
+					http.MethodGet,
+					ctx.ContentURL,
+					&networking.RequestParams{
+						Headers: map[string]string{
+							"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+						},
+					},
+				)
+				if err2 == nil {
+					bodyAll2, _ := io.ReadAll(resp2.Body)
+					resp2.Body.Close()
+					if len(bodyAll2) > len(bodyAll) {
+						bodyAll = bodyAll2
+					}
+				}
+				// For group photo posts like 19Fea5TgkK/, www/share/p iPhone gives 47418 no og:url, but mbasic/share/p iPhone gives 46838 with og:url groups/2807075776107813/posts/3505374679611249/ + og:image single
+				if !bytes.Contains(bodyAll, []byte("post_id")) && !bytes.Contains(bodyAll, []byte("S:_I")) {
+					resp3, err3 := ctx.Fetch(
+						http.MethodGet,
+						fmt.Sprintf("https://mbasic.facebook.com/share/p/%s/", ctx.ContentID),
+						&networking.RequestParams{
+							Headers: map[string]string{
+								"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+							},
+						},
+					)
+					if err3 == nil {
+						bodyAll3, _ := io.ReadAll(resp3.Body)
+						resp3.Body.Close()
+						if len(bodyAll3) > len(bodyAll) {
+							bodyAll = bodyAll3
+						} else if len(bodyAll3) > 1000 {
+							// mbasic iPhone 46838 has og:url even if smaller than www 47412
+							bodyAll = bodyAll3
+						}
+					}
+				}
+			}
+			if len(bodyAll) > 50000 {
+				bodyAll = bodyAll[:50000]
+			}
+			body := bodyAll
+			if len(body) > 0 {
+				if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: string(m[1])}, nil
+				}
+				if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: string(m[1])}, nil
+				}
+				// For share/p which is story.php, FB embeds post_id / story_fbid in JSON
+				// S:_I{page_id}:{post_id}: gives both for photo posts like 1FtTAuWcPo
+				if m := regexp.MustCompile(`S:_I(\d+):(\d+):`).FindSubmatch(body); len(m) == 3 {
+					pageID := string(m[1])
+					postID := string(m[2])
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + postID + "&id=" + pageID}, nil
+				}
+				if m := regexp.MustCompile(`"post_id"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
+				}
+				if m := regexp.MustCompile(`"story_fbid"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
+				}
+				if m := regexp.MustCompile(`"top_level_post_id"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
+					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
+				}
 			}
 		}
 		return nil, fmt.Errorf("failed to follow share redirect: %w", lastErr)
@@ -175,7 +262,8 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 	}
 
 	if len(formats) == 0 {
-		// For reel, never fallback to image - fixes gamba lmao bug
+		// For reel/video, never fallback to image - fixes "keluar gamba lmao bukan video reel"
+		// Merge: check too-large first (local fix), then thumbnail-retry (remote fix)
 		isReelURL := false
 		if ctx.ContentURL != "" {
 			if bytes.Contains([]byte(ctx.ContentURL), []byte("/reel/")) || bytes.Contains([]byte(ctx.ContentURL), []byte("/watch")) {
@@ -186,9 +274,12 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 			if (data.HDURL != "" && hdSize > tgLimit) || (data.SDURL != "" && sdSize > tgLimit) {
 				return nil, util.ErrTelegramFileTooLarge
 			}
+			if data.ImageURL != "" || len(data.ImageURLs) > 0 {
+				return nil, fmt.Errorf("reel video not found, only thumbnail - retry for video")
+			}
 			return nil, fmt.Errorf("no video formats found")
 		}
-		// Photo post fallback
+		// Photo post? Try image fallback - support album with multiple images (e.g. 4 Gambar)
 		if len(data.ImageURLs) > 0 {
 			for i, u := range data.ImageURLs {
 				var it *models.MediaItem
