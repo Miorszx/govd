@@ -236,11 +236,16 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			time.Sleep(sleepMS)
 		}
 
-		reqHeaders := webHeaders
-		if isReel {
+		reqHeaders := map[string]string{
+			"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+			"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Accept-Language": "en-US,en;q=0.5",
+		}
+		if !isReel {
+			// For photo posts, iPhone UA also gives og:image (10056 len) vs desktop 1542 Error
 			reqHeaders = map[string]string{
-				"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 				"Accept-Language": "en-US,en;q=0.5",
 			}
 		}
@@ -610,9 +615,14 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 				if strings.Contains(raw, "t39.30808-1") { continue }
 				urls = append(urls, raw)
 			}
-			// Phase 3: og:image fallback
+			// Phase 3: og:image - PRIORITY for single photo posts, it's the actual post image not random scontent
 			if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
-				urls = append(urls, upgradeFBImageToHD(unescapeFacebookURL(string(match[1]))))
+				ogURL := upgradeFBImageToHD(unescapeFacebookURL(string(match[1])))
+				// Only add if not already present and looks like actual post image (contains postID or different from others)
+				if ogURL != "" && !strings.Contains(ogURL, "p50x50") && !strings.Contains(ogURL, "s120x120") {
+					// Prepend og:image so it's first priority
+					urls = append([]string{ogURL}, urls...)
+				}
 			}
 			// Phase 4: classic scontent pattern (existing)
 			for _, raw := range scontentPattern.FindAllString(string(body), 20) {
