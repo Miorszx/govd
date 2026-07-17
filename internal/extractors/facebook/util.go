@@ -241,14 +241,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 			"Accept-Language": "en-US,en;q=0.5",
 		}
-		if !isReel {
-			// For photo posts, iPhone UA also gives og:image (10056 len) vs desktop 1542 Error
-			reqHeaders = map[string]string{
-				"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"Accept-Language": "en-US,en;q=0.5",
-			}
-		}
 
 		resp, err := ctx.Fetch(
 			http.MethodGet,
@@ -285,6 +277,30 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response body: %w", err)
 			continue
+		}
+
+		// For photo posts, try mbasic iPhone UA for higher res dst-webp (720x670) vs og:image 645x600
+		if !isReel {
+			mbasicURL := strings.Replace(contentURL, "www.facebook.com", "mbasic.facebook.com", 1)
+			mbasicURL = strings.Replace(mbasicURL, "m.facebook.com", "mbasic.facebook.com", 1)
+			respM, errM := ctx.Fetch(
+				http.MethodGet,
+				mbasicURL,
+				&networking.RequestParams{
+					Headers: map[string]string{
+						"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+						"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+						"Accept-Language": "en-US,en;q=0.5",
+					},
+				},
+			)
+			if errM == nil && respM.StatusCode == 200 {
+				bodyM, _ := io.ReadAll(respM.Body)
+				respM.Body.Close()
+				if len(bodyM) > len(body) && strings.Contains(string(bodyM), "dst-webp") {
+					body = bodyM
+				}
+			}
 		}
 
 		// If FB returns a very small / login / checkpoint page (< 5KB), treat as blocked variant
