@@ -617,8 +617,9 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			}
 			// Phase 3: og:image - PRIORITY for single photo posts, it's the actual post image not random scontent
 			if match := ogImagePattern.FindSubmatch(body); len(match) >= 2 {
-				ogURL := upgradeFBImageToHD(unescapeFacebookURL(string(match[1])))
-				// Only add if not already present and looks like actual post image (contains postID or different from others)
+				ogURL := unescapeFacebookURL(string(match[1]))
+				// Don't upgrade og:image - p1080 upgrade often breaks with Bad URL hash for certain image types
+				// Use original p600x600 which works reliably (44KB 645x600)
 				if ogURL != "" && !strings.Contains(ogURL, "p50x50") && !strings.Contains(ogURL, "s120x120") {
 					// Prepend og:image so it's first priority
 					urls = append([]string{ogURL}, urls...)
