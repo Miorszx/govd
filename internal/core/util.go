@@ -102,6 +102,11 @@ func formatCaption(media *models.Media, username string, isEnabled bool) string 
 	if isEnabled && caption != "" {
 		description = formatText(config.Env.CaptionsDescription)
 	}
+	// Pure caption mode: no header prefix, no blockquote wrapper, just raw caption text
+	// Like Instagram/Threads - caption only, no source link or bot attribution
+	if caption != "" && (media.ExtractorID == "facebook" || media.ExtractorID == "instagram" || media.ExtractorID == "threads") {
+		return caption
+	}
 	return header + "\n" + description
 }
 
