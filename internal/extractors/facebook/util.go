@@ -725,16 +725,23 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		t := unescapeUnicode(string(match[1]))
 		t = html.UnescapeString(t)
 		t = strings.TrimSpace(t)
-		// Remove trailing "| Facebook" and "| PageName" suffixes from <title> tag (e.g. "... #CS2 | SameerGamer | Facebook")
-		// Pattern: split by " | " and keep only parts before known FB metadata markers
+		// Remove zero-width unicode characters (LRM, RLM, ZWSP, etc.) that FB injects
+		t = strings.Map(func(r rune) rune {
+			switch r {
+			case 0x200E, 0x200F, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF:
+				return -1
+			}
+			return r
+		}, t)
+		t = strings.TrimSpace(t)
+		// Remove trailing "| Facebook" suffix
 		if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
 			t = t[:idx]
 		}
-		// Also strip trailing page name like " | SameerGamer" if it looks like metadata (short, no spaces, camelCase)
+		// Strip trailing page name like " | Modern Warfare - DS" or " | SameerGamer" if it looks like metadata
 		if idx := strings.LastIndex(t, " | "); idx != -1 {
 			suffix := t[idx+3:]
-			// If suffix looks like a page name (no spaces, length < 30, starts with uppercase) strip it
-			if len(suffix) < 30 && !strings.Contains(suffix, " ") && suffix != "" {
+			if len(suffix) < 50 && !strings.Contains(suffix, "#") && suffix != "" {
 				t = t[:idx]
 			}
 		}
@@ -1162,6 +1169,18 @@ func unescapeFacebookURL(s string) string {
 // where first part may be page category (short). Uses dedicated
 // EdgeMediaToCaption field that is pure caption; we strip the prefix for FB to match.
 func cleanFacebookCaption(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Remove zero-width unicode characters (LRM, RLM, ZWSP, etc.) that FB injects
+	s = strings.Map(func(r rune) rune {
+		switch r {
+		case 0x200E, 0x200F, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF:
+			return -1
+		}
+		return r
+	}, s)
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
