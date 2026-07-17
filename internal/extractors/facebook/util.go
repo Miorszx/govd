@@ -303,6 +303,30 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 		}
 
+		// For reels, if m.facebook.com returns blocked/small page, try mbasic.facebook.com/reel
+		// mbasic gives 352KB with playable_url vs m 50KB blocked/login
+		if isReel && len(body) < 100000 {
+			mbasicURL := strings.Replace(contentURL, "m.facebook.com", "mbasic.facebook.com", 1)
+			respM, errM := ctx.Fetch(
+				http.MethodGet,
+				mbasicURL,
+				&networking.RequestParams{
+					Headers: map[string]string{
+						"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+						"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+						"Accept-Language": "en-US,en;q=0.5",
+					},
+				},
+			)
+			if errM == nil && respM.StatusCode == 200 {
+				bodyM, _ := io.ReadAll(respM.Body)
+				respM.Body.Close()
+				if len(bodyM) > len(body) {
+					body = bodyM
+				}
+			}
+		}
+
 		// If FB returns a very small / login / checkpoint page (< 5KB), treat as blocked variant
 		if len(body) < 5000 {
 			// quick check for known blocked markers before parsing
