@@ -87,9 +87,20 @@ func insertVideoInfo(format *models.MediaFormat, filePath string) {
 }
 
 func formatCaption(media *models.Media, username string, isEnabled bool) string {
-	caption := media.Caption
-	if len(caption) > 600 {
-		caption = caption[:600] + "..."
+	// Trim and early return if captions disabled or empty
+	caption := strings.TrimSpace(media.Caption)
+	if !isEnabled {
+		return ""
+	}
+	// Fix rosak: truncate by runes not bytes (emoji/multibyte safe).
+	// Reserve for header+wrapper. Telegram limit 1024 quoted text but we keep 1024 total safe.
+	// Old code did caption[:600] byte slice -> broken unicode.
+	const maxRunes = 900
+	if caption != "" {
+		r := []rune(caption)
+		if len(r) > maxRunes {
+			caption = string(r[:maxRunes-3]) + "..."
+		}
 	}
 	formatText := func(s string) string {
 		s = strings.ReplaceAll(s, "{{username}}", username)
@@ -97,15 +108,16 @@ func formatCaption(media *models.Media, username string, isEnabled bool) string 
 		s = strings.ReplaceAll(s, "{{text}}", util.Unquote(caption))
 		return s
 	}
-	var description string
+	// Always include source header: <a href='{{url}}'>source</a> - @{{username}}
+	// This gives clickable source button + bot mention like original upstream
 	header := formatText(config.Env.CaptionsHeader)
-	if isEnabled && caption != "" {
+	var description string
+	if caption != "" {
 		description = formatText(config.Env.CaptionsDescription)
 	}
-	// Pure caption mode: no header prefix, no blockquote wrapper, just raw caption text
-	// Like Instagram/Threads - caption only, no source link or bot attribution
-	if caption != "" && (media.ExtractorID == "facebook" || media.ExtractorID == "instagram" || media.ExtractorID == "threads") {
-		return caption
+	if caption == "" {
+		// If no caption, still return header so source+bot visible
+		return header
 	}
 	return header + "\n" + description
 }
