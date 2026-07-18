@@ -28,8 +28,8 @@ var ShareExtractor = &models.Extractor{
 	Redirect: true,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
-		// share/r = reel share, share/v = group video share, share/p = photo share
-		// Bare share (no r|v|p) -> try album
+		// share/r = reel share, share/v = group video share, share/p = photo share, share/{id} bare = album/photo
+		// Per user request: no fallback chains, each type has single method
 		isBareShare := true
 		for _, p := range []string{"/share/r/", "/share/v/", "/share/p/"} {
 			if bytes.Contains([]byte(ctx.ContentURL), []byte(p)) {
@@ -37,15 +37,23 @@ var ShareExtractor = &models.Extractor{
 				break
 			}
 		}
+		// BARE share/{id} METHOD: redirect via facebookexternalhit -> final post URL (100044139261197/posts/27816362968003357)
+		// Tested: share/1BSen1YRcQ no-cookie external 323KB final /100044139261197/posts/27816362968003357/?rdid=... + og:url Zalora.../posts/1537175967763697/
+		// Old tryMbasicShareAlbum used iPhone+cookies 59K no scontent flagged - removed
 		if isBareShare {
-			media, err := tryMbasicShareAlbum(ctx)
-			if err == nil && media != nil && len(media.Items) > 0 {
-				return &models.ExtractorResponse{Media: media}, nil
+			webHeaders := map[string]string{
+				"User-Agent":      "facebookexternalhit/1.1",
+				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Accept-Language": "en-US,en;q=0.5",
 			}
+			finalURL, err := ctx.FetchLocation(ctx.ContentURL, &networking.RequestParams{Headers: webHeaders})
+			if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
+				return &models.ExtractorResponse{URL: finalURL}, nil
+			}
+			return nil, fmt.Errorf("failed to resolve bare share via redirect - flagged cookies")
 		}
 
 		// share/r METHOD: redirect share/r -> reel/{id}?rdid=...&share_url=... via FetchLocation
-		// Tested: share/r/1Baf5GpFgU with cookies via yt-dlp: redirect to reel/1556140136059509/?rdid=TnJVmR2Ah7D4bHKO&share_url=...
 		// Use facebookexternalhit UA only, no fallback mbasic/www - per user request no fallback
 		if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/r/")) {
 			webHeaders := map[string]string{
