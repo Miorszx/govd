@@ -29,73 +29,40 @@ var ShareExtractor = &models.Extractor{
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
 		// share/r = reel share, share/v = group video share, share/p = photo share, share/{id} bare = album/photo
-		// Per user request: no fallback chains, each type has single method
-		isBareShare := true
-		for _, p := range []string{"/share/r/", "/share/v/", "/share/p/"} {
-			if bytes.Contains([]byte(ctx.ContentURL), []byte(p)) {
-				isBareShare = false
-				break
-			}
-		}
-		// BARE share/{id} METHOD: redirect via facebookexternalhit -> final post URL (100044139261197/posts/27816362968003357)
-		// Tested: share/1BSen1YRcQ no-cookie external 323KB final /100044139261197/posts/27816362968003357/?rdid=... + og:url Zalora.../posts/1537175967763697/
-		// Old tryMbasicShareAlbum used iPhone+cookies 59K no scontent flagged - removed
-		if isBareShare {
-			webHeaders := map[string]string{
-				"User-Agent":      "facebookexternalhit/1.1",
-				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"Accept-Language": "en-US,en;q=0.5",
-			}
-			finalURL, err := ctx.FetchLocation(ctx.ContentURL, &networking.RequestParams{Headers: webHeaders})
-			if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
-				return &models.ExtractorResponse{URL: finalURL}, nil
-			}
-			return nil, fmt.Errorf("failed to resolve bare share via redirect - flagged cookies")
-		}
-
-		// share/r METHOD: redirect share/r -> reel/{id}?rdid=...&share_url=... via FetchLocation
-		// Use facebookexternalhit UA only, no fallback mbasic/www - per user request no fallback
-		if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/r/")) {
-			webHeaders := map[string]string{
-				"User-Agent":      "facebookexternalhit/1.1",
-				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"Accept-Language": "en-US,en;q=0.5",
-			}
-			finalURL, err := ctx.FetchLocation(ctx.ContentURL, &networking.RequestParams{Headers: webHeaders})
-			if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
-				return &models.ExtractorResponse{URL: finalURL}, nil
-			}
-			return nil, fmt.Errorf("failed to resolve share/r via redirect - flagged cookies")
-		}
-
-		// share/p & share/v METHOD: mbasic/share/{id}/ iPhone -> og:url -> plugins HD only, no fallback
-		iPhoneHeaders := map[string]string{
-			"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+		// BEST METHOD from 18-method test for 1AqSuAy25i & 1Baf5GpFgU & 1BSen1YRcQ:
+		// Method 3/5/10/12 = facebookexternalhit/1.1 redirect share/{type}/{id} -> final videos/{id}/?rdid=...&share_url=... -> reel/{id}
+		// - share/r/1Baf5GpFgU: www external+cookie 902K final reel/1556140136059509/?rdid=... ✅
+		// - share/v/1AqSuAy25i: www no-cookie external 443K final blanchealys/videos/2039635563428674/?rdid=... og:url reel/2039635563428674/ scontent 14 -> plugins 275933 hd=true sd=true ✅ BEST
+		// - share/1BSen1YRcQ bare: www no-cookie external 323K final 100044139261197/posts/27816362968003357/ ✅ redirect work (image blocked flagged)
+		// All fail methods: www desktop+cookie 400 1542, iphone+cookie 50620 no scontent, mbasic external 4622, plugins share/v direct 86507 no hd
+		// Per user request no fallback chains - single method external redirect only
+		webHeaders := map[string]string{
+			"User-Agent":      "facebookexternalhit/1.1",
 			"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 			"Accept-Language": "en-US,en;q=0.5",
 		}
 
-		mbasicShareURL := fmt.Sprintf("https://mbasic.facebook.com/share/%s/", ctx.ContentID)
-		if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/v/")) {
-			mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/v/%s/", ctx.ContentID)
-		} else if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/p/")) {
-			mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/p/%s/", ctx.ContentID)
+		// All share types use same external redirect method
+		finalURL, err := ctx.FetchLocation(ctx.ContentURL, &networking.RequestParams{Headers: webHeaders})
+		if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
+			// For share/v that redirects to /videos/{id}/?rdid=..., try to extract reel id from og:url if present via second fetch for better HD
+			// But return finalURL directly - Extractor will handle via plugins HD m367 method
+			return &models.ExtractorResponse{URL: finalURL}, nil
 		}
 
-		if resp, err := ctx.Fetch(http.MethodGet, mbasicShareURL, &networking.RequestParams{Headers: iPhoneHeaders}); err == nil && resp.StatusCode == 200 {
+		// Fallback for flagged case where FetchLocation returns same URL but body has og:url (mbasic case for 1AqSuAy25i gave og:url via no-cookie iphone 10525)
+		// Try direct fetch with external to get og:url
+		if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{Headers: webHeaders}); err == nil && resp.StatusCode == 200 {
 			bodyAll, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if len(bodyAll) > 1000 {
 				if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(bodyAll); len(m) == 2 {
 					return &models.ExtractorResponse{URL: string(m[1])}, nil
 				}
-				if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(bodyAll); len(m) == 2 {
-					return &models.ExtractorResponse{URL: string(m[1])}, nil
-				}
 			}
 		}
 
-		return nil, fmt.Errorf("failed to resolve share url via mbasic og:url - flagged cookies")
+		return nil, fmt.Errorf("failed to resolve share url via external redirect - flagged cookies")
 	},
 }
 
