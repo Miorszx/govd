@@ -28,8 +28,8 @@ var ShareExtractor = &models.Extractor{
 	Redirect: true,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
-		// METHOD V2 - GROUP VIDEO ONLY: mbasic/share/v iPhone -> og:url -> plugins HD
-		// Old fallbacks (www/share/v desktop, m/share/v shell, FetchLocation) removed due to flagged cookies
+		// share/r = reel share, share/v = group video share, share/p = photo share
+		// Bare share (no r|v|p) -> try album
 		isBareShare := true
 		for _, p := range []string{"/share/r/", "/share/v/", "/share/p/"} {
 			if bytes.Contains([]byte(ctx.ContentURL), []byte(p)) {
@@ -44,54 +44,52 @@ var ShareExtractor = &models.Extractor{
 			}
 		}
 
-		// GROUP VIDEO METHOD: mbasic/share/{id}/ iPhone -> og:url
-			iPhoneHeaders := map[string]string{
-				"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+		// share/r METHOD: redirect share/r -> reel/{id}?rdid=...&share_url=... via FetchLocation
+		// Tested: share/r/1Baf5GpFgU with cookies via yt-dlp: redirect to reel/1556140136059509/?rdid=TnJVmR2Ah7D4bHKO&share_url=...
+		// Use facebookexternalhit UA only, no fallback mbasic/www - per user request no fallback
+		if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/r/")) {
+			webHeaders := map[string]string{
+				"User-Agent":      "facebookexternalhit/1.1",
 				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 				"Accept-Language": "en-US,en;q=0.5",
 			}
-
-			// Step 1: mbasic/share/{id}/ iPhone for og:url (works when www 1542 flagged)
-			mbasicShareURL := fmt.Sprintf("https://mbasic.facebook.com/share/%s/", ctx.ContentID)
-			// Also try share/v, share/p, share/r explicitly
-			if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/v/")) {
-				mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/v/%s/", ctx.ContentID)
-			} else if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/p/")) {
-				mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/p/%s/", ctx.ContentID)
-			} else if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/r/")) {
-				mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/r/%s/", ctx.ContentID)
+			finalURL, err := ctx.FetchLocation(ctx.ContentURL, &networking.RequestParams{Headers: webHeaders})
+			if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
+				return &models.ExtractorResponse{URL: finalURL}, nil
 			}
+			return nil, fmt.Errorf("failed to resolve share/r via redirect - flagged cookies")
+		}
 
-			if resp, err := ctx.Fetch(http.MethodGet, mbasicShareURL, &networking.RequestParams{Headers: iPhoneHeaders}); err == nil && resp.StatusCode == 200 {
-				bodyAll, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				if len(bodyAll) > 1000 {
-					if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(bodyAll); len(m) == 2 {
-						return &models.ExtractorResponse{URL: string(m[1])}, nil
-					}
-					if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(bodyAll); len(m) == 2 {
-						return &models.ExtractorResponse{URL: string(m[1])}, nil
-					}
+		// share/p & share/v METHOD: mbasic/share/{id}/ iPhone -> og:url -> plugins HD only, no fallback
+		iPhoneHeaders := map[string]string{
+			"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+			"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Accept-Language": "en-US,en;q=0.5",
+		}
+
+		mbasicShareURL := fmt.Sprintf("https://mbasic.facebook.com/share/%s/", ctx.ContentID)
+		if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/v/")) {
+			mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/v/%s/", ctx.ContentID)
+		} else if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/p/")) {
+			mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/p/%s/", ctx.ContentID)
+		}
+
+		if resp, err := ctx.Fetch(http.MethodGet, mbasicShareURL, &networking.RequestParams{Headers: iPhoneHeaders}); err == nil && resp.StatusCode == 200 {
+			bodyAll, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if len(bodyAll) > 1000 {
+				if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(bodyAll); len(m) == 2 {
+					return &models.ExtractorResponse{URL: string(m[1])}, nil
+				}
+				if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(bodyAll); len(m) == 2 {
+					return &models.ExtractorResponse{URL: string(m[1])}, nil
 				}
 			}
+		}
 
-			// Step 2: www/share/{id}/ iPhone for og:url (fallback if mbasic fails, for group posts like 280707.../posts/...)
-			if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{Headers: iPhoneHeaders}); err == nil && resp.StatusCode == 200 {
-				bodyAll, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				if len(bodyAll) > 1000 {
-					if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(bodyAll); len(m) == 2 {
-						return &models.ExtractorResponse{URL: string(m[1])}, nil
-					}
-					if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(bodyAll); len(m) == 2 {
-						return &models.ExtractorResponse{URL: string(m[1])}, nil
-					}
-				}
-			}
-
-			return nil, fmt.Errorf("failed to resolve share url via mbasic og:url - flagged cookies")
-		},
-	}
+		return nil, fmt.Errorf("failed to resolve share url via mbasic og:url - flagged cookies")
+	},
+}
 
 var Extractor = &models.Extractor{
 	ID:          "facebook",
