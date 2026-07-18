@@ -28,10 +28,9 @@ var ShareExtractor = &models.Extractor{
 	Redirect: true,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
-		var lastErr error
-
-		// For bare share (no r|v|p prefix), try mbasic/share/{id}/ iPhone first
-		// This gives photo albums with multiple images + caption directly
+		// METHOD V2 per user request - GROUP VIDEO ONLY: mbasic/share/v iPhone -> og:url -> plugins HD
+		// Tested on share/v/1B9azcquHt: mbasic/share/v iPhone 46K og:url https://www.facebook.com/61583907846160/videos/arkib/1044285317988617/
+		// Old fallbacks (www/share/v desktop 1542 Error, m/share/v 50K shell, FetchLocation) caused flagged
 		isBareShare := true
 		for _, p := range []string{"/share/r/", "/share/v/", "/share/p/"} {
 			if bytes.Contains([]byte(ctx.ContentURL), []byte(p)) {
@@ -46,111 +45,54 @@ var ShareExtractor = &models.Extractor{
 			}
 		}
 
-		for attempt := 1; attempt <= 3; attempt++ {
-			finalURL, err := ctx.FetchLocation(
-				ctx.ContentURL,
-				&networking.RequestParams{Headers: webHeaders},
-			)
-			if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
-				return &models.ExtractorResponse{URL: finalURL}, nil
+		// GROUP VIDEO METHOD: mbasic/share/{id}/ iPhone -> og:url
+			iPhoneHeaders := map[string]string{
+				"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Accept-Language": "en-US,en;q=0.5",
 			}
-			if err != nil {
-				lastErr = err
-			} else {
-				lastErr = fmt.Errorf("empty redirect location")
+
+			// Step 1: mbasic/share/{id}/ iPhone for og:url (works when www 1542 flagged)
+			mbasicShareURL := fmt.Sprintf("https://mbasic.facebook.com/share/%s/", ctx.ContentID)
+			// Also try share/v, share/p, share/r explicitly
+			if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/v/")) {
+				mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/v/%s/", ctx.ContentID)
+			} else if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/p/")) {
+				mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/p/%s/", ctx.ContentID)
+			} else if bytes.Contains([]byte(ctx.ContentURL), []byte("/share/r/")) {
+				mbasicShareURL = fmt.Sprintf("https://mbasic.facebook.com/share/r/%s/", ctx.ContentID)
 			}
-			if attempt < 3 {
-				time.Sleep(time.Duration(attempt*500) * time.Millisecond)
-			}
-		}
-		// Fallback: fetch body (some share/v return 200 with og:url meta)
-		resp, err := ctx.Fetch(
-			"GET",
-			ctx.ContentURL,
-			&networking.RequestParams{Headers: webHeaders},
-		)
-		if err == nil {
-			defer resp.Body.Close()
-			// Use final URL from response request if redirected via http client
-			if resp.Request != nil && resp.Request.URL.String() != ctx.ContentURL {
-				return &models.ExtractorResponse{URL: resp.Request.URL.String()}, nil
-			}
-			// Try parse og:url from body - desktop UA often returns 400 for share/p, try iPhone UA
-			bodyAll, _ := io.ReadAll(resp.Body)
-			// If body doesn't contain S:_I or post_id (photo post), try iPhone UA which returns 47KB with data
-			if !bytes.Contains(bodyAll, []byte("post_id")) && !bytes.Contains(bodyAll, []byte("S:_I")) {
-				// try iPhone UA for share/p photo posts
-				resp2, err2 := ctx.Fetch(
-					http.MethodGet,
-					ctx.ContentURL,
-					&networking.RequestParams{
-						Headers: map[string]string{
-							"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-						},
-					},
-				)
-				if err2 == nil {
-					bodyAll2, _ := io.ReadAll(resp2.Body)
-					resp2.Body.Close()
-					if len(bodyAll2) > len(bodyAll) {
-						bodyAll = bodyAll2
+
+			if resp, err := ctx.Fetch(http.MethodGet, mbasicShareURL, &networking.RequestParams{Headers: iPhoneHeaders}); err == nil && resp.StatusCode == 200 {
+				bodyAll, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if len(bodyAll) > 1000 {
+					if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(bodyAll); len(m) == 2 {
+						return &models.ExtractorResponse{URL: string(m[1])}, nil
 					}
-				}
-				// For group photo posts like 19Fea5TgkK/, www/share/p iPhone gives 47418 no og:url, but mbasic/share/p iPhone gives 46838 with og:url groups/2807075776107813/posts/3505374679611249/ + og:image single
-				if !bytes.Contains(bodyAll, []byte("post_id")) && !bytes.Contains(bodyAll, []byte("S:_I")) {
-					resp3, err3 := ctx.Fetch(
-						http.MethodGet,
-						fmt.Sprintf("https://mbasic.facebook.com/share/p/%s/", ctx.ContentID),
-						&networking.RequestParams{
-							Headers: map[string]string{
-								"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-							},
-						},
-					)
-					if err3 == nil {
-						bodyAll3, _ := io.ReadAll(resp3.Body)
-						resp3.Body.Close()
-						if len(bodyAll3) > len(bodyAll) {
-							bodyAll = bodyAll3
-						} else if len(bodyAll3) > 1000 {
-							// mbasic iPhone 46838 has og:url even if smaller than www 47412
-							bodyAll = bodyAll3
-						}
+					if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(bodyAll); len(m) == 2 {
+						return &models.ExtractorResponse{URL: string(m[1])}, nil
 					}
 				}
 			}
-			if len(bodyAll) > 50000 {
-				bodyAll = bodyAll[:50000]
-			}
-			body := bodyAll
-			if len(body) > 0 {
-				if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(body); len(m) == 2 {
-					return &models.ExtractorResponse{URL: string(m[1])}, nil
-				}
-				if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(body); len(m) == 2 {
-					return &models.ExtractorResponse{URL: string(m[1])}, nil
-				}
-				// For share/p which is story.php, FB embeds post_id / story_fbid in JSON
-				// S:_I{page_id}:{post_id}: gives both for photo posts like 1FtTAuWcPo
-				if m := regexp.MustCompile(`S:_I(\d+):(\d+):`).FindSubmatch(body); len(m) == 3 {
-					pageID := string(m[1])
-					postID := string(m[2])
-					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + postID + "&id=" + pageID}, nil
-				}
-				if m := regexp.MustCompile(`"post_id"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
-					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
-				}
-				if m := regexp.MustCompile(`"story_fbid"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
-					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
-				}
-				if m := regexp.MustCompile(`"top_level_post_id"\s*:\s*"?(\d+)"?`).FindSubmatch(body); len(m) == 2 {
-					return &models.ExtractorResponse{URL: "https://www.facebook.com/story.php?story_fbid=" + string(m[1])}, nil
+
+			// Step 2: www/share/{id}/ iPhone for og:url (fallback if mbasic fails, for group posts like 280707.../posts/...)
+			if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{Headers: iPhoneHeaders}); err == nil && resp.StatusCode == 200 {
+				bodyAll, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if len(bodyAll) > 1000 {
+					if m := regexp.MustCompile(`property=["']og:url["']\s+content=["']([^"']+)["']`).FindSubmatch(bodyAll); len(m) == 2 {
+						return &models.ExtractorResponse{URL: string(m[1])}, nil
+					}
+					if m := regexp.MustCompile(`content=["']([^"']+)["']\s+property=["']og:url["']`).FindSubmatch(bodyAll); len(m) == 2 {
+						return &models.ExtractorResponse{URL: string(m[1])}, nil
+					}
 				}
 			}
-		}
-		return nil, fmt.Errorf("failed to follow share redirect: %w", lastErr)
-	},
-}
+
+			return nil, fmt.Errorf("failed to resolve share url via mbasic og:url - flagged cookies")
+		},
+	}
 
 var Extractor = &models.Extractor{
 	ID:          "facebook",
@@ -333,67 +275,104 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 	return media, nil
 }
 
-// tryMbasicShareAlbum fetches mbasic.facebook.com/share/{id}/ with iPhone UA
-// and extracts photo album images + caption. Returns nil if not a photo album.
-// FB returns inconsistent body sizes (46KB light vs 248KB full), so we retry
-// until we get a large body with multiple scontent images.
+// tryMbasicShareAlbum fetches mbasic.facebook.com/share/{id}/ with iPhone UA + shares via group permalink
+// METHOD V2 per user request: fresh scontent oh= only, no og:image fallback, no upgrade p1080 (causes 403 Bad Hash)
+// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone 47K -> og:url groups/.../posts/351067... -> mbasic/groups/... iPhone 222KB 11 scontent oh= fresh dl 200 OK
 func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
-	mbasicURL := fmt.Sprintf("https://mbasic.facebook.com/share/%s/", ctx.ContentID)
+	iphoneHeaders := map[string]string{
+		"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+		"Accept-Language": "en-US,en;q=0.5",
+	}
+
+	fetch := func(url string) ([]byte, string, error) {
+		resp, err := ctx.Fetch(http.MethodGet, url, &networking.RequestParams{Headers: iphoneHeaders})
+		if err != nil {
+			return nil, "", err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return nil, "", fmt.Errorf("status %d", resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if len(body) < 1000 {
+			return nil, "", fmt.Errorf("body too small %d", len(body))
+		}
+		finalURL := ""
+		if resp.Request != nil {
+			finalURL = resp.Request.URL.String()
+		}
+		return body, finalURL, nil
+	}
+
+	// Step 1: mbasic/share/{id} iPhone
+	mbasicShareURL := fmt.Sprintf("https://mbasic.facebook.com/share/%s/", ctx.ContentID)
+	var body []byte
+	var finalURL string
 	var bestBody []byte
-	for attempt := 1; attempt <= 5; attempt++ {
+	for attempt := 1; attempt <= 3; attempt++ {
 		if attempt > 1 {
 			time.Sleep(time.Duration(attempt*400) * time.Millisecond)
 		}
-		resp, err := ctx.Fetch(
-			http.MethodGet,
-			mbasicURL,
-			&networking.RequestParams{
-				Headers: map[string]string{
-					"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-					"Accept-Language": "en-US,en;q=0.5",
-				},
-			},
-		)
-		if err != nil || resp.StatusCode != 200 {
-			if resp != nil {
-				resp.Body.Close()
-			}
+		b, fURL, err := fetch(mbasicShareURL)
+		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if len(body) < 1000 {
-			continue
+		if bestBody == nil || len(b) > len(bestBody) {
+			bestBody = b
+			finalURL = fURL
 		}
-		if bestBody == nil || len(body) > len(bestBody) {
-			bestBody = body
-		}
-		// If we have a large body with multiple scontent, we're done
-		if len(body) > 150000 {
+		if len(b) > 100000 {
 			break
 		}
 	}
 	if bestBody == nil {
-		return nil, fmt.Errorf("mbasic share fetch failed after retries")
+		return nil, fmt.Errorf("mbasic share fetch failed")
 	}
-	body := bestBody
+	body = bestBody
 
-	// Extract caption from og:description
+	// Step 1b: if share/p gives og:url group post, fetch that group permalink with mbasic iPhone for fresh images
+	// This is the working method: share/p/1Cs9f4wm7M -> groups/280707.../posts/351067... -> mbasic/groups/... 222KB 11 scontent oh=
+	if m := regexp.MustCompile(`property="og:url" content="([^"]+)"`).FindSubmatch(body); len(m) == 2 {
+		ogURL := string(m[1])
+		// convert to mbasic
+		mbasicOG := strings.Replace(ogURL, "https://www.facebook.com", "https://mbasic.facebook.com", 1)
+		mbasicOG = strings.Replace(mbasicOG, "https://m.facebook.com", "https://mbasic.facebook.com", 1)
+		if !strings.Contains(mbasicOG, "mbasic.facebook.com") {
+			mbasicOG = "https://mbasic.facebook.com" + strings.TrimPrefix(ogURL, "https://www.facebook.com")
+		}
+		if b2, _, err := fetch(mbasicOG); err == nil && len(b2) > len(body) {
+			body = b2
+			finalURL = mbasicOG
+		} else if b2, _, err := fetch(mbasicOG); err == nil && len(b2) > 1000 {
+			// even if smaller than share body, if share body has only 46KB and no scontent, use permalink body (222KB)
+			if len(b2) > 20000 {
+				body = b2
+			}
+		}
+	}
+
+	// Extract caption from og:description or title
 	var caption string
-	if m := ogDescPattern.FindSubmatch(body); len(m) >= 2 {
+	if m := regexp.MustCompile(`<meta\s+property="og:description" content="([^"]*)"`).FindSubmatch(body); len(m) >= 2 {
 		caption = html.UnescapeString(string(m[1]))
 	}
+	if caption == "" {
+		if m := regexp.MustCompile(`<meta\s+property="og:title" content="([^"]*)"`).FindSubmatch(body); len(m) >= 2 {
+			caption = html.UnescapeString(string(m[1]))
+		}
+	}
 
-	// Collect all scontent image URLs, dedup by filename
+	// Fresh scontent oh= only, no og:image, no upgrade
+	reFresh := regexp.MustCompile(`https://[^"'\s]*scontent[^"'\s]*oh=[^"'\s]+`)
 	var allUrls []string
 	seen := map[string]bool{}
-	for _, raw := range scontentPattern.FindAllString(string(body), -1) {
+	for _, raw := range reFresh.FindAllString(string(body), -1) {
 		u := unescapeFacebookURL(raw)
-		// Skip profile/small images
-		if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") ||
-			strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") ||
-			strings.Contains(u, "emoji") {
+		u = strings.ReplaceAll(u, "&amp;", "&")
+		u = strings.ReplaceAll(u, `\/`, "/")
+		// filter tiny/profile/emoji
+		if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") || strings.Contains(u, "emoji") || strings.Contains(u, "m1/v/t6") {
 			continue
 		}
 		fn := u
@@ -408,32 +387,17 @@ func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
 		}
 		seen[fn] = true
 		allUrls = append(allUrls, u)
+		if len(allUrls) >= 10 {
+			break
+		}
 	}
 
-	// Also check og:image
-	if m := ogImagePattern.FindSubmatch(body); len(m) >= 2 {
-		u := unescapeFacebookURL(string(m[1]))
-		fn := u
-		if idx := strings.Index(fn, "?"); idx != -1 {
-			fn = fn[:idx]
-		}
-		if idx := strings.LastIndex(fn, "/"); idx != -1 {
-			fn = fn[idx+1:]
-		}
-		if !seen[fn] {
-			seen[fn] = true
-			allUrls = append(allUrls, u)
-		}
-	}
+	_ = finalURL
 
 	if len(allUrls) == 0 {
-		return nil, fmt.Errorf("no images found in mbasic share")
+		return nil, fmt.Errorf("no fresh scontent oh= images found")
 	}
 
-	// Do NOT upgradeFBImageToHD - hash (oh/oe) is tied to original resolution.
-	// Upgrading p600->p1080 causes "Bad URL hash" error. Keep original URLs.
-
-	// Build media with multiple items
 	media := ctx.NewMedia()
 	if caption != "" {
 		media.SetCaption(caption)
