@@ -116,15 +116,14 @@ func tryFetchHDFromPlugins(ctx *models.ExtractorContext, videoID string) (string
 }
 
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
-	// Group video method V2 per user request: buang fallback, pakai mbasic og:url -> plugins HD only
-	// For share/v/1B9azcquHt: mbasic/share/v iPhone 46K og:url -> 61583907846160/videos/arkib/1044285317988617 -> plugins SD only (source SD 256x144)
-	// So treat /videos/, /reel/, /watch all as plugins method
+	// Group video method V2: mbasic og:url -> plugins HD only, buang fallback
+	// For share/v group video: mbasic/share/v iPhone 46K og:url -> /videos/ permalink -> plugins SD/HD
+	// Treat /videos/, /reel/, /watch all as plugins method
 	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch") || strings.Contains(ctx.ContentURL, "/videos/")
 
-	// REEL/GROUP VIDEO: plugins/video.php desktop UA -> hd_src m366 / sd_src m412 only (HD-ONLY method per user request)
+	// REEL/GROUP VIDEO: plugins/video.php desktop UA -> hd_src m366 / sd_src m412 only (HD-ONLY method)
 	// Caption: plugins show_text=0 has no caption when flagged, so fetch mbasic/www for caption as fallback
-	// Tested on reel/1626623572126998: plugins 273KB desktop -> hd_src m366 11MB, www 50K shell FB title flagged, mbasic 9K Error but show_text=1 has ♡ Pokemon Cosplay ♡
-	// Tested on group video share/v/1B9azcquHt: mbasic 46K og:url -> 61583907846160/videos/arkib/1044285317988617 -> plugins 231K sd_src only 256x144 source
+	// Tested: plugins desktop body contains hd_src HD size direct mp4 with fresh oh= signature 200 OK
 	if isReel {
 		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
 		resp, err := ctx.Fetch(

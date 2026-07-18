@@ -28,9 +28,8 @@ var ShareExtractor = &models.Extractor{
 	Redirect: true,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
-		// METHOD V2 per user request - GROUP VIDEO ONLY: mbasic/share/v iPhone -> og:url -> plugins HD
-		// Tested on share/v/1B9azcquHt: mbasic/share/v iPhone 46K og:url https://www.facebook.com/61583907846160/videos/arkib/1044285317988617/
-		// Old fallbacks (www/share/v desktop 1542 Error, m/share/v 50K shell, FetchLocation) caused flagged
+		// METHOD V2 - GROUP VIDEO ONLY: mbasic/share/v iPhone -> og:url -> plugins HD
+		// Old fallbacks (www/share/v desktop, m/share/v shell, FetchLocation) removed due to flagged cookies
 		isBareShare := true
 		for _, p := range []string{"/share/r/", "/share/v/", "/share/p/"} {
 			if bytes.Contains([]byte(ctx.ContentURL), []byte(p)) {
