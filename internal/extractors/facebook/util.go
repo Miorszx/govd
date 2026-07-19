@@ -456,35 +456,73 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// not falsely fail. Caption extraction already runs against body.
 	if data.HDURL == "" && data.SDURL == "" {
 		// Don't fallback to full body if we already determined it's feed/photo (section empty)
-		if len(section) == 0 {
-			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
-			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
-			reMP4 := regexp.MustCompile(`https://[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
-			for _, raw := range reMP4.FindAllString(string(body), -1) {
-				u := unescapeFacebookURL(raw)
-				u = strings.ReplaceAll(u, "&amp;", "&")
-				u = strings.ReplaceAll(u, `\/`, "/")
-				// Prefer m367/m366 as HD, m412 as SD
-				if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
-					if data.HDURL == "" {
-						data.HDURL = u
+			if len(section) == 0 {
+				// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
+				// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
+				// Handles both https:// and https:\/\/ escaped forms
+				reMP4 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+				bodyStr := string(body)
+				// Also try unescaped version by replacing \/ -> / for regex matching
+				bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
+				for _, src := range []string{bodyStr, bodyUnesc} {
+					for _, raw := range reMP4.FindAllString(src, -1) {
+						u := unescapeFacebookURL(raw)
+						u = strings.ReplaceAll(u, "&amp;", "&")
+						u = strings.ReplaceAll(u, `\/`, "/")
+						// Prefer m367/m366 as HD, m412 as SD
+						if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+							if data.HDURL == "" {
+								data.HDURL = u
+							}
+						} else {
+							if data.SDURL == "" {
+								data.SDURL = u
+							}
+						}
+						if data.HDURL != "" || data.SDURL != "" {
+							return data, nil
+						}
 					}
-				} else if strings.Contains(u, "m412") {
+				}
+				// Second try: any /m4xx mp4 without requiring scontent (for 50617 len scontent=0 case)
+				reMP4Any := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+				for _, src := range []string{bodyStr, bodyUnesc} {
+					for _, raw := range reMP4Any.FindAllString(src, -1) {
+						u := unescapeFacebookURL(raw)
+						u = strings.ReplaceAll(u, "&amp;", "&")
+						u = strings.ReplaceAll(u, `\/`, "/")
+						if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+							if data.HDURL == "" {
+								data.HDURL = u
+							}
+						} else {
+							if data.SDURL == "" {
+								data.SDURL = u
+							}
+						}
+						if data.HDURL != "" || data.SDURL != "" {
+							return data, nil
+						}
+					}
+				}
+				// Third try: scontent without https prefix (relative or protocol-relative)
+				reScontentM4 := regexp.MustCompile(`scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+				for _, raw := range reScontentM4.FindAllString(bodyUnesc, -1) {
+					u := raw
+					if !strings.HasPrefix(u, "http") {
+						u = "https://" + strings.TrimLeft(u, "/")
+					}
+					u = unescapeFacebookURL(u)
+					u = strings.ReplaceAll(u, "&amp;", "&")
 					if data.SDURL == "" {
 						data.SDURL = u
-					} else if data.HDURL == "" {
-						// If only m412 found, use as HD if no other
-						data.HDURL = u
+						return data, nil
 					}
 				}
-				if data.HDURL != "" && data.SDURL != "" {
-					break
-				}
-			}
-			if data.HDURL != "" || data.SDURL != "" {
-				// found direct mp4, skip image extraction
-			} else {
-				// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
+				if data.HDURL != "" || data.SDURL != "" {
+					// found direct mp4, skip image extraction
+				} else {
+					// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
 				// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
 				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
 				var urls []string
