@@ -69,11 +69,22 @@ var ShareExtractor = &models.Extractor{
 var Extractor = &models.Extractor{
 	ID:          "facebook",
 	DisplayName: "Facebook",
-
 	URLPattern: regexp.MustCompile(
 		`https?://(?:(?:www|m|mbasic)\.)?facebook\.com/` +
-			`(?:watch/?\?(?:[^&]*&)*v=|(?:reel|videos?|posts?|permalink)/|groups/[^/]+/(?:permalink|posts|videos|reels?)/|[^/]+/(?:videos|posts|reels?)/|story\.php\?.*?(?:story_fbid|fbid)=)` +
-			`(?P<id>[a-zA-Z0-9]+)`,
+			`(?:` +
+			// php endpoints like permalink.php?story_fbid=, video.php?v=, photo.php?fbid=, story.php?story_fbid= etc - from yt-dlp FacebookIE
+			`(?:permalink\.php|video/video\.php|photo\.php|video\.php|video/embed|story\.php|watch(?:/live)?/?)\?(?:[^#]*?)(?:v|video_id|story_fbid|fbid)=|` +
+			// /{page}/videos/{id}/, /{page}/posts/, groups/{id}/permalink/{id}, events, watchparty, reel, etc
+			`[^/]+/videos/(?:[^/]+/)?|` +
+			`[^/]+/posts/|` +
+			`events/(?:[^/]+/)?|` +
+			`groups/[^/]+/(?:permalink|posts|videos|reels?)/(?:[\da-f]+/)?|` +
+			`watchparty/|` +
+			`(?:reel|videos?|posts?|permalink|photo)/|` +
+			`[^/]+/(?:videos|posts|reels?|photos)/|` +
+			`story\.php\?.*?(?:story_fbid|fbid)=` +
+			`)` +
+			`(?P<id>pfbid[A-Za-z0-9]+|\d+|[a-zA-Z0-9]+)`,
 	),
 	Host: facebookHost,
 
