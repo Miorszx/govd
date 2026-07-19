@@ -591,7 +591,35 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		return data, nil
 	}
 	if data.HDURL == "" && data.SDURL == "" {
-		return nil, fmt.Errorf("no video URLs found in page")
+		// Debug for 18znZbiVx6 groups permalink no video case - log body stats
+		// User method m.facebook.com/.../videos/...?idorvanity=...&_rdr with yt-dlp --cookies-from-browser works for 1781503120/videos/7474538999333403
+		// This body len=50617 scontent=0 oh=1 m4=1 had m412 but no scontent string due to escaped &amp; or different domain
+		s := string(body)
+		sc := len(regexp.MustCompile(`scontent`).FindAllStringIndex(s, -1))
+		oh := len(regexp.MustCompile(`oh=`).FindAllStringIndex(s, -1))
+		m4 := len(regexp.MustCompile(`m4[0-9]`).FindAllStringIndex(s, -1))
+		// Try more permissive mp4 without scontent requirement for this case
+		if m4 > 0 {
+			reMP4b := regexp.MustCompile(`https://[^"' ]*?/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			for _, raw := range reMP4b.FindAllString(s, -1) {
+				u := unescapeFacebookURL(raw)
+				u = strings.ReplaceAll(u, "&amp;", "&")
+				u = strings.ReplaceAll(u, `\/`, "/")
+				if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+					if data.HDURL == "" {
+						data.HDURL = u
+					}
+				} else {
+					if data.SDURL == "" {
+						data.SDURL = u
+					}
+				}
+				if data.HDURL != "" || data.SDURL != "" {
+					return data, nil
+				}
+			}
+		}
+		return nil, fmt.Errorf("no video URLs found in page: len=%d scontent=%d oh=%d m4=%d id=%s", len(body), sc, oh, m4, videoID)
 	}
 
 	return data, nil
