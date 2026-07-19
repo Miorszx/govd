@@ -460,13 +460,16 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						baseCap = strings.Replace(baseCap, "m.facebook.com", "mbasic.facebook.com", 1)
 						mbasicCapURL = baseCap
 					}
+					ctx.Infof("caption fallback trying mbasic %s", mbasicCapURL)
 					if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
+						ctx.Infof("caption mbasic fetch status %s", respCap.Status)
 						if respCap.StatusCode == 200 {
 							if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
-								// og:description
+								ctx.Infof("caption mbasic body len %d hasInsomnia %t", len(bCap), strings.Contains(string(bCap), "Insomnia"))
 								if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
 									c := html.UnescapeString(string(m[1]))
 									c = strings.TrimSpace(c)
+									ctx.Infof("caption ogDesc found %.100s", c)
 									if c != "" && !strings.EqualFold(c, "Facebook") {
 										d.Title = c
 									}
@@ -475,12 +478,11 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 									if m := htmlTitlePattern.FindSubmatch(bCap); len(m) >= 2 {
 										t := html.UnescapeString(string(m[1]))
 										t = strings.TrimSpace(t)
+										ctx.Infof("caption htmlTitle %.100s", t)
 										if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
 											t = t[:idx]
 										}
 										if idx := strings.LastIndex(t, " - "); idx != -1 {
-											// keep full for groups: "Ilman Danish - Yang ada Insomnia..."
-											// Take after " - " if contains Insomnia?
 											if strings.Contains(t, "Insomnia") {
 												if parts := strings.SplitN(t, " - ", 2); len(parts) == 2 {
 													t = parts[1]
@@ -496,7 +498,10 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 							}
 						}
 						respCap.Body.Close()
+					} else {
+						ctx.Infof("caption mbasic fetch err %v", errCap)
 					}
+					ctx.Infof("caption final Title len %d %.100s", len(d.Title), d.Title)
 				}
 				data = d
 				body = b
@@ -527,6 +532,36 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						}
 					}
 					if valid || tryURL == urlsToTry[len(urlsToTry)-1] {
+						// If Title empty, try mbasic caption fallback (www 50K has no caption, mbasic 47K has og:desc)
+						if d.Title == "" {
+							mbasicCapURL := contentURL
+							if idx := strings.Index(mbasicCapURL, "?"); idx != -1 {
+								mbasicCapURL = mbasicCapURL[:idx]
+							}
+							mbasicCapURL = strings.Replace(mbasicCapURL, "www.facebook.com", "mbasic.facebook.com", 1)
+							mbasicCapURL = strings.Replace(mbasicCapURL, "m.facebook.com", "mbasic.facebook.com", 1)
+							ctx.Infof("caption2 fallback trying mbasic %s", mbasicCapURL)
+							if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
+								ctx.Infof("caption2 mbasic status %s", respCap.Status)
+								if respCap.StatusCode == 200 {
+									if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
+										ctx.Infof("caption2 body len %d hasInsomnia %t", len(bCap), strings.Contains(string(bCap), "Insomnia"))
+										if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
+											c := html.UnescapeString(string(m[1]))
+											c = strings.TrimSpace(c)
+											ctx.Infof("caption2 ogDesc %.100s", c)
+											if c != "" && !strings.EqualFold(c, "Facebook") {
+												d.Title = c
+											}
+										}
+									}
+								}
+								respCap.Body.Close()
+							} else {
+								ctx.Infof("caption2 err %v", errCap)
+							}
+							ctx.Infof("caption2 final len %d %.100s", len(d.Title), d.Title)
+						}
 						data = d
 						body = b
 						break
@@ -575,11 +610,56 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 					if d2, err2 := parseVideoFromBody(b2, ctx.ContentID); err2 == nil {
 						d.Title = d2.Title
 					}
+					if d.Title == "" {
+						// mbasic caption fallback for fbhit path as well
+						mbasicCapURL2 := contentURL
+						if idx := strings.Index(mbasicCapURL2, "?"); idx != -1 {
+							mbasicCapURL2 = mbasicCapURL2[:idx]
+						}
+						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "www.facebook.com", "mbasic.facebook.com", 1)
+						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "m.facebook.com", "mbasic.facebook.com", 1)
+						if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL2, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
+							if respCap.StatusCode == 200 {
+								if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
+									if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
+										c := html.UnescapeString(string(m[1]))
+										c = strings.TrimSpace(c)
+										if c != "" && !strings.EqualFold(c, "Facebook") {
+											d.Title = c
+										}
+									}
+								}
+							}
+							respCap.Body.Close()
+						}
+					}
 					data = d
 					body = b2
 					break
 				}
 				if d, err2 := parseVideoFromBody(b2, ctx.ContentID); err2 == nil {
+					if d.Title == "" {
+						mbasicCapURL2 := contentURL
+						if idx := strings.Index(mbasicCapURL2, "?"); idx != -1 {
+							mbasicCapURL2 = mbasicCapURL2[:idx]
+						}
+						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "www.facebook.com", "mbasic.facebook.com", 1)
+						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "m.facebook.com", "mbasic.facebook.com", 1)
+						if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL2, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
+							if respCap.StatusCode == 200 {
+								if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
+									if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
+										c := html.UnescapeString(string(m[1]))
+										c = strings.TrimSpace(c)
+										if c != "" && !strings.EqualFold(c, "Facebook") {
+											d.Title = c
+										}
+									}
+								}
+							}
+							respCap.Body.Close()
+						}
+					}
 					data = d
 					body = b2
 					break
