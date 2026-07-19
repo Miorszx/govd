@@ -1,0 +1,15 @@
+[Unit]
+Description=FB Cookie Webhook Receiver for govd auto-renew
+After=network.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/govd_repo
+ExecStart=/usr/bin/python3 /root/.hermes/scripts/fb_cookie_webhook.py
+Restart=always
+RestartSec=5
+Environment=FB_WEBHOOK_PORT=8765
+# Load .env secret via python loader (reads .env internally)
+
+[Install]
+WantedBy=multi-user.target
