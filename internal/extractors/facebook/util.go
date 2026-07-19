@@ -394,6 +394,39 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		// Try iPhone UA first (134K scontent 10)
 		b, err := fetchBody(tryURL)
 		if err == nil {
+			// First try to find valid m412 URL directly via HEAD check from body - more robust than parseVideoFromBody first pick (which may be 403)
+			// For groups 992068990489200, body has 1 m412 but may be 403, try all m412 URLs in body
+			bodyStr := string(b)
+			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
+			reAllM4 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			var validM4URL string
+			for _, src := range []string{bodyStr, bodyUnesc} {
+				for _, raw := range reAllM4.FindAllString(src, -1) {
+					u := unescapeFacebookURL(raw)
+					u = strings.ReplaceAll(u, "&amp;", "&")
+					u = strings.ReplaceAll(u, `\/`, "/")
+					// HEAD check
+					if resp, err := ctx.HTTPClient.FetchWithContext(ctx.Context, "HEAD", u, &networking.RequestParams{}); err == nil {
+						if resp.StatusCode == 200 {
+							validM4URL = u
+							resp.Body.Close()
+							break
+						}
+						resp.Body.Close()
+					}
+				}
+				if validM4URL != "" {
+					break
+				}
+			}
+			if validM4URL != "" {
+				// Build data directly with valid m412 URL
+				d := &VideoData{SDURL: validM4URL}
+				data = d
+				body = b
+				break
+			}
+			// Fallback to original parseVideoFromBody (handles HD/SD patterns, image fallback)
 			if d, err2 := parseVideoFromBody(b, ctx.ContentID); err2 == nil {
 				// Validate extracted video URL is not 403 - old m412 AQMTeJHK... still 200, new AQNIK65... 403
 				// If 403, try next URL for fresh valid URL
@@ -409,10 +442,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 							}
 							resp.Body.Close()
 						} else {
-							// If HEAD fails, still consider valid if we have URL (some scontent blocks HEAD but allows GET)
-							// Check if url contains known good pattern - for now assume valid if present
-							// But for 403 case, HEAD returns 403, so we need to skip
-							// Try GET small range as fallback
 							if resp2, err2 := ctx.HTTPClient.FetchWithContext(ctx.Context, "GET", u, &networking.RequestParams{Headers: map[string]string{"Range": "bytes=0-1"}}); err2 == nil {
 								if resp2.StatusCode == 200 || resp2.StatusCode == 206 {
 									valid = true
@@ -421,17 +450,13 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 							}
 						}
 					}
-					// If no valid via HEAD, still return data but let buildMedia try? For now return if any URL present, but log
-					// To avoid 403 loop, we return only if valid or if this is last try
 					if valid || tryURL == urlsToTry[len(urlsToTry)-1] {
 						data = d
 						body = b
 						break
 					}
-					// If not valid, continue to next tryURL for fresh URL
 					parseErr = fmt.Errorf("extracted URL 403, retry next")
 				} else {
-					// Got data but no video URLs? Could be image fallback - return as is for groups? But we want video
 					data = d
 					body = b
 					break
