@@ -471,6 +471,34 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		// Fallback to facebookexternalhit UA for groups - gives 4.3MB scontent 1806 m4 31 with m412 video (more robust when iPhone returns 50K scontent 0)
 		if strings.Contains(tryURL, "/groups/") {
 			if b2, err := fetchBodyFBHit(tryURL); err == nil && len(b2) > 10000 {
+				// Try valid m4 URL extraction with HEAD check for fbhit body as well
+				bodyStr2 := string(b2)
+				bodyUnesc2 := strings.ReplaceAll(bodyStr2, `\/`, "/")
+				reAllM4_2 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+				var validM4URL2 string
+				for _, src := range []string{bodyStr2, bodyUnesc2} {
+					for _, raw := range reAllM4_2.FindAllString(src, -1) {
+						u := unescapeFacebookURL(raw)
+						u = strings.ReplaceAll(u, "&amp;", "&")
+						u = strings.ReplaceAll(u, `\/`, "/")
+						if resp, err := ctx.HTTPClient.FetchWithContext(ctx.Context, "HEAD", u, &networking.RequestParams{}); err == nil {
+							if resp.StatusCode == 200 {
+								validM4URL2 = u
+								resp.Body.Close()
+								break
+							}
+							resp.Body.Close()
+						}
+					}
+					if validM4URL2 != "" {
+						break
+					}
+				}
+				if validM4URL2 != "" {
+					data = &VideoData{SDURL: validM4URL2}
+					body = b2
+					break
+				}
 				if d, err2 := parseVideoFromBody(b2, ctx.ContentID); err2 == nil {
 					data = d
 					body = b2
