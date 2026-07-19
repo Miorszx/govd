@@ -288,6 +288,8 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// PHOTO POST / SHARE / PERMALINK: direct mbasic - single fetch
 	// BUT for groups permalink, www iPhone gives m412 video (134K with video) while mbasic iPhone gives only jpg (46K) - fix bagi gamba bug for 18znZbiVx6
 	contentURL := ctx.ContentURL
+	// Keep original for fallback
+	originalURL := contentURL
 	if strings.Contains(contentURL, "/groups/") {
 		// Keep www for groups to preserve m412/m367 video - www+iphone 134K has m412 488x358 22s 641KB vs mbasic 46K jpg only
 		contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "www.facebook.com", 1)
@@ -297,47 +299,104 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		contentURL = strings.Replace(contentURL, "m.facebook.com", "mbasic.facebook.com", 1)
 	}
 
-	resp, err := ctx.Fetch(
-		http.MethodGet,
-		contentURL,
-		&networking.RequestParams{
-			Headers: map[string]string{
-				"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"Accept-Language": "en-US,en;q=0.5",
+	fetchBody := func(url string) ([]byte, error) {
+		resp, err := ctx.Fetch(
+			http.MethodGet,
+			url,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					"Accept-Language": "en-US,en;q=0.5",
+				},
 			},
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to get page: %s", resp.Status)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read body: %w", err)
+		}
+		// Check for blocked/login page
+		if len(body) < 5000 {
+			lb := string(body)
+			if strings.Contains(lb, "login") && strings.Contains(lb, "checkpoint") ||
+				strings.Contains(lb, "temporarily blocked") ||
+				strings.Contains(lb, "you have been temporarily blocked") {
+				return nil, fmt.Errorf("blocked/login page (len=%d)", len(body))
+			}
+		}
+		return body, nil
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get page: %s", resp.Status)
-	}
+	// Try fetch + parse with fallback for groups 50K scontent 0 case (len=50617 scontent=0 oh=1 m4=1) - intermittent flagged
+	var body []byte
+	var parseErr error
+	var data *VideoData
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read body: %w", err)
-	}
-
-	logger.WriteFile("fb_response", resp)
-
-	// Check for blocked/login page
-	if len(body) < 5000 {
-		lb := string(body)
-		if strings.Contains(lb, "login") && strings.Contains(lb, "checkpoint") ||
-			strings.Contains(lb, "temporarily blocked") ||
-			strings.Contains(lb, "you have been temporarily blocked") {
-			return nil, fmt.Errorf("blocked/login page (len=%d)", len(body))
+	// Build list of URLs to try for groups - user method m.facebook.com/.../videos/...?idorvanity=...&_rdr works with yt-dlp --cookies-from-browser
+	urlsToTry := []string{contentURL}
+	if strings.Contains(contentURL, "/groups/") {
+		// Strip query ?rdid=...&share_url=... to get base permalink which gives 134K scontent 10 vs 50K scontent 0 with query
+		base := contentURL
+		if idx := strings.Index(base, "?"); idx != -1 {
+			base = base[:idx]
+		}
+		if base != contentURL {
+			urlsToTry = append(urlsToTry, base)
+		}
+		// Try m. version as well - user method www->m with _rdr gives longer URL and works
+		mVer := strings.Replace(contentURL, "www.facebook.com", "m.facebook.com", 1)
+		if mVer != contentURL {
+			urlsToTry = append(urlsToTry, mVer)
+		}
+		if idx := strings.Index(mVer, "?"); idx != -1 {
+			mBase := mVer[:idx]
+			urlsToTry = append(urlsToTry, mBase)
+		}
+		// Also try original URL incase contentURL was converted from mbasic
+		if originalURL != contentURL && originalURL != "" {
+			urlsToTry = append(urlsToTry, originalURL)
+			if idx := strings.Index(originalURL, "?"); idx != -1 {
+				urlsToTry = append(urlsToTry, originalURL[:idx])
+			}
 		}
 	}
 
-	data, err := parseVideoFromBody(body, ctx.ContentID)
-	if err != nil {
-		return nil, err
+	for _, tryURL := range urlsToTry {
+		b, err := fetchBody(tryURL)
+		if err != nil {
+			parseErr = err
+			continue
+		}
+		d, err := parseVideoFromBody(b, ctx.ContentID)
+		if err == nil {
+			// Success
+			data = d
+			body = b
+			// Cache last good body for logger if needed
+			_ = body
+			break
+		}
+		// Save last error with body stats for debug
+		parseErr = err
+		// If body has scontent, keep it even if parse failed? Try next URL anyway for better result
+		if len(b) > 100000 {
+			// Prefer larger body
+		}
 	}
+	if data == nil {
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		return nil, fmt.Errorf("failed to get video data after retries")
+	}
+	logger.WriteFile("fb_response", struct{ Body string }{Body: string(body[:min(1000, len(body))])})
 
 	return data, nil
 }
