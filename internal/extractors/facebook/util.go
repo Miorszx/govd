@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -403,6 +404,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		} else {
 			parseErr = err
 		}
+		time.Sleep(400 * time.Millisecond)
 		// Fallback to facebookexternalhit UA for groups - gives 4.3MB scontent 1806 m4 31 with m412 video (more robust when iPhone returns 50K scontent 0)
 		if strings.Contains(tryURL, "/groups/") {
 			if b2, err := fetchBodyFBHit(tryURL); err == nil && len(b2) > 10000 {
@@ -414,6 +416,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 					parseErr = err2
 				}
 			}
+			time.Sleep(400 * time.Millisecond)
 		}
 	}
 	if data == nil {
