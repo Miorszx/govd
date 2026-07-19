@@ -334,6 +334,27 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		return body, nil
 	}
 
+	fetchBodyFBHit := func(url string) ([]byte, error) {
+		resp, err := ctx.Fetch(
+			http.MethodGet,
+			url,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent": "facebookexternalhit/1.1",
+					"Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				},
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("fbhit status %s", resp.Status)
+		}
+		return io.ReadAll(resp.Body)
+	}
+
 	// Try fetch + parse with fallback for groups 50K scontent 0 case (len=50617 scontent=0 oh=1 m4=1) - intermittent flagged
 	var body []byte
 	var parseErr error
@@ -369,25 +390,30 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	}
 
 	for _, tryURL := range urlsToTry {
+		// Try iPhone UA first (134K scontent 10)
 		b, err := fetchBody(tryURL)
-		if err != nil {
-			parseErr = err
-			continue
-		}
-		d, err := parseVideoFromBody(b, ctx.ContentID)
 		if err == nil {
-			// Success
-			data = d
-			body = b
-			// Cache last good body for logger if needed
-			_ = body
-			break
+			if d, err2 := parseVideoFromBody(b, ctx.ContentID); err2 == nil {
+				data = d
+				body = b
+				break
+			} else {
+				parseErr = err2
+			}
+		} else {
+			parseErr = err
 		}
-		// Save last error with body stats for debug
-		parseErr = err
-		// If body has scontent, keep it even if parse failed? Try next URL anyway for better result
-		if len(b) > 100000 {
-			// Prefer larger body
+		// Fallback to facebookexternalhit UA for groups - gives 4.3MB scontent 1806 m4 31 with m412 video (more robust when iPhone returns 50K scontent 0)
+		if strings.Contains(tryURL, "/groups/") {
+			if b2, err := fetchBodyFBHit(tryURL); err == nil && len(b2) > 10000 {
+				if d, err2 := parseVideoFromBody(b2, ctx.ContentID); err2 == nil {
+					data = d
+					body = b2
+					break
+				} else {
+					parseErr = err2
+				}
+			}
 		}
 	}
 	if data == nil {
