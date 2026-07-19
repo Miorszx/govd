@@ -365,43 +365,71 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	if data.HDURL == "" && data.SDURL == "" {
 		// Don't fallback to full body if we already determined it's feed/photo (section empty)
 		if len(section) == 0 {
-			// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
-			// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
-			// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
-			var urls []string
-			seen := map[string]struct{}{}
-			// Fresh scontent with oh signature - only this, no upgrade, no og:image
-			reFresh := regexp.MustCompile(`https://[^"'\s]*scontent[^"'\s]*oh=[^"'\s]+`)
-			for _, raw := range reFresh.FindAllString(string(body), -1) {
+			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
+			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
+			reMP4 := regexp.MustCompile(`https://[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			for _, raw := range reMP4.FindAllString(string(body), -1) {
 				u := unescapeFacebookURL(raw)
 				u = strings.ReplaceAll(u, "&amp;", "&")
 				u = strings.ReplaceAll(u, `\/`, "/")
-				// filter tiny/profile icons
-				if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") {
-					continue
+				// Prefer m367/m366 as HD, m412 as SD
+				if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+					if data.HDURL == "" {
+						data.HDURL = u
+					}
+				} else if strings.Contains(u, "m412") {
+					if data.SDURL == "" {
+						data.SDURL = u
+					} else if data.HDURL == "" {
+						// If only m412 found, use as HD if no other
+						data.HDURL = u
+					}
 				}
-				// dedup by filename (without query)
-				fn := u
-				if idx := strings.Index(fn, "?"); idx != -1 {
-					fn = fn[:idx]
-				}
-				if idx := strings.LastIndex(fn, "/"); idx != -1 {
-					fn = fn[idx+1:]
-				}
-				if _, ok := seen[fn]; ok {
-					continue
-				}
-				seen[fn] = struct{}{}
-				urls = append(urls, u)
-				if len(urls) >= 10 {
+				if data.HDURL != "" && data.SDURL != "" {
 					break
 				}
 			}
-			if len(urls) > 0 {
-				if len(urls) == 1 {
-					data.ImageURL = urls[0]
-				} else {
-					data.ImageURLs = urls
+			if data.HDURL != "" || data.SDURL != "" {
+				// found direct mp4, skip image extraction
+			} else {
+				// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
+				// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
+				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
+				var urls []string
+				seen := map[string]struct{}{}
+				// Fresh scontent with oh signature - only this, no upgrade, no og:image
+				reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+				for _, raw := range reFresh.FindAllString(string(body), -1) {
+					u := unescapeFacebookURL(raw)
+					u = strings.ReplaceAll(u, "&amp;", "&")
+					u = strings.ReplaceAll(u, `\/`, "/")
+					// filter tiny/profile icons
+					if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") {
+						continue
+					}
+					// dedup by filename (without query)
+					fn := u
+					if idx := strings.Index(fn, "?"); idx != -1 {
+						fn = fn[:idx]
+					}
+					if idx := strings.LastIndex(fn, "/"); idx != -1 {
+						fn = fn[idx+1:]
+					}
+					if _, ok := seen[fn]; ok {
+						continue
+					}
+					seen[fn] = struct{}{}
+					urls = append(urls, u)
+					if len(urls) >= 10 {
+						break
+					}
+				}
+				if len(urls) > 0 {
+					if len(urls) == 1 {
+						data.ImageURL = urls[0]
+					} else {
+						data.ImageURLs = urls
+					}
 				}
 			}
 		} else {
