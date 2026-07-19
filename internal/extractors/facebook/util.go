@@ -395,9 +395,47 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		b, err := fetchBody(tryURL)
 		if err == nil {
 			if d, err2 := parseVideoFromBody(b, ctx.ContentID); err2 == nil {
-				data = d
-				body = b
-				break
+				// Validate extracted video URL is not 403 - old m412 AQMTeJHK... still 200, new AQNIK65... 403
+				// If 403, try next URL for fresh valid URL
+				if d.HDURL != "" || d.SDURL != "" {
+					valid := false
+					for _, u := range []string{d.HDURL, d.SDURL} {
+						if u == "" {
+							continue
+						}
+						if resp, err := ctx.HTTPClient.FetchWithContext(ctx.Context, "HEAD", u, &networking.RequestParams{}); err == nil {
+							if resp.StatusCode == 200 {
+								valid = true
+							}
+							resp.Body.Close()
+						} else {
+							// If HEAD fails, still consider valid if we have URL (some scontent blocks HEAD but allows GET)
+							// Check if url contains known good pattern - for now assume valid if present
+							// But for 403 case, HEAD returns 403, so we need to skip
+							// Try GET small range as fallback
+							if resp2, err2 := ctx.HTTPClient.FetchWithContext(ctx.Context, "GET", u, &networking.RequestParams{Headers: map[string]string{"Range": "bytes=0-1"}}); err2 == nil {
+								if resp2.StatusCode == 200 || resp2.StatusCode == 206 {
+									valid = true
+								}
+								resp2.Body.Close()
+							}
+						}
+					}
+					// If no valid via HEAD, still return data but let buildMedia try? For now return if any URL present, but log
+					// To avoid 403 loop, we return only if valid or if this is last try
+					if valid || tryURL == urlsToTry[len(urlsToTry)-1] {
+						data = d
+						body = b
+						break
+					}
+					// If not valid, continue to next tryURL for fresh URL
+					parseErr = fmt.Errorf("extracted URL 403, retry next")
+				} else {
+					// Got data but no video URLs? Could be image fallback - return as is for groups? But we want video
+					data = d
+					body = b
+					break
+				}
 			} else {
 				parseErr = err2
 			}
