@@ -420,8 +420,28 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				}
 			}
 			if validM4URL != "" {
-				// Build data directly with valid m412 URL
+				// Build data with valid m412 URL + caption from parseVideoFromBody (fixes video ja tanpa caption bug)
 				d := &VideoData{SDURL: validM4URL}
+				// Try to extract caption/title from same body
+				if d2, err2 := parseVideoFromBody(b, ctx.ContentID); err2 == nil {
+					d.Title = d2.Title
+					// If Title still empty, try direct patterns
+					if d.Title == "" {
+						if m := titlePattern.FindSubmatch(b); len(m) >= 2 {
+							d.Title = unescapeUnicode(string(m[1]))
+						}
+					}
+					if d.Title == "" {
+						if m := htmlTitlePattern.FindSubmatch(b); len(m) >= 2 {
+							t := unescapeUnicode(string(m[1]))
+							t = html.UnescapeString(t)
+							t = strings.TrimSpace(t)
+							if len(t) > 5 && !strings.EqualFold(t, "Facebook") && !strings.HasPrefix(strings.ToLower(t), "log in") {
+								d.Title = t
+							}
+						}
+					}
+				}
 				data = d
 				body = b
 				break
@@ -495,7 +515,11 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 					}
 				}
 				if validM4URL2 != "" {
-					data = &VideoData{SDURL: validM4URL2}
+					d := &VideoData{SDURL: validM4URL2}
+					if d2, err2 := parseVideoFromBody(b2, ctx.ContentID); err2 == nil {
+						d.Title = d2.Title
+					}
+					data = d
 					body = b2
 					break
 				}
