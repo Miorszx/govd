@@ -425,7 +425,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				// Try to extract caption/title from same body
 				if d2, err2 := parseVideoFromBody(b, ctx.ContentID); err2 == nil {
 					d.Title = d2.Title
-					// If Title still empty, try direct patterns
 					if d.Title == "" {
 						if m := titlePattern.FindSubmatch(b); len(m) >= 2 {
 							d.Title = unescapeUnicode(string(m[1]))
@@ -440,6 +439,63 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 								d.Title = t
 							}
 						}
+					}
+				}
+				// If still no caption, fetch mbasic for caption (mbasic has og:description Yang ada Insomnia... even when flagged, www 50K has no caption)
+				if d.Title == "" {
+					// Build mbasic URL from contentURL: www -> mbasic, strip query
+					mbasicCapURL := contentURL
+					if idx := strings.Index(mbasicCapURL, "?"); idx != -1 {
+						mbasicCapURL = mbasicCapURL[:idx]
+					}
+					mbasicCapURL = strings.Replace(mbasicCapURL, "www.facebook.com", "mbasic.facebook.com", 1)
+					mbasicCapURL = strings.Replace(mbasicCapURL, "m.facebook.com", "mbasic.facebook.com", 1)
+					if !strings.Contains(mbasicCapURL, "mbasic.facebook.com") {
+						// fallback construct from tryURL base
+						baseCap := tryURL
+						if idx := strings.Index(baseCap, "?"); idx != -1 {
+							baseCap = baseCap[:idx]
+						}
+						baseCap = strings.Replace(baseCap, "www.facebook.com", "mbasic.facebook.com", 1)
+						baseCap = strings.Replace(baseCap, "m.facebook.com", "mbasic.facebook.com", 1)
+						mbasicCapURL = baseCap
+					}
+					if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
+						if respCap.StatusCode == 200 {
+							if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
+								// og:description
+								if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
+									c := html.UnescapeString(string(m[1]))
+									c = strings.TrimSpace(c)
+									if c != "" && !strings.EqualFold(c, "Facebook") {
+										d.Title = c
+									}
+								}
+								if d.Title == "" {
+									if m := htmlTitlePattern.FindSubmatch(bCap); len(m) >= 2 {
+										t := html.UnescapeString(string(m[1]))
+										t = strings.TrimSpace(t)
+										if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
+											t = t[:idx]
+										}
+										if idx := strings.LastIndex(t, " - "); idx != -1 {
+											// keep full for groups: "Ilman Danish - Yang ada Insomnia..."
+											// Take after " - " if contains Insomnia?
+											if strings.Contains(t, "Insomnia") {
+												if parts := strings.SplitN(t, " - ", 2); len(parts) == 2 {
+													t = parts[1]
+												}
+											}
+										}
+										t = strings.TrimSpace(t)
+										if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
+											d.Title = t
+										}
+									}
+								}
+							}
+						}
+						respCap.Body.Close()
 					}
 				}
 				data = d
