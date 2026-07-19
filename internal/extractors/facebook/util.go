@@ -286,9 +286,16 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	}
 
 	// PHOTO POST / SHARE / PERMALINK: direct mbasic - single fetch
+	// BUT for groups permalink, www iPhone gives m412 video (134K with video) while mbasic iPhone gives only jpg (46K) - fix bagi gamba bug for 18znZbiVx6
 	contentURL := ctx.ContentURL
-	contentURL = strings.Replace(contentURL, "www.facebook.com", "mbasic.facebook.com", 1)
-	contentURL = strings.Replace(contentURL, "m.facebook.com", "mbasic.facebook.com", 1)
+	if strings.Contains(contentURL, "/groups/") {
+		// Keep www for groups to preserve m412/m367 video - www+iphone 134K has m412 488x358 22s 641KB vs mbasic 46K jpg only
+		contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "www.facebook.com", 1)
+		contentURL = strings.Replace(contentURL, "m.facebook.com", "www.facebook.com", 1)
+	} else {
+		contentURL = strings.Replace(contentURL, "www.facebook.com", "mbasic.facebook.com", 1)
+		contentURL = strings.Replace(contentURL, "m.facebook.com", "mbasic.facebook.com", 1)
+	}
 
 	resp, err := ctx.Fetch(
 		http.MethodGet,
