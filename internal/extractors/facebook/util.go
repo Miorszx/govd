@@ -2,10 +2,12 @@ package facebook
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
 	"net/http"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -380,8 +382,10 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			url,
 			&networking.RequestParams{
 				Headers: map[string]string{
-					"User-Agent": "facebookexternalhit/1.1",
-					"Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					"User-Agent":      "facebookexternalhit/1.1",
+					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					"Accept-Language": "en-us,en;q=0.5",
+					"Sec-Fetch-Mode":  "navigate",
 				},
 			},
 		)
@@ -400,19 +404,20 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	var parseErr error
 	var data *VideoData
 
-	// Build list of URLs to try for groups - user method m.facebook.com/.../videos/...?idorvanity=...&_rdr works with yt-dlp --cookies-from-browser
+	// Build list of URLs to try - for ALL fb posts that Ade gamba (not just groups) per user "Okie apply ni tuk fb post YG Ade gamba"
+	// Previously only for /groups/, now apply to all fb posts so image detection works for share/p/, photo.php, etc
 	urlsToTry := []string{contentURL}
+	// Strip query ?rdid=...&share_url=... to get base permalink which gives 134K scontent 10 vs 50K scontent 0 with query
+	base := contentURL
+	if idx := strings.Index(base, "?"); idx != -1 {
+		base = base[:idx]
+	}
+	// For image posts like 992068990489200 (Insomnia) and 3511388275676556 (Malaikat) - www iPhone 50619 no og:image m4 0, mbasic 47809/48413 og:image t15/t39 56KB/800x588 m4 0 has image
+	// Add mbasic fallback EARLY for image posts so gamba returned instead of feed video from fbhit 3.9M 18 m4 (wrong per "Ade gamba takde video")
+	// Move mbasic before m. and fbhit fallback to avoid returning feed video - apply to ALL fb posts YG Ade gamba
+	mbasicBase := strings.Replace(base, "www.facebook.com", "mbasic.facebook.com", 1)
+	mbasicBase = strings.Replace(mbasicBase, "m.facebook.com", "mbasic.facebook.com", 1)
 	if strings.Contains(contentURL, "/groups/") {
-		// Strip query ?rdid=...&share_url=... to get base permalink which gives 134K scontent 10 vs 50K scontent 0 with query
-		base := contentURL
-		if idx := strings.Index(base, "?"); idx != -1 {
-			base = base[:idx]
-		}
-		// For image posts like 992068990489200 (Insomnia) and 3511388275676556 (Malaikat) - www iPhone 50619 no og:image m4 0, mbasic 47809/48413 og:image t15/t39 56KB/800x588 m4 0 has image
-		// Add mbasic fallback EARLY for image posts so gamba returned instead of feed video from fbhit 3.9M 18 m4 (wrong per "Ade gamba takde video")
-		// Move mbasic before m. and fbhit fallback to avoid returning feed video
-		mbasicBase := strings.Replace(base, "www.facebook.com", "mbasic.facebook.com", 1)
-		mbasicBase = strings.Replace(mbasicBase, "m.facebook.com", "mbasic.facebook.com", 1)
 		if base != contentURL {
 			urlsToTry = append(urlsToTry, base)
 		}
@@ -434,6 +439,22 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				urlsToTry = append(urlsToTry, originalURL[:idx])
 			}
 		}
+	} else {
+		// For non-group posts (photo.php, posts/, share/p/ etc) that Ade gamba - also try mbasic early
+		// Example share/p/1H1MTDu7Fe/ -> groups/3511388275676556 is group, but share/p/ on pages also image posts
+		if base != contentURL {
+			urlsToTry = append(urlsToTry, base)
+		}
+		// Always try mbasic early for image posts - fixes "Ade gamba takde video" for all fb posts
+		if mbasicBase != contentURL && mbasicBase != base {
+			urlsToTry = append(urlsToTry, mbasicBase)
+		}
+		if originalURL != contentURL && originalURL != "" {
+			urlsToTry = append(urlsToTry, originalURL)
+			if idx := strings.Index(originalURL, "?"); idx != -1 {
+				urlsToTry = append(urlsToTry, originalURL[:idx])
+			}
+		}
 	}
 
 	for _, tryURL := range urlsToTry {
@@ -444,13 +465,38 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			// For groups 992068990489200, body has 1 m412 but may be 403, try all m412 URLs in body
 			bodyStr := string(b)
 			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
-			reAllM4 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			reAllM4 := regexp.MustCompile(`https?:\\?/\\?/[^"']*scontent[^"']*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
 			var validM4URL string
 			for _, src := range []string{bodyStr, bodyUnesc} {
 				for _, raw := range reAllM4.FindAllString(src, -1) {
 					u := unescapeFacebookURL(raw)
 					u = strings.ReplaceAll(u, "&amp;", "&")
 					u = strings.ReplaceAll(u, `\/`, "/")
+					// Check if this URL is from feed or post - for group posts, check if section has video
+					// If section has no video (image post), skip m4 from feed - fixes "Ade gamba takde video"
+					// For YG Ade video via ytdl posts like 3512411595574224, section may have video even when cookies flagged give 47K thumbnail only
+					// Need to check section for video indicators before returning feed video
+					isFeedVideo := false
+					if len(ctx.ContentID) >= 10 {
+						// For group posts, check if this m4 is near post ID in body
+						// If post ID occ has no m4 nearby (40k window), this m4 is feed, not post
+						// So skip it for image posts
+						if sec := findVideoSection(b, ctx.ContentID); sec != nil {
+							sSec := string(sec)
+							if len(reAllM4.FindAllString(sSec, -1)) == 0 && !strings.Contains(sSec, "\"hd_src\"") && !strings.Contains(sSec, "\"sd_src\"") {
+								// No video in section = image post, this m4 is feed video, skip
+								isFeedVideo = true
+							}
+						} else {
+							// No section found - could be image post or flagged - check og:image
+							// For YG Ade gamba posts like 9920, 3511 - no section, but og:image t15/t39 present -> image, skip feed m4
+							// For YG Ade video via ytdl posts like 351241..., no section due to flagged 50K, but ytdl no-cookie gives dash -> video
+							// So for no-section case, don't skip based on section alone, let mbasic try image then fallback to fbhit no-cookie video
+						}
+					}
+					if isFeedVideo {
+						continue
+					}
 					// HEAD check
 					if resp, err := ctx.HTTPClient.FetchWithContext(ctx.Context, "HEAD", u, &networking.RequestParams{}); err == nil {
 						if resp.StatusCode == 200 {
@@ -757,7 +803,62 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	}
 	logger.WriteFile("fb_response", struct{ Body string }{Body: string(body[:min(1000, len(body))])})
 
+	// YG Ade video via ytdl fallback: if detected image but ytdl no-cookie says video (like 3512411595574224), use ytdl video
+	// This fixes "YG post YG Ade video via ytdl" SALAH image when cookies flagged
+	// Try ytdl without cookies for group video posts that are flagged as image due to 47K thumbnail
+	if data != nil && (data.ImageURL != "" || len(data.ImageURLs) > 0) {
+		// Only for group video posts that ytdl can get without cookies (fbhit 1.2M dash v=)
+		// Check if this is likely video post via ytdl: try ytdl no-cookie
+		if hd, sd, err := tryYtdlNoCookie(contentURL); err == nil && (hd != "" || sd != "") {
+			// ytdl found video, override image with video (YG Ade video via ytdl)
+			data.HDURL = hd
+			data.SDURL = sd
+			data.ImageURL = ""
+			data.ImageURLs = nil
+		}
+	}
+
 	return data, nil
+}
+
+func tryYtdlNoCookie(contentURL string) (hdURL, sdURL string, err error) {
+	// Call yt-dlp --skip-download -j without cookies to get video formats
+	// Used for YG Ade video via ytdl posts like 3512411595574224 that are flagged with cookies
+	// Returns hd m366 and sd m412 if found
+	// We exec yt-dlp directly, no cookie file
+	cmd := exec.Command("yt-dlp", "--skip-download", "-j", contentURL)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", err
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(out, &data); err != nil {
+		return "", "", err
+	}
+	formats, ok := data["formats"].([]interface{})
+	if !ok {
+		return "", "", fmt.Errorf("no formats")
+	}
+	for _, f := range formats {
+		fm, ok := f.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fid, _ := fm["format_id"].(string)
+		url, _ := fm["url"].(string)
+		if url == "" {
+			continue
+		}
+		if fid == "hd" {
+			hdURL = url
+		} else if fid == "sd" {
+			sdURL = url
+		}
+	}
+	if hdURL == "" && sdURL == "" {
+		return "", "", fmt.Errorf("no hd/sd")
+	}
+	return hdURL, sdURL, nil
 }
 
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
