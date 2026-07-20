@@ -124,10 +124,20 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// Treat /videos/, /reel/, /watch all as plugins method
 	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch") || strings.Contains(ctx.ContentURL, "/videos/")
 
-	// REEL/GROUP VIDEO: plugins/video.php desktop UA -> hd_src m366 / sd_src m412 only (HD-ONLY method)
-	// Caption: plugins show_text=0 has no caption when flagged, so fetch mbasic/www for caption as fallback
-	// Tested: plugins desktop body contains hd_src HD size direct mp4 with fresh oh= signature 200 OK
+	// REEL MAIN METHOD: yt-dlp with cookies (per user "jadikan die sebagai main bukan fallback sebab da jadi")
+	// yt-dlp --cookies gives hd+sd+caption for ALL reels, faster+more reliable than plugins
+	// Plugins/video.php is fallback only if yt-dlp fails (rare)
 	if isReel {
+		// Try yt-dlp FIRST as main method
+		cookieFile := "private/cookies/facebook.txt"
+		if hd, sd, err := tryYtdlWithCookies(ctx.ContentURL, cookieFile); err == nil && (hd != "" || sd != "") {
+			data := &VideoData{HDURL: hd, SDURL: sd}
+			if ytdlDesc != "" {
+				data.Title = ytdlDesc
+			}
+			return data, nil
+		}
+		// Fallback: plugins/video.php if yt-dlp fails
 		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
 		resp, err := ctx.Fetch(
 			http.MethodGet,
