@@ -203,8 +203,20 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 		}
 		if data.HDURL == "" && data.SDURL == "" {
-			return nil, fmt.Errorf("no reel video found in plugins (hd_src/sd_src missing) len=%d", len(body))
-		}
+				// Reel fallback: try yt-dlp for reels that fail hd_src/sd_src (87K login redirect)
+				// Fixes [83EC0DA7] reels like 2751407905232886, 1032958282478924, 876001581788660
+				// Reels need cookies (Cannot parse data without cookies), group videos use no-cookie
+				cookieFile := "private/cookies/facebook.txt"
+				if hd, sd, err := tryYtdlWithCookies(ctx.ContentURL, cookieFile); err == nil && (hd != "" || sd != "") {
+					data.HDURL = hd
+					data.SDURL = sd
+					if data.Title == "" && ytdlDesc != "" {
+						data.Title = ytdlDesc
+					}
+				} else {
+					return nil, fmt.Errorf("no reel video found in plugins (hd_src/sd_src missing) len=%d", len(body))
+				}
+			}
 		// If title still empty, try fetch mbasic reel for caption only (video stays plugins HD)
 		if data.Title == "" {
 			mbasicURL := "https://mbasic.facebook.com/reel/" + ctx.ContentID
@@ -977,6 +989,54 @@ func tryYtdlNoCookie(contentURL string) (hdURL, sdURL string, err error) {
 	}
 	return hdURL, sdURL, nil
 }
+
+// tryYtdlWithCookies calls yt-dlp with cookies for reels that fail without cookies
+// Reels like 2751407905232886 give "Cannot parse data" without cookies but work with cookies
+func tryYtdlWithCookies(contentURL, cookieFile string) (hdURL, sdURL string, err error) {
+	cmd := exec.Command("yt-dlp", "--cookies", cookieFile, "--skip-download", "-j", contentURL)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "", err
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(out, &data); err != nil {
+		return "", "", err
+	}
+	// Extract title/description for caption
+	if title, ok := data["title"].(string); ok && title != "" {
+		ytdlTitle = title
+	}
+	if desc, ok := data["description"].(string); ok && desc != "" {
+		ytdlDesc = desc
+	}
+	formats, ok := data["formats"].([]interface{})
+	if !ok {
+		return "", "", fmt.Errorf("no formats")
+	}
+	for _, f := range formats {
+		fm, ok := f.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fid, _ := fm["format_id"].(string)
+		url, _ := fm["url"].(string)
+		if url == "" {
+			continue
+		}
+		if fid == "hd" {
+			hdURL = url
+		} else if fid == "sd" {
+			sdURL = url
+		}
+	}
+	if hdURL == "" && sdURL == "" {
+		return "", "", fmt.Errorf("no hd/sd")
+	}
+	return hdURL, sdURL, nil
+}
+
+var ytdlTitle string
+var ytdlDesc string
 
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	data := &VideoData{}
