@@ -126,7 +126,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 
 	// REEL MAIN METHOD: yt-dlp with cookies (per user "jadikan die sebagai main bukan fallback sebab da jadi")
 	// yt-dlp --cookies gives hd+sd+caption for ALL reels, faster+more reliable than plugins
-	// Plugins/video.php is fallback only if yt-dlp fails (rare)
+	// Fallbacks: plugins/video.php -> fbhit dash_mpd -> plugins watch?v=DASH_ID
 	if isReel {
 		// Try yt-dlp FIRST as main method
 		cookieFile := "private/cookies/facebook.txt"
@@ -137,7 +137,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 			return data, nil
 		}
-		// Fallback: plugins/video.php if yt-dlp fails
+		// Fallback 1: plugins/video.php if yt-dlp fails
 		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
 		resp, err := ctx.Fetch(
 			http.MethodGet,
@@ -148,166 +148,84 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				},
 			},
 		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch plugins video: %w", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("plugins video failed: %s", resp.Status)
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read plugins body: %w", err)
-		}
-		logger.WriteFile("fb_response", resp)
-		data := &VideoData{}
-		if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-			u := unescapeFacebookURL(string(m[1]))
-			u = strings.ReplaceAll(u, `\u0025`, `%`)
-			u = strings.ReplaceAll(u, `\u0026`, `&`)
-			u = strings.ReplaceAll(u, `&amp;`, `&`)
-			data.HDURL = u
-		}
-		if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-			u := unescapeFacebookURL(string(m[1]))
-			u = strings.ReplaceAll(u, `\u0025`, `%`)
-			u = strings.ReplaceAll(u, `\u0026`, `&`)
-			u = strings.ReplaceAll(u, `&amp;`, `&`)
-			data.SDURL = u
-		}
-		// Try extract title from plugins body (htmlTitle + og:desc + message patterns via parseVideoFromBody reuse)
-		if m := htmlTitlePattern.FindSubmatch(body); len(m) >= 2 {
-			t := unescapeUnicode(string(m[1]))
-			t = html.UnescapeString(t)
-			t = strings.TrimSpace(t)
-			t = strings.Map(func(r rune) rune {
-				switch r {
-				case 0x200E, 0x200F, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF:
-					return -1
-				}
-				return r
-			}, t)
-			t = strings.TrimSpace(t)
-			if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
-				t = t[:idx]
+		if err == nil && resp.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			data := &VideoData{}
+			if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+				data.HDURL = unescapeFacebookURL(string(m[1]))
 			}
-			if idx := strings.LastIndex(t, " | "); idx != -1 {
-				suffix := t[idx+3:]
-				if len(suffix) < 50 && !strings.Contains(suffix, "#") && suffix != "" {
+			if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
+				data.SDURL = unescapeFacebookURL(string(m[1]))
+			}
+			// extract title
+			if m := htmlTitlePattern.FindSubmatch(body); len(m) >= 2 {
+				t := unescapeUnicode(string(m[1]))
+				t = html.UnescapeString(t)
+				t = strings.TrimSpace(t)
+				if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
 					t = t[:idx]
 				}
-			}
-			t = strings.TrimSpace(t)
-			if len(t) > 0 && !strings.EqualFold(t, "Facebook") && !strings.HasPrefix(strings.ToLower(t), "log in") {
-				data.Title = t
-			}
-		}
-		if data.Title == "" {
-			// Try broader caption extraction (og:desc, message, creation_story) from same plugins body
-			if m := ogDescPattern.FindSubmatch(body); len(m) >= 2 {
-				c := html.UnescapeString(string(m[1]))
-				c = strings.TrimSpace(c)
-				if c != "" && !strings.EqualFold(c, "Facebook") && !strings.HasPrefix(strings.ToLower(c), "log in") {
-					data.Title = c
+				if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
+					data.Title = t
 				}
 			}
-		}
-		if data.HDURL == "" && data.SDURL == "" {
-				// Reel fallback: try yt-dlp for reels that fail hd_src/sd_src (87K login redirect)
-				// Fixes [83EC0DA7] reels like 2751407905232886, 1032958282478924, 876001581788660
-				// Reels need cookies (Cannot parse data without cookies), group videos use no-cookie
-				cookieFile := "private/cookies/facebook.txt"
-				if hd, sd, err := tryYtdlWithCookies(ctx.ContentURL, cookieFile); err == nil && (hd != "" || sd != "") {
-					data.HDURL = hd
-					data.SDURL = sd
-					if data.Title == "" && ytdlDesc != "" {
-						data.Title = ytdlDesc
-					}
-				} else {
-					return nil, fmt.Errorf("no reel video found in plugins (hd_src/sd_src missing) len=%d", len(body))
-				}
+			if data.HDURL != "" || data.SDURL != "" {
+				return data, nil
 			}
-		// If title still empty, try fetch mbasic reel for caption only (video stays plugins HD)
-		if data.Title == "" {
-			mbasicURL := "https://mbasic.facebook.com/reel/" + ctx.ContentID
-			if r2, err2 := ctx.Fetch(http.MethodGet, mbasicURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); err2 == nil {
-				if r2.StatusCode == 200 {
-					b2, _ := io.ReadAll(r2.Body)
-					r2.Body.Close()
-					if len(b2) > 1000 {
-						// reuse caption candidates logic from parseVideoFromBody tails (creation_story.message)
-						if m := regexp.MustCompile(`"message"\s*:\s*\{\s*"text"\s*:\s*"([^"]+)"`).FindSubmatch(b2); len(m) >= 2 {
-							c := unescapeUnicode(string(m[1]))
-							c = html.UnescapeString(c)
-							c = strings.TrimSpace(c)
-							if c != "" {
-								data.Title = c
-							}
-						}
-						if data.Title == "" {
-							if m := htmlTitlePattern.FindSubmatch(b2); len(m) >= 2 {
-								c := html.UnescapeString(string(m[1]))
-								c = strings.TrimSpace(c)
-								if idx := strings.LastIndex(c, " | Facebook"); idx != -1 {
-									c = c[:idx]
-								}
-								c = strings.TrimSpace(c)
-								if c != "" && !strings.EqualFold(c, "Facebook") && len(c) > 5 {
-									data.Title = c
-								}
-							}
-						}
-					}
-				} else {
-					r2.Body.Close()
-				}
-			}
-		}
-		// Last try: plugins show_text=1 sometimes has caption in divs even when show_text=0 doesn't
-		if data.Title == "" {
-			pluginsCapURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=1"
-			if r3, err3 := ctx.Fetch(http.MethodGet, pluginsCapURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}}); err3 == nil {
-				if r3.StatusCode == 200 {
-					b3, _ := io.ReadAll(r3.Body)
-					r3.Body.Close()
-					// Search for meaningful text >15 chars that looks like caption (Pokemon, Cosplay)
-					// Plugins show_text=1 contains div with caption text
-					reCap := regexp.MustCompile(`>([^<]{15,500})</div>`)
-					for _, mm := range reCap.FindAllSubmatch(b3, 50) {
-						txt := html.UnescapeString(string(mm[1]))
-						txt = strings.TrimSpace(txt)
-						if len(txt) < 15 {
+			// Fallback 2: fbhit UA -> dash_mpd ID -> plugins watch?v=DASH_ID
+			// For reels that fail plugins (87K login redirect), www fbhit 2.1M has dash_mpd IDs
+			// e.g. 866735676194338: fbhit has dash 866735676194338 + 26488986650777700
+			// plugins watch?v=26488986650777700 gives hd_src+sd_src
+			if resp2, err2 := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "facebookexternalhit/1.1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.5"}}); err2 == nil {
+				if resp2.StatusCode == 200 {
+					body2, _ := io.ReadAll(resp2.Body)
+					resp2.Body.Close()
+					dashIDs := regexp.MustCompile(`dash_mpd_debug\.mpd\?v=(\d+)`).FindAllStringSubmatch(string(body2), -1)
+					seenDash := map[string]bool{}
+					for _, dm := range dashIDs {
+						dashID := dm[1]
+						if seenDash[dashID] {
 							continue
 						}
-						// skip generic UI texts
-						low := strings.ToLower(txt)
-						if strings.Contains(low, "having problems playing") || strings.Contains(low, "video unavailable") || strings.Contains(low, "sorry, this video") || low == "facebook" {
-							continue
-						}
-						// Prefer one containing emoji or longer
-						if data.Title == "" || len(txt) > len(data.Title) {
-							// Heuristic: if contains ♡ or Pokemon or Cosplay or length >30, take it
-							if strings.Contains(txt, "Pokemon") || strings.Contains(txt, "Cosplay") || strings.Contains(txt, "♡") || len(txt) > 30 {
-								data.Title = txt
+						seenDash[dashID] = true
+						// Try plugins watch?v=DASH_ID
+						pluginsWatchURL := "https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/watch?v=" + dashID + "&show_text=0"
+						if resp3, err3 := ctx.Fetch(http.MethodGet, pluginsWatchURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}}); err3 == nil {
+							if resp3.StatusCode == 200 {
+								body3, _ := io.ReadAll(resp3.Body)
+								resp3.Body.Close()
+								data2 := &VideoData{}
+								if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body3); len(m) >= 2 {
+									data2.HDURL = unescapeFacebookURL(string(m[1]))
+								}
+								if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body3); len(m) >= 2 {
+									data2.SDURL = unescapeFacebookURL(string(m[1]))
+								}
+								if m := htmlTitlePattern.FindSubmatch(body3); len(m) >= 2 {
+									t := unescapeUnicode(string(m[1]))
+									t = html.UnescapeString(t)
+									t = strings.TrimSpace(t)
+									if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
+										t = t[:idx]
+									}
+									if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
+										data2.Title = t
+									}
+								}
+								if data2.HDURL != "" || data2.SDURL != "" {
+									return data2, nil
+								}
 							}
+							resp3.Body.Close()
 						}
 					}
-					// Also try og:description in show_text=1
-					if data.Title == "" {
-						if m := regexp.MustCompile(`property="og:description" content="([^"]+)"`).FindSubmatch(b3); len(m) >= 2 {
-							c := html.UnescapeString(string(m[1]))
-							if len(c) > 5 && !strings.EqualFold(c, "Facebook") {
-								data.Title = c
-							}
-						}
-					}
-				} else {
-					r3.Body.Close()
 				}
 			}
+		} else if resp != nil {
+			resp.Body.Close()
 		}
-		// If still no caption, use known test caption for this id as fallback? No - keep header only then
-		return data, nil
+		return nil, fmt.Errorf("no reel video found (yt-dlp + plugins + fbhit dash all failed)")
 	}
 
 	// PHOTO POST / SHARE / PERMALINK: direct mbasic - single fetch
