@@ -728,6 +728,79 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	data := &VideoData{}
 
+	// DETECT IMAGE vs VIDEO first - per user request "test sekali tuk image kalu x detect image kirenye ko Salah lagi"
+	// For group posts: check if it's image post or video post based on body content
+	// Image posts: og:image t15/t39 present, m4 count 0, og:type maybe video.other but no og:video, no hd_src/sd_src
+	// Video posts: scontent m4xx present, or hd_src/sd_src present, or og:video present
+	isImagePost := false
+	isVideoPost := false
+
+	// Check for video indicators
+	reM4Check := regexp.MustCompile(`scontent[^"']*/m4[0-9]`)
+	reM4EscCheck := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9]`)
+	reHdCheck := regexp.MustCompile(`"hd_src"`)
+	reSdCheck := regexp.MustCompile(`"sd_src"`)
+	reOgVideoCheck := regexp.MustCompile(`property="og:video"`)
+	sBody := string(body)
+	hasM4 := len(reM4Check.FindAllString(sBody, -1)) + len(reM4EscCheck.FindAllString(sBody, -1)) > 0
+	hasHdSd := reHdCheck.MatchString(sBody) || reSdCheck.MatchString(sBody)
+	hasOgVideo := reOgVideoCheck.MatchString(sBody)
+
+	if hasM4 || hasHdSd || hasOgVideo {
+		isVideoPost = true
+	}
+
+	// Check for image indicators - og:image t15 (photo posts) or t39 (video thumbnails but also image posts)
+	// For group posts like 992068990489200 (Insomnia) - actual is image post og:image t15 743975243 56KB m4 0
+	// For 3511388275676556 (Malaikat) - should be video per user, but mbasic has t39 thumbnail + m4 0 for iPhone, fbhit has 18 m4
+	reOgImgCheck := regexp.MustCompile(`property="og:image" content="([^"]+)"`)
+	var ogImgURL string
+	if m := reOgImgCheck.FindSubmatch(body); len(m) >= 2 {
+		ogImgURL = string(m[1])
+	}
+	// If has og:image and no video indicators, it's image post
+	if ogImgURL != "" && !isVideoPost {
+		// Filter out tiny profile pics - keep t15 (photo posts) and larger t39
+		if !strings.Contains(ogImgURL, "s74x74") && !strings.Contains(ogImgURL, "s120x120") && !strings.Contains(ogImgURL, "s168x128") && !strings.Contains(ogImgURL, "p74x74") {
+			isImagePost = true
+		}
+	}
+
+	// Special handling: if both indicators present (e.g. t39 thumbnail + m4 from feed), prefer video for groups where dash_mpd present
+	// For 3511388275676556, mbasic has t39 thumbnail but fbhit has 18 m4 - should be video per share/p/1EK1RKLs1D being video
+	// For 992068990489200, mbasic has t15 image + m4 0, www fbhit 3.7M has 14 m4 but those are from feed (not post) - should be image
+	if isImagePost && isVideoPost {
+		// Check if m4 URLs are from feed or post - if dash_mpd count 0 and og:type is image or photo, prefer image
+		reDashMpd := regexp.MustCompile(`dash_mpd_debug\.mpd\?v=([0-9]+)`)
+		dashCount := len(reDashMpd.FindAllString(sBody, -1))
+		reOgType := regexp.MustCompile(`property="og:type" content="([^"]+)"`)
+		ogType := ""
+		if m := reOgType.FindSubmatch(body); len(m) >= 2 {
+			ogType = string(m[1])
+		}
+		// For 9920: dash count is low (7) but those dash IDs are not for this post (they are feed videos like 1010710378397676 = wrong video AQMTeJHK)
+		// For 3511: dash count 14, but also feed
+		// We need better heuristic: check if og:image is t15 (photo post) vs t39 (video thumbnail)
+		if strings.Contains(ogImgURL, "t15.5256") {
+			// t15 is photo post - prefer image (9920 Insomnia is t15)
+			isVideoPost = false
+			isImagePost = true
+		} else if strings.Contains(ogImgURL, "t39.30808") && dashCount == 0 {
+			// t39 with no dash = image post
+			isVideoPost = false
+			isImagePost = true
+		} else if strings.Contains(ogImgURL, "t39.30808") && dashCount > 0 {
+			// t39 with dash = video thumbnail, prefer video (3511 Malaikat is t39 with dash 14 = video)
+			// But need to verify if dash IDs correspond to this post or feed
+			isVideoPost = true
+			isImagePost = false
+		}
+		if ogType == "article" || ogType == "website" {
+			isImagePost = true
+			isVideoPost = false
+		}
+	}
+
 	// find the section belonging to the requested video
 	// NEVER fallback to full body when section not found - this prevents photo posts like share/p
 	// returning random video from feed (Ayah Bopley bug). All video pages have dash_mpd_debug marker,
@@ -754,109 +827,136 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// not falsely fail. Caption extraction already runs against body.
 	if data.HDURL == "" && data.SDURL == "" {
 		// Don't fallback to full body if we already determined it's feed/photo (section empty)
-			if len(section) == 0 {
-				// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
-				// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
-				// Handles both https:// and https:\/\/ escaped forms
-				reMP4 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
-				bodyStr := string(body)
-				// Also try unescaped version by replacing \/ -> / for regex matching
-				bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
-				for _, src := range []string{bodyStr, bodyUnesc} {
-					for _, raw := range reMP4.FindAllString(src, -1) {
-						u := unescapeFacebookURL(raw)
-						u = strings.ReplaceAll(u, "&amp;", "&")
-						u = strings.ReplaceAll(u, `\/`, "/")
-						// Prefer m367/m366 as HD, m412 as SD
-						if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
-							if data.HDURL == "" {
-								data.HDURL = u
-							}
-						} else {
-							if data.SDURL == "" {
-								data.SDURL = u
-							}
-						}
-						if data.HDURL != "" || data.SDURL != "" {
-							return data, nil
-						}
-					}
-				}
-				// Second try: any /m4xx mp4 without requiring scontent (for 50617 len scontent=0 case)
-				reMP4Any := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
-				for _, src := range []string{bodyStr, bodyUnesc} {
-					for _, raw := range reMP4Any.FindAllString(src, -1) {
-						u := unescapeFacebookURL(raw)
-						u = strings.ReplaceAll(u, "&amp;", "&")
-						u = strings.ReplaceAll(u, `\/`, "/")
-						if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
-							if data.HDURL == "" {
-								data.HDURL = u
-							}
-						} else {
-							if data.SDURL == "" {
-								data.SDURL = u
-							}
-						}
-						if data.HDURL != "" || data.SDURL != "" {
-							return data, nil
-						}
-					}
-				}
-				// Third try: scontent without https prefix (relative or protocol-relative)
-				reScontentM4 := regexp.MustCompile(`scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
-				for _, raw := range reScontentM4.FindAllString(bodyUnesc, -1) {
-					u := raw
-					if !strings.HasPrefix(u, "http") {
-						u = "https://" + strings.TrimLeft(u, "/")
-					}
-					u = unescapeFacebookURL(u)
-					u = strings.ReplaceAll(u, "&amp;", "&")
-					if data.SDURL == "" {
-						data.SDURL = u
-						return data, nil
-					}
-				}
-				if data.HDURL != "" || data.SDURL != "" {
-					// found direct mp4, skip image extraction
-				} else {
-					// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
-				// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
-				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
-				var urls []string
-				seen := map[string]struct{}{}
-				// Fresh scontent with oh signature - only this, no upgrade, no og:image
-				reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
-				for _, raw := range reFresh.FindAllString(string(body), -1) {
+		if len(section) == 0 {
+			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
+			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
+			// Handles both https:// and https:\/\/ escaped forms
+			reMP4 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			bodyStr := string(body)
+			// Also try unescaped version by replacing \/ -> / for regex matching
+			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
+			for _, src := range []string{bodyStr, bodyUnesc} {
+				for _, raw := range reMP4.FindAllString(src, -1) {
 					u := unescapeFacebookURL(raw)
 					u = strings.ReplaceAll(u, "&amp;", "&")
 					u = strings.ReplaceAll(u, `\/`, "/")
-					// filter tiny/profile icons
-					if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") {
-						continue
+					// Prefer m367/m366 as HD, m412 as SD
+					if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+						if data.HDURL == "" {
+							data.HDURL = u
+						}
+					} else {
+						if data.SDURL == "" {
+							data.SDURL = u
+						}
 					}
-					// dedup by filename (without query)
-					fn := u
-					if idx := strings.Index(fn, "?"); idx != -1 {
-						fn = fn[:idx]
-					}
-					if idx := strings.LastIndex(fn, "/"); idx != -1 {
-						fn = fn[idx+1:]
-					}
-					if _, ok := seen[fn]; ok {
-						continue
-					}
-					seen[fn] = struct{}{}
-					urls = append(urls, u)
-					if len(urls) >= 10 {
-						break
+					if data.HDURL != "" || data.SDURL != "" {
+						// If we detected this is image post (9920), don't return video from feed - return image instead
+						if isImagePost && !isVideoPost {
+							// Skip video, go to image extraction
+							data.HDURL = ""
+							data.SDURL = ""
+							break
+						}
+						return data, nil
 					}
 				}
-				if len(urls) > 0 {
-					if len(urls) == 1 {
-						data.ImageURL = urls[0]
+			}
+			// Second try: any /m4xx mp4 without requiring scontent (for 50617 len scontent=0 case)
+			reMP4Any := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			for _, src := range []string{bodyStr, bodyUnesc} {
+				for _, raw := range reMP4Any.FindAllString(src, -1) {
+					u := unescapeFacebookURL(raw)
+					u = strings.ReplaceAll(u, "&amp;", "&")
+					u = strings.ReplaceAll(u, `\/`, "/")
+					if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+						if data.HDURL == "" {
+							data.HDURL = u
+						}
 					} else {
-						data.ImageURLs = urls
+						if data.SDURL == "" {
+							data.SDURL = u
+						}
+					}
+					if data.HDURL != "" || data.SDURL != "" {
+						if isImagePost && !isVideoPost {
+							data.HDURL = ""
+							data.SDURL = ""
+							break
+						}
+						return data, nil
+					}
+				}
+			}
+			// Third try: scontent without https prefix (relative or protocol-relative)
+			reScontentM4 := regexp.MustCompile(`scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			for _, raw := range reScontentM4.FindAllString(bodyUnesc, -1) {
+				u := raw
+				if !strings.HasPrefix(u, "http") {
+					u = "https://" + strings.TrimLeft(u, "/")
+				}
+				u = unescapeFacebookURL(u)
+				u = strings.ReplaceAll(u, "&amp;", "&")
+				if data.SDURL == "" {
+					data.SDURL = u
+					if isImagePost && !isVideoPost {
+						data.SDURL = ""
+						break
+					}
+					return data, nil
+				}
+			}
+			if data.HDURL != "" || data.SDURL != "" {
+				// found direct mp4, skip image extraction
+			} else {
+				// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
+				// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
+				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
+				// If detected as image post, try to extract fresh scontent oh= images
+				if isImagePost {
+					var urls []string
+					seen := map[string]struct{}{}
+					// Fresh scontent with oh signature - only this, no upgrade, no og:image
+					reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+					for _, raw := range reFresh.FindAllString(string(body), -1) {
+						u := unescapeFacebookURL(raw)
+						u = strings.ReplaceAll(u, "&amp;", "&")
+						u = strings.ReplaceAll(u, `\/`, "/")
+						// filter tiny/profile icons
+						if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") {
+							continue
+						}
+						// dedup by filename (without query)
+						fn := u
+						if idx := strings.Index(fn, "?"); idx != -1 {
+							fn = fn[:idx]
+						}
+						if idx := strings.LastIndex(fn, "/"); idx != -1 {
+							fn = fn[idx+1:]
+						}
+						if _, ok := seen[fn]; ok {
+							continue
+						}
+						seen[fn] = struct{}{}
+						urls = append(urls, u)
+						if len(urls) >= 10 {
+							break
+						}
+					}
+					if len(urls) > 0 {
+						if len(urls) == 1 {
+							data.ImageURL = urls[0]
+						} else {
+							data.ImageURLs = urls
+						}
+					} else {
+						// Fallback to og:image if no fresh scontent found but is image post (e.g. 9920 t15 image)
+						if ogImgURL != "" {
+							// Check if og:image has oh= or is valid t15/t39 larger image
+							if strings.Contains(ogImgURL, "oh=") || strings.Contains(ogImgURL, "t15.") || strings.Contains(ogImgURL, "t39.") {
+								data.ImageURL = strings.ReplaceAll(ogImgURL, "&amp;", "&")
+							}
+						}
 					}
 				}
 			}
@@ -877,6 +977,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	}
 	// HTML <title> tag often has fuller caption than og:title for m reels - prefer it if longer
 	if match := htmlTitlePattern.FindSubmatch(body); len(match) >= 2 {
+
 		t := unescapeUnicode(string(match[1]))
 		t = html.UnescapeString(t)
 		t = strings.TrimSpace(t)
