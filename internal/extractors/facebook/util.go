@@ -830,6 +830,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// MULTIPLE GAMBA support for 1EC9Yune9P (3 gamba) - if single image found, try mbasic for multiple
 	// mbasic 264572 gives 3 images, www fbhit 3664991 gives 15 with 3 post cluster 4552750
 	// For image posts, try mbasic if current is single but mbasic has multiple
+	// OPTIMIZATION: reuse fbhit body from earlier fetch (line 676 b2) instead of fetching again
 	if data != nil && data.ImageURL != "" && len(data.ImageURLs) == 0 {
 		mbasicURL := contentURL
 		if idx := strings.Index(mbasicURL, "?"); idx != -1 {
@@ -846,9 +847,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 								// Found multiple gamba via mbasic like 1EC9Yune9P 3 gamba - use it
 								data = dM
 								body = bM
-							} else if len(dM.ImageURLs) == 0 && dM.ImageURL == "" {
-								// mbasic had no image, try fbhit body for multiple like 1EC9Yune9P www fbhit 3664991 gives 15 with 3 cluster
-								// Already tried via earlier logic, but try again with fbhit parse
 							}
 						}
 					}
@@ -856,68 +854,73 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				respM.Body.Close()
 			}
 		}
-		// Also try www fbhit for multiple gamba like 1EC9Yune9P - www fbhit 3657367 gives 15 filtered with 3 post cluster 4552750 even when mbasic flagged 48K 1 image
-		if data != nil && (data.ImageURL != "" && len(data.ImageURLs) == 0) || (len(data.ImageURLs) == 1) {
-			if b2, err := fetchBodyFBHit(contentURL); err == nil && len(b2) > 10000 {
-				if d2, errP := parseVideoFromBody(b2, ctx.ContentID); errP == nil {
-					if len(d2.ImageURLs) > 1 {
-						// www fbhit has multiple - use it for 1EC9Yune9P
-						data = d2
-						body = b2
-					} else if len(d2.ImageURLs) == 0 && d2.ImageURL == "" {
-						// Try manual fresh extraction with clustering for 1EC9Yune9P case
-						// fbhit 3657367 fresh total 142 filtered 15 with first 3 being 749330663,749928513,749330664 (4552750 cluster)
-						// Do fresh extraction here to get multiple even if parse gave single
-						reFresh2 := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
-						all2 := reFresh2.FindAllString(string(b2), -1)
-						seen2 := map[string]struct{}{}
-						var urls2 []string
-						for _, raw := range all2 {
-							u := unescapeFacebookURL(raw)
-							u = strings.ReplaceAll(u, "&amp;", "&")
-							u = strings.ReplaceAll(u, `\/`, "/")
-							if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") || strings.Contains(u, "c256.") || strings.Contains(u, "_s224") || strings.Contains(u, "_s320") {
-								continue
-							}
-							fn := u
-							if idx := strings.Index(fn, "?"); idx != -1 { fn = fn[:idx] }
-							if idx := strings.LastIndex(fn, "/"); idx != -1 { fn = fn[idx+1:] }
-							if _, ok := seen2[fn]; ok { continue }
-							seen2[fn] = struct{}{}
-							urls2 = append(urls2, u)
-							if len(urls2) >= 20 { break }
-						}
-						// Cluster by album prefix 4552750 for 1EC9Yune9P
-						if len(urls2) > 3 {
-							grp := map[string][]string{}
-							for _, u := range urls2 {
-								fn := u
-								if idx := strings.Index(fn, "?"); idx != -1 { fn = fn[:idx] }
-								if idx := strings.LastIndex(fn, "/"); idx != -1 { fn = fn[idx+1:] }
-								parts := strings.Split(fn, "_")
-								prefix := ""
-								if len(parts) >= 2 && len(parts[1]) >= 7 { prefix = parts[1][:7] }
-								if prefix != "" && strings.Contains(u, "t39.30808-6/749") {
-									grp[prefix] = append(grp[prefix], u)
+		// Only fetch fbhit again if we don't already have multiple and mbasic didn't give multiple
+		// Reuse body if it's already fbhit 3.9M (avoid duplicate 3.2s fetch)
+		if data != nil && (data.ImageURL != "" && len(data.ImageURLs) == 0) {
+			// Try parse existing body first (might be fbhit 3.9M already)
+			if d2, errP := parseVideoFromBody(body, ctx.ContentID); errP == nil && len(d2.ImageURLs) > 1 {
+				data = d2
+			} else {
+				// Only fetch fbhit if body is not already fbhit (small body = iPhone/mbasic, need fbhit for multiple)
+				if len(body) < 100000 {
+					if b2, err := fetchBodyFBHit(contentURL); err == nil && len(b2) > 10000 {
+						if d2, errP := parseVideoFromBody(b2, ctx.ContentID); errP == nil {
+							if len(d2.ImageURLs) > 1 {
+								data = d2
+								body = b2
+							} else if len(d2.ImageURLs) == 0 && d2.ImageURL == "" {
+								// Try manual fresh extraction with clustering for 1EC9Yune9P case
+								reFresh2 := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+								all2 := reFresh2.FindAllString(string(b2), -1)
+								seen2 := map[string]struct{}{}
+								var urls2 []string
+								for _, raw := range all2 {
+									u := unescapeFacebookURL(raw)
+									u = strings.ReplaceAll(u, "&amp;", "&")
+									u = strings.ReplaceAll(u, `\/`, "/")
+									if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") || strings.Contains(u, "c256.") || strings.Contains(u, "_s224") || strings.Contains(u, "_s320") {
+										continue
+									}
+									fn := u
+									if idx := strings.Index(fn, "?"); idx != -1 { fn = fn[:idx] }
+									if idx := strings.LastIndex(fn, "/"); idx != -1 { fn = fn[idx+1:] }
+									if _, ok := seen2[fn]; ok { continue }
+									seen2[fn] = struct{}{}
+									urls2 = append(urls2, u)
+									if len(urls2) >= 20 { break }
+								}
+								if len(urls2) > 3 {
+									grp := map[string][]string{}
+									for _, u := range urls2 {
+										fn := u
+										if idx := strings.Index(fn, "?"); idx != -1 { fn = fn[:idx] }
+										if idx := strings.LastIndex(fn, "/"); idx != -1 { fn = fn[idx+1:] }
+										parts := strings.Split(fn, "_")
+										prefix := ""
+										if len(parts) >= 2 && len(parts[1]) >= 7 { prefix = parts[1][:7] }
+										if prefix != "" && strings.Contains(u, "t39.30808-6/749") {
+											grp[prefix] = append(grp[prefix], u)
+										}
+									}
+									var best []string
+									for _, g := range grp {
+										if len(g) > len(best) { best = g }
+									}
+									if len(best) >= 2 {
+										data.ImageURLs = best
+										data.ImageURL = ""
+										body = b2
+									}
 								}
 							}
-							var best []string
-							for _, g := range grp {
-								if len(g) > len(best) { best = g }
+												}
+											}
+										}
+									}
+								}
 							}
-							if len(best) >= 2 {
-								data.ImageURLs = best
-								data.ImageURL = ""
-								body = b2
-							}
-						}
-					}
-				}
-			}
-		}
-	}
 
-	// YG Ade video via ytdl fallback: if detected image but ytdl no-cookie says video (like 3512411595574224), use ytdl video
+							// YG Ade video via ytdl fallback: if detected image but ytdl no-cookie says video (like 3512411595574224), use ytdl video
 	// This fixes "YG post YG Ade video via ytdl" SALAH image when cookies flagged
 	// Try ytdl without cookies for group video posts that are flagged as image due to 47K thumbnail
 	if data != nil && (data.ImageURL != "" || len(data.ImageURLs) > 0) {
@@ -1047,6 +1050,16 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 					isImagePost = true
 				}
 			}
+		}
+	}
+	// For fbhit body 3.9M (facebookexternalhit UA) og:image is often empty but section has no m4/hd_src
+	// Still treat as image post if section is empty (no video) for group posts with len>=15
+	// Fixes 1EC9Yune9P 3 gamba: fbhit 3.9M og:image empty but section m4=0 hd_src=false -> isImagePost should be true
+	if len(videoID) >= 15 && !hasM4InSection && !hasHdSdInSection && !isVideoPost && !isImagePost {
+		// Check if body has scontent images (fresh oh=) - indicates image post even without og:image
+		reFreshCheck := regexp.MustCompile(`scontent[^"']*oh=`)
+		if reFreshCheck.MatchString(string(body)) {
+			isImagePost = true
 		}
 	}
 
@@ -1219,8 +1232,13 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 									best = g
 								}
 							}
+							// Only use cluster if best group has >=2 (multi-image post like 1EC9Yune9P 3 gamba)
+							// For single image posts like 3511 (749258980), best group size 1 -> keep single, don't return 10 feed images
 							if len(best) >= 2 && len(best) <= 10 {
 								urls = best
+							} else {
+								// Single image post or no cluster - keep only first image, not 10 feed images
+								urls = urls[:1]
 							}
 						}
 						if len(urls) == 1 {
