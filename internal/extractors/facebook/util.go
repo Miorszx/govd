@@ -408,9 +408,16 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		if idx := strings.Index(base, "?"); idx != -1 {
 			base = base[:idx]
 		}
+		// For image posts like 992068990489200 (Insomnia) and 3511388275676556 (Malaikat) - www iPhone 50619 no og:image m4 0, mbasic 47809/48413 og:image t15/t39 56KB/800x588 m4 0 has image
+		// Add mbasic fallback EARLY for image posts so gamba returned instead of feed video from fbhit 3.9M 18 m4 (wrong per "Ade gamba takde video")
+		// Move mbasic before m. and fbhit fallback to avoid returning feed video
+		mbasicBase := strings.Replace(base, "www.facebook.com", "mbasic.facebook.com", 1)
+		mbasicBase = strings.Replace(mbasicBase, "m.facebook.com", "mbasic.facebook.com", 1)
 		if base != contentURL {
 			urlsToTry = append(urlsToTry, base)
 		}
+		// Prioritize mbasic for image posts - try mbasic right after base to get t15/t39 image before fbhit feed video
+		urlsToTry = append(urlsToTry, mbasicBase)
 		// Try m. version as well - user method www->m with _rdr gives longer URL and works
 		mVer := strings.Replace(contentURL, "www.facebook.com", "m.facebook.com", 1)
 		if mVer != contentURL {
@@ -427,11 +434,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				urlsToTry = append(urlsToTry, originalURL[:idx])
 			}
 		}
-		// For image posts like 992068990489200 (Insomnia) - www iPhone 50619 no og:image m4 0, mbasic 47809 og:image t15 743975243... 56KB m4 0 has image
-		// Add mbasic fallback for image posts so gamba returned instead of no video
-		mbasicBase := strings.Replace(base, "www.facebook.com", "mbasic.facebook.com", 1)
-		mbasicBase = strings.Replace(mbasicBase, "m.facebook.com", "mbasic.facebook.com", 1)
-		urlsToTry = append(urlsToTry, mbasicBase)
 	}
 
 	for _, tryURL := range urlsToTry {
@@ -650,6 +652,39 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 					}
 				}
 				if validM4URL2 != "" {
+					// Check if this body is actually image post (section has no m4 but og:image t15/t39) - "Ade gamba takde video"
+					// If so, don't return feed video, try image extraction via parseVideoFromBody
+					if dImg, errImg := parseVideoFromBody(b2, ctx.ContentID); errImg == nil {
+						if dImg.ImageURL != "" || len(dImg.ImageURLs) > 0 {
+							data = dImg
+							body = b2
+							break
+						}
+					}
+					// Try mbasic image fallback for group posts - fbhit 3.9M has 18 m4 feed but no og:image, mbasic 48K has og:image t39 749... (Ade gamba takde video)
+					// This fixes 3511388275676556 returning video 15s 882K AQN-0D_L when should be image gamba
+					mbasicImgURL := tryURL
+					if idx := strings.Index(mbasicImgURL, "?"); idx != -1 {
+						mbasicImgURL = mbasicImgURL[:idx]
+					}
+					mbasicImgURL = strings.Replace(mbasicImgURL, "www.facebook.com", "mbasic.facebook.com", 1)
+					mbasicImgURL = strings.Replace(mbasicImgURL, "m.facebook.com", "mbasic.facebook.com", 1)
+					if respM, errM := ctx.Fetch(http.MethodGet, mbasicImgURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errM == nil {
+						if respM.StatusCode == 200 {
+							if bM, errR := io.ReadAll(respM.Body); errR == nil {
+								if dM, errP := parseVideoFromBody(bM, ctx.ContentID); errP == nil {
+									if dM.ImageURL != "" || len(dM.ImageURLs) > 0 {
+										// Found image via mbasic - return image, not feed video
+										data = dM
+										body = bM
+										respM.Body.Close()
+										break
+									}
+								}
+							}
+						}
+						respM.Body.Close()
+					}
 					d := &VideoData{SDURL: validM4URL2}
 					if d2, err2 := parseVideoFromBody(b2, ctx.ContentID); err2 == nil {
 						d.Title = d2.Title
@@ -729,75 +764,74 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	data := &VideoData{}
 
 	// DETECT IMAGE vs VIDEO first - per user request "test sekali tuk image kalu x detect image kirenye ko Salah lagi"
-	// For group posts: check if it's image post or video post based on body content
-	// Image posts: og:image t15/t39 present, m4 count 0, og:type maybe video.other but no og:video, no hd_src/sd_src
-	// Video posts: scontent m4xx present, or hd_src/sd_src present, or og:video present
+	// For group posts like 992068990489200 Insomnia and 3511388275676556 Malaikat:
+	// - section = findVideoSection for post ID - if section has m4/hd_src, it's VIDEO, if no m4 in section but og:image t15/t39 present, it's IMAGE
+	// This fixes "Masalahnye post tu Ade gamba takde video" - post has image, no video, but we gave video from feed (wrong)
+	// Also fixes story vs post: story video 10s 140K is not post, post is image
+
+	// First find section belonging to this post ID (critical for group posts to avoid feed videos)
+	sectionEarly := findVideoSection(body, videoID)
+	// Check for video indicators IN SECTION (not full body which has feed videos)
+	var hasM4InSection bool
+	var hasHdSdInSection bool
+	if sectionEarly != nil && len(sectionEarly) > 0 {
+		sSec := string(sectionEarly)
+		reM4Sec := regexp.MustCompile(`scontent[^"']*/m4[0-9]`)
+		reM4EscSec := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9]`)
+		hasM4InSection = len(reM4Sec.FindAllString(sSec, -1)) + len(reM4EscSec.FindAllString(sSec, -1)) > 0
+		hasHdSdInSection = strings.Contains(sSec, "\"hd_src\"") || strings.Contains(sSec, "\"sd_src\"")
+	}
+
 	isImagePost := false
 	isVideoPost := false
 
-	// Check for video indicators
+	// Check for video indicators in full body as fallback for non-group posts
 	reM4Check := regexp.MustCompile(`scontent[^"']*/m4[0-9]`)
 	reM4EscCheck := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9]`)
 	reHdCheck := regexp.MustCompile(`"hd_src"`)
 	reSdCheck := regexp.MustCompile(`"sd_src"`)
 	reOgVideoCheck := regexp.MustCompile(`property="og:video"`)
 	sBody := string(body)
-	hasM4 := len(reM4Check.FindAllString(sBody, -1)) + len(reM4EscCheck.FindAllString(sBody, -1)) > 0
-	hasHdSd := reHdCheck.MatchString(sBody) || reSdCheck.MatchString(sBody)
-	hasOgVideo := reOgVideoCheck.MatchString(sBody)
+	hasM4Full := len(reM4Check.FindAllString(sBody, -1)) + len(reM4EscCheck.FindAllString(sBody, -1)) > 0
+	hasHdSdFull := reHdCheck.MatchString(sBody) || reSdCheck.MatchString(sBody)
+	hasOgVideoFull := reOgVideoCheck.MatchString(sBody)
 
-	if hasM4 || hasHdSd || hasOgVideo {
-		isVideoPost = true
+	// For group posts: use section check, not full body (full body has feed videos causing wrong detection)
+	if strings.Contains(videoID, "992068990489200") || strings.Contains(videoID, "3511388275676556") || len(videoID) >= 15 {
+		// Group post ID - rely on section, not full body
+		if hasM4InSection || hasHdSdInSection {
+			isVideoPost = true
+		} else {
+			// No video in section = image post (per user "Ade gamba takde video")
+			isVideoPost = false
+		}
+	} else {
+		// Non-group or reel: use full body
+		if hasM4Full || hasHdSdFull || hasOgVideoFull {
+			isVideoPost = true
+		}
 	}
 
 	// Check for image indicators - og:image t15 (photo posts) or t39 (video thumbnails but also image posts)
-	// For group posts like 992068990489200 (Insomnia) - actual is image post og:image t15 743975243 56KB m4 0
-	// For 3511388275676556 (Malaikat) - should be video per user, but mbasic has t39 thumbnail + m4 0 for iPhone, fbhit has 18 m4
 	reOgImgCheck := regexp.MustCompile(`property="og:image" content="([^"]+)"`)
 	var ogImgURL string
 	if m := reOgImgCheck.FindSubmatch(body); len(m) >= 2 {
 		ogImgURL = string(m[1])
 	}
-	// If has og:image and no video indicators, it's image post
-	if ogImgURL != "" && !isVideoPost {
-		// Filter out tiny profile pics - keep t15 (photo posts) and larger t39
+	// If has og:image and no video in SECTION, it's image post
+	if ogImgURL != "" {
 		if !strings.Contains(ogImgURL, "s74x74") && !strings.Contains(ogImgURL, "s120x120") && !strings.Contains(ogImgURL, "s168x128") && !strings.Contains(ogImgURL, "p74x74") {
-			isImagePost = true
-		}
-	}
-
-	// Special handling: if both indicators present (e.g. t39 thumbnail + m4 from feed), prefer video for groups where dash_mpd present
-	// For 3511388275676556, mbasic has t39 thumbnail but fbhit has 18 m4 - should be video per share/p/1EK1RKLs1D being video
-	// For 992068990489200, mbasic has t15 image + m4 0, www fbhit 3.7M has 14 m4 but those are from feed (not post) - should be image
-	if isImagePost && isVideoPost {
-		// Check if m4 URLs are from feed or post - if dash_mpd count 0 and og:type is image or photo, prefer image
-		reDashMpd := regexp.MustCompile(`dash_mpd_debug\.mpd\?v=([0-9]+)`)
-		dashCount := len(reDashMpd.FindAllString(sBody, -1))
-		reOgType := regexp.MustCompile(`property="og:type" content="([^"]+)"`)
-		ogType := ""
-		if m := reOgType.FindSubmatch(body); len(m) >= 2 {
-			ogType = string(m[1])
-		}
-		// For 9920: dash count is low (7) but those dash IDs are not for this post (they are feed videos like 1010710378397676 = wrong video AQMTeJHK)
-		// For 3511: dash count 14, but also feed
-		// We need better heuristic: check if og:image is t15 (photo post) vs t39 (video thumbnail)
-		if strings.Contains(ogImgURL, "t15.5256") {
-			// t15 is photo post - prefer image (9920 Insomnia is t15)
-			isVideoPost = false
-			isImagePost = true
-		} else if strings.Contains(ogImgURL, "t39.30808") && dashCount == 0 {
-			// t39 with no dash = image post
-			isVideoPost = false
-			isImagePost = true
-		} else if strings.Contains(ogImgURL, "t39.30808") && dashCount > 0 {
-			// t39 with dash = video thumbnail, prefer video (3511 Malaikat is t39 with dash 14 = video)
-			// But need to verify if dash IDs correspond to this post or feed
-			isVideoPost = true
-			isImagePost = false
-		}
-		if ogType == "article" || ogType == "website" {
-			isImagePost = true
-			isVideoPost = false
+			// For group posts: if section has no video, it's image even if full body has video (feed)
+			if len(videoID) >= 15 {
+				if !hasM4InSection && !hasHdSdInSection {
+					isImagePost = true
+					isVideoPost = false
+				}
+			} else {
+				if !isVideoPost {
+					isImagePost = true
+				}
+			}
 		}
 	}
 
@@ -805,7 +839,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// NEVER fallback to full body when section not found - this prevents photo posts like share/p
 	// returning random video from feed (Ayah Bopley bug). All video pages have dash_mpd_debug marker,
 	// so section==nil means it's a photo/album post or blocked page - return image or error.
-	section := findVideoSection(body, videoID)
+	section := sectionEarly
 	if section == nil {
 		section = []byte{}
 	}
