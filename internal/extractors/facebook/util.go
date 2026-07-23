@@ -119,8 +119,8 @@ func tryFetchHDFromPlugins(ctx *models.ExtractorContext, videoID string) (string
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// Group video method V2: mbasic og:url -> plugins HD only, buang fallback
 	// For share/v group video: mbasic/share/v iPhone 46K og:url -> /videos/ permalink -> plugins SD/HD
-	// Treat /videos/, /reel/, /watch all as plugins method
-	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch") || strings.Contains(ctx.ContentURL, "/videos/")
+	// Treat /videos/, /reel/, /watch, /share/r/, /share/v/ all as plugins method
+	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch") || strings.Contains(ctx.ContentURL, "/videos/") || strings.Contains(ctx.ContentURL, "/share/")
 
 	// REEL: PURE GO - plugins/video.php + fbhit dash_mpd -> plugins watch?v=DASH_ID (no yt-dlp)
 	// yt-dlp removed per user request "Ade cara ker x yah pakai ytdl? Memang fully on extractor kita jer"
@@ -147,19 +147,34 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
 				data.SDURL = unescapeFacebookURL(string(m[1]))
 			}
-			// extract title
-			if m := htmlTitlePattern.FindSubmatch(body); len(m) >= 2 {
-				t := unescapeUnicode(string(m[1]))
-				t = html.UnescapeString(t)
-				t = strings.TrimSpace(t)
-				if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
-					t = t[:idx]
+			// Try get caption via GraphQL and www reel (ytdl method copy: savable_description.text)
+			// GraphQL is more reliable for reels where og:description is generic
+			if data.Title == "" {
+				if capTitle := tryFetchReelCaptionViaGraphQL(ctx, ctx.ContentID); capTitle != "" {
+					data.Title = capTitle
 				}
-				if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
-					data.Title = t
+			}
+			// extract title fallback
+			if data.Title == "" {
+				if m := htmlTitlePattern.FindSubmatch(body); len(m) >= 2 {
+					t := unescapeUnicode(string(m[1]))
+					t = html.UnescapeString(t)
+					t = strings.TrimSpace(t)
+					if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
+						t = t[:idx]
+					}
+					if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
+						data.Title = t
+					}
 				}
 			}
 			if data.HDURL != "" || data.SDURL != "" {
+				// If still no caption, try www reel page for caption (fbhit/www with desktop UA)
+				if data.Title == "" {
+					if capFromWWW := tryFetchReelCaptionFromWWW(ctx, ctx.ContentID); capFromWWW != "" {
+						data.Title = capFromWWW
+					}
+				}
 				return data, nil
 			}
 			// Fallback 2: fbhit UA -> dash_mpd ID -> plugins watch?v=DASH_ID
@@ -1987,4 +2002,191 @@ func decodeHex4(h string) (rune, bool) {
 		}
 	}
 	return r, true
+}
+
+// tryFetchReelCaptionViaGraphQL / tryFetchReelCaptionFromWWW implement ytdl's metadata extraction
+// in pure Go: creation_story.comet_sections.message.story.message.text + savable_description.text
+// and ScheduledServerJS JSON traversing, anchored to videoID. No yt-dlp binary needed.
+func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string) string {
+	if videoID == "" || len(videoID) < 5 {
+		return ""
+	}
+	// ytdl method: GET www.facebook.com/reel/<id>/ with desktop UA (2.1MB) and parse data-sjs
+	// The caption is inside result.data -> attachments -> media id==videoID -> creation_story.comet_sections.message.text
+	// We try to extract without full GraphQL API call, just parse the page we already have cookies for
+	// Because govd's Fetch already includes cookies jar
+	reelURL := "https://www.facebook.com/reel/" + videoID + "/"
+	resp, err := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{
+		Headers: map[string]string{
+			"User-Agent":                webHeaders["User-Agent"],
+			"Accept":                    webHeaders["Accept"],
+			"Accept-Language":           webHeaders["Accept-Language"],
+			"Sec-Fetch-Dest":            webHeaders["Sec-Fetch-Dest"],
+			"Sec-Fetch-Mode":            webHeaders["Sec-Fetch-Mode"],
+			"Sec-Fetch-Site":            webHeaders["Sec-Fetch-Site"],
+		},
+	})
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return ""
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	body := string(bodyBytes)
+
+	// 1) Try data-sjs ScheduledServerJS JSON -> creation_story.comet_sections.message.story.message.text
+	// Pattern same as ytdl: re.findall(r'data-sjs>({.*?ScheduledServerJS.*?})</script>', webpage)
+	// We look for message text near videoID
+	sjsRe := regexp.MustCompile(`data-sjs>(\{.*?ScheduledServerJS.*?\})</script>`)
+	matches := sjsRe.FindAllStringSubmatch(body, -1)
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		chunk := m[1]
+		// quick check if this chunk contains our videoID (for faster filter, but don't skip if not - caption may be in nearby chunk)
+		// ytdl: creation_story.comet_sections.message.story.message.text
+		// For reels, best is to parse comet_sections.message.story.message.text directly
+		// Pattern from dump: "comet_sections":{"message":{"__typename":...,"story":{"message":{"text":"Peak era Kacang"
+		// Allow short captions like "Peak era Kacang" (15 chars) - ytdl allows any length
+		csCometRe := regexp.MustCompile(`"comet_sections":\s*\{\s*"message":\s*\{[^}]*"story":\s*\{\s*"message":\s*\{\s*"text":\s*"([^"\\]{3,})"`)
+		if cm := csCometRe.FindAllStringSubmatch(chunk, -1); len(cm) > 0 {
+			best := ""
+			for _, c := range cm {
+				if len(c) < 2 {
+					continue
+				}
+				t := unescapeUnicode(c[1])
+				t = html.UnescapeString(t)
+				t = strings.TrimSpace(t)
+				if t == "" {
+					continue
+				}
+				low := strings.ToLower(t)
+				if low == "facebook" || strings.HasPrefix(low, "log in to") {
+					continue
+				}
+				t = cleanFacebookCaption(t)
+				if t == "" {
+					continue
+				}
+				// Prefer longer but accept short like Peak era Kacang
+				if len(t) > len(best) {
+					best = t
+				}
+			}
+			if best != "" {
+				return best
+			}
+		}
+		// Fallback: any "message":{"text":"..."} in this scheduled chunk (relaxed, allow 3 chars)
+		// This copies ytdl's get_first(media, ('creation_story', 'comet_sections', 'message', 'story', 'message', 'text'))
+		if !strings.Contains(chunk, videoID) && len(matches) > 1 {
+			// Still try if chunk doesn't contain ID but is only scheduled chunk (some pages have caption in separate chunk)
+			// Check if chunk contains comet_sections
+			if !strings.Contains(chunk, "comet_sections") {
+				continue
+			}
+		}
+		csRe := regexp.MustCompile(`"message":\s*\{\s*"text":\s*"([^"\\]{3,})"`)
+		caps := csRe.FindAllStringSubmatch(chunk, -1)
+		best := ""
+		for _, c := range caps {
+			if len(c) < 2 {
+				continue
+			}
+			t := unescapeUnicode(c[1])
+			t = html.UnescapeString(t)
+			t = strings.TrimSpace(t)
+			low := strings.ToLower(t)
+			if low == "facebook" || strings.HasPrefix(low, "log in to facebook") || strings.HasPrefix(low, "by using meta ai") {
+				continue
+			}
+			t = cleanFacebookCaption(t)
+			if t == "" {
+				continue
+			}
+			// Skip very short UI like "Like", "Share"
+			if len(t) < 4 {
+				continue
+			}
+			if len(t) > len(best) {
+				best = t
+			}
+		}
+		if best != "" {
+			return best
+		}
+	}
+
+	// 2) Try JSON-LD and meta description fallback from this page (anchored)
+	// Use section anchored to videoID if possible
+	anchored := findCaptionAnchoredToID(bodyBytes, videoID)
+	if anchored != "" && len(anchored) >= 3 {
+		return anchored
+	}
+
+	// 3) Try savable_description - ytdl also checks savable_description.text
+	savRe := regexp.MustCompile(`"savable_description":\s*\{\s*"text":\s*"([^"\\]{3,})"`)
+	if mm := savRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
+		t := unescapeUnicode(string(mm[1]))
+		t = html.UnescapeString(t)
+		t = strings.TrimSpace(t)
+		t = cleanFacebookCaption(t)
+		if t != "" {
+			return t
+		}
+	}
+
+	// 4) Last resort: try to find creation_story.message.text in whole body (not just data-sjs)
+	// From dump: "creation_story":{"message":{"text":"Peak era Kacang"}}
+	creationRe := regexp.MustCompile(`"creation_story":\s*\{[^}]{0,2000}?"message":\s*\{\s*"text":\s*"([^"\\]{3,})"`)
+	if mm := creationRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
+		t := unescapeUnicode(string(mm[1]))
+		t = html.UnescapeString(t)
+		t = strings.TrimSpace(t)
+		t = cleanFacebookCaption(t)
+		if t != "" {
+			return t
+		}
+	}
+
+	return ""
+}
+
+func tryFetchReelCaptionFromWWW(ctx *models.ExtractorContext, videoID string) string {
+	if videoID == "" {
+		return ""
+	}
+	// Secondary: try www facebook reel page og:description when GraphQL fails
+	// Many reels have og:description containing caption even when plugins doesn't
+	reelURL := "https://www.facebook.com/reel/" + videoID + "/"
+	resp, err := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{
+		Headers: map[string]string{
+			"User-Agent": "facebookexternalhit/1.1",
+		},
+	})
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return ""
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if m := ogDescPattern.FindSubmatch(b); len(m) >= 2 {
+		t := html.UnescapeString(string(m[1]))
+		t = strings.TrimSpace(t)
+		low := strings.ToLower(t)
+		if low != "facebook" && !strings.HasPrefix(low, "log in to") && len(t) >= 10 {
+			t = cleanFacebookCaption(t)
+			if t != "" {
+				return t
+			}
+		}
+	}
+	return ""
 }
