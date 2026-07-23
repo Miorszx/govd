@@ -125,130 +125,27 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 
 	// REEL: PURE GO - plugins/video.php + fbhit dash_mpd -> plugins watch?v=DASH_ID (no yt-dlp)
 	// yt-dlp removed per user request "Ade cara ker x yah pakai ytdl? Memang fully on extractor kita jer"
-	// Method: plugins HD/SD direct, faster no external binary
+	// Method: HD-ONLY direct 1-fetch pure Go, no SD fallback, no fallback chains (spec memory)
 	if isReel {
-		// YTDL HD method copy: videoDeliveryResponseResult.progressive_urls direct (best quality progressive mp4)
-		// This is what yt-dlp parses from watch/?v=ID page: data-sjs -> videoDeliveryResponseResult -> progressive_urls[] -> progressive_url (hd/sd)
-		// Example from dump 1629543978304761: progressive_urls contains https://scontent-.../m367/... hd muxed (1.1MB) - same as plugins hd_src but direct, no extra plugins fetch
-		// Pure Go implementation via ctx.Fetch with cookies
-		if ctx.ContentID != "" {
-			if hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, ctx.ContentID); hd != "" || sd != "" {
-				data := &VideoData{HDURL: hd, SDURL: sd, Title: title}
-				// Try caption if title empty
-				if data.Title == "" {
-					if capTitle := tryFetchReelCaptionViaGraphQL(ctx, ctx.ContentID); capTitle != "" {
-						data.Title = capTitle
-					}
-				}
-				if data.HDURL != "" || data.SDURL != "" {
-					return data, nil
-				}
+		// HD-ONLY: progressive_urls HD direct (ytdl videoDeliveryResponseResult.progressive_urls)
+		// 1 fetch watch/?v=ID -> scontent m367 HD muxed 720p (AQMkV9dq... 1.1MB for barrow)
+		// No SD, no plugins, no dash chain - speed priority, fail fast if flagged
+		if ctx.ContentID == "" {
+			return nil, fmt.Errorf("reel without content_id")
+		}
+		hd, _, title := tryFetchHDFromProgressiveURLs(ctx, ctx.ContentID)
+		if hd == "" {
+			return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
+		}
+		data := &VideoData{HDURL: hd, Title: title}
+		// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
+		// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
+		if data.Title == "" {
+			if capTitle := tryFetchReelCaptionViaGraphQL(ctx, ctx.ContentID); capTitle != "" {
+				data.Title = capTitle
 			}
 		}
-		// Fallback Main: plugins/video.php - Go net/http only
-		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
-		resp, err := ctx.Fetch(
-			http.MethodGet,
-			pluginsURL,
-			&networking.RequestParams{
-				Headers: map[string]string{
-					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-				},
-			},
-		)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			data := &VideoData{}
-			if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-				data.HDURL = unescapeFacebookURL(string(m[1]))
-			}
-			if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-				data.SDURL = unescapeFacebookURL(string(m[1]))
-			}
-			// Try get caption via GraphQL and www reel (ytdl method copy: savable_description.text)
-			// GraphQL is more reliable for reels where og:description is generic
-			if data.Title == "" {
-				if capTitle := tryFetchReelCaptionViaGraphQL(ctx, ctx.ContentID); capTitle != "" {
-					data.Title = capTitle
-				}
-			}
-			// extract title fallback
-			if data.Title == "" {
-				if m := htmlTitlePattern.FindSubmatch(body); len(m) >= 2 {
-					t := unescapeUnicode(string(m[1]))
-					t = html.UnescapeString(t)
-					t = strings.TrimSpace(t)
-					if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
-						t = t[:idx]
-					}
-					if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
-						data.Title = t
-					}
-				}
-			}
-			if data.HDURL != "" || data.SDURL != "" {
-				// If still no caption, try www reel page for caption (fbhit/www with desktop UA)
-				if data.Title == "" {
-					if capFromWWW := tryFetchReelCaptionFromWWW(ctx, ctx.ContentID); capFromWWW != "" {
-						data.Title = capFromWWW
-					}
-				}
-				return data, nil
-			}
-			// Fallback 2: fbhit UA -> dash_mpd ID -> plugins watch?v=DASH_ID
-			// For reels that fail plugins (87K login redirect), www fbhit 2.1M has dash_mpd IDs
-			// e.g. 866735676194338: fbhit has dash 866735676194338 + 26488986650777700
-			// plugins watch?v=26488986650777700 gives hd_src+sd_src
-			if resp2, err2 := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "facebookexternalhit/1.1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.5"}}); err2 == nil {
-				if resp2.StatusCode == 200 {
-					body2, _ := io.ReadAll(resp2.Body)
-					resp2.Body.Close()
-					dashIDs := regexp.MustCompile(`dash_mpd_debug\.mpd\?v=(\d+)`).FindAllStringSubmatch(string(body2), -1)
-					seenDash := map[string]bool{}
-					for _, dm := range dashIDs {
-						dashID := dm[1]
-						if seenDash[dashID] {
-							continue
-						}
-						seenDash[dashID] = true
-						// Try plugins watch?v=DASH_ID
-						pluginsWatchURL := "https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/watch?v=" + dashID + "&show_text=0"
-						if resp3, err3 := ctx.Fetch(http.MethodGet, pluginsWatchURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}}); err3 == nil {
-							if resp3.StatusCode == 200 {
-								body3, _ := io.ReadAll(resp3.Body)
-								resp3.Body.Close()
-								data2 := &VideoData{}
-								if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body3); len(m) >= 2 {
-									data2.HDURL = unescapeFacebookURL(string(m[1]))
-								}
-								if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body3); len(m) >= 2 {
-									data2.SDURL = unescapeFacebookURL(string(m[1]))
-								}
-								if m := htmlTitlePattern.FindSubmatch(body3); len(m) >= 2 {
-									t := unescapeUnicode(string(m[1]))
-									t = html.UnescapeString(t)
-									t = strings.TrimSpace(t)
-									if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
-										t = t[:idx]
-									}
-									if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
-										data2.Title = t
-									}
-								}
-								if data2.HDURL != "" || data2.SDURL != "" {
-									return data2, nil
-								}
-							}
-							resp3.Body.Close()
-						}
-					}
-				}
-			}
-		} else if resp != nil {
-			resp.Body.Close()
-		}
-		return nil, fmt.Errorf("no reel video found (yt-dlp + plugins + fbhit dash all failed)")
+		return data, nil
 	}
 
 	// PHOTO POST / SHARE / PERMALINK: direct mbasic - single fetch
@@ -2218,39 +2115,6 @@ func tryFetchReelCaptionFromWWW(ctx *models.ExtractorContext, videoID string) st
 	return ""
 }
 
-// tryFetchReelCaptionFromWWW secondary for og:description
-func tryFetchReelCaptionFromWWW(ctx *models.ExtractorContext, videoID string) string {
-	if videoID == "" {
-		return ""
-	}
-	reelURL := "https://www.facebook.com/reel/" + videoID + "/"
-	resp, err := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{
-		Headers: map[string]string{
-			"User-Agent": "facebookexternalhit/1.1",
-		},
-	})
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return ""
-	}
-	b, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if m := ogDescPattern.FindSubmatch(b); len(m) >= 2 {
-		t := html.UnescapeString(string(m[1]))
-		t = strings.TrimSpace(t)
-		low := strings.ToLower(t)
-		if low != "facebook" && !strings.HasPrefix(low, "log in to") && len(t) >= 10 {
-			t = cleanFacebookCaption(t)
-			if t != "" {
-				return t
-			}
-		}
-	}
-	return ""
-}
-
 // tryFetchHDFromProgressiveURLs copies yt-dlp's videoDeliveryResponseResult.progressive_urls parsing
 // YTDL: traverse_obj(video, ('videoDeliveryResponseFragment','videoDeliveryResponseResult','progressive_urls',...,'progressive_url'))
 // Dump shows: "progressive_urls":[{"progressive_url":"https://scontent-.../m367/...","metadata":{"quality":"hd"} ...}]
@@ -2299,96 +2163,44 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 }
 
 func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL, sdURL, title string) {
-	// 1) progressive_urls[].progressive_url + metadata.quality (hd/sd) - ytdl's preferred progressive
-	// Regex for progressive_urls block: "progressive_urls":[{"progressive_url":"...","metadata":{"quality":"hd"}}
-	// Use two-step: find all progressive_url values, then determine quality from nearby metadata
-	progRe := regexp.MustCompile(`"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
-	qualityRe := regexp.MustCompile(`"progressive_url"\s*:\s*"[^"]+"\s*,\s*"[^"]*"\s*:\s*[^,]*,\s*"metadata"\s*:\s*\{\s*"quality"\s*:\s*"([^"]+)"`)
-	// Simpler: extract array and iterate via manual scan
-	// The FB structure is: progressive_urls:[{"progressive_url":"URL","metadata":{"quality":"hd"}},...]
-	// Try to get hd/sd via quality field after each url
-	// Pattern: "progressive_url":"URL"... "quality":"hd"
-	combinedRe := regexp.MustCompile(`"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,300}"quality"\s*:\s*"(hd|sd)"`)
+	// HD-ONLY: Only extract HD quality from progressive_urls (memory spec: HD-ONLY reels NO SD fallback, NO fallback chains)
+	// Sample: "progressive_url":"https:\/\/scontent...","metadata":{"quality":"HD"}}
+	combinedRe := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,600}"quality"\s*:\s*"(hd)"`)
 	matches := combinedRe.FindAllSubmatch(body, -1)
 	for _, m := range matches {
 		if len(m) < 3 {
 			continue
 		}
 		urlStr := unescapeFacebookURL(unescapeUnicode(string(m[1])))
-		q := strings.ToLower(string(m[2]))
-		if q == "hd" && hdURL == "" {
+		if hdURL == "" {
 			hdURL = urlStr
-		} else if q == "sd" && sdURL == "" {
-			sdURL = urlStr
+			break // HD-ONLY: take first HD
 		}
 	}
-	// Fallback if quality not found - just take first two urls as hd/sd (often hd first)
-	if hdURL == "" && sdURL == "" {
-		allProg := progRe.FindAllSubmatch(body, -1)
-		for i, m := range allProg {
-			if len(m) < 2 {
-				continue
-			}
-			urlStr := unescapeFacebookURL(unescapeUnicode(string(m[1])))
-			if i == 0 {
-				hdURL = urlStr
-			} else if i == 1 {
-				sdURL = urlStr
-			}
-		}
-	}
-
-	// 2) browser_native_hd_url / sd (ytdl legacy fallback) - also good progressive
-	if hdURL == "" {
-		if mm := regexp.MustCompile(`"browser_native_hd_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`).FindSubmatch(body); len(mm) >= 2 {
-			hdURL = unescapeFacebookURL(unescapeUnicode(string(mm[1])))
-		}
-	}
-	if sdURL == "" {
-		if mm := regexp.MustCompile(`"browser_native_sd_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`).FindSubmatch(body); len(mm) >= 2 {
-			sdURL = unescapeFacebookURL(unescapeUnicode(string(mm[1])))
-		}
-	}
-
-	// 3) playable_url_quality_hd / playable_url (another legacy path ytdl uses)
-	if hdURL == "" {
-		if mm := regexp.MustCompile(`"playable_url_quality_hd"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`).FindSubmatch(body); len(mm) >= 2 {
-			hdURL = unescapeFacebookURL(unescapeUnicode(string(mm[1])))
-		}
-	}
-	if sdURL == "" {
-		if mm := regexp.MustCompile(`"playable_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`).FindSubmatch(body); len(mm) >= 2 {
-			// ensure not mpd
-			u := unescapeFacebookURL(unescapeUnicode(string(mm[1])))
-			if !strings.Contains(u, ".mpd") {
-				sdURL = u
-			}
-		}
-	}
-
-	// 4) caption via comet_sections (reuse existing logic)
+	// No fallback: HD-ONLY direct, fail fast per spec (no SD, no browser_native, no playable_url)
+	// Caption via comet_sections (ytdl method) + json.Unmarshal for emoji 👕 @
 	title = tryExtractCaptionFromBodyBytes(body, videoID)
-	return hdURL, sdURL, title
+	return hdURL, "", title
 }
 
 func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 	// Reuse comet_sections.message.story.message.text parsing from tryFetchReelCaptionViaGraphQL
 	// This is called from progressive parsing path too to get caption
-	sjsRe := regexp.MustCompile(`data-sjs>(\\{.*?ScheduledServerJS.*?\\})</script>`)
-	matches := sjsRe.FindAllSubmatch(string(body), -1)
+	sjsRe := regexp.MustCompile(`data-sjs>(\{.*?ScheduledServerJS.*?\})</script>`)
+	matches := sjsRe.FindAllSubmatch(body, -1)
 	for _, m := range matches {
 		if len(m) < 2 {
 			continue
 		}
 		chunk := m[1]
 		csCometRe := regexp.MustCompile(`"comet_sections":\s*\{\s*"message":\s*\{[^}]*"story":\s*\{\s*"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
-		if cm := csCometRe.FindAllStringSubmatch(chunk, -1); len(cm) > 0 {
+		if cm := csCometRe.FindAllSubmatch(chunk, -1); len(cm) > 0 {
 			best := ""
 			for _, c := range cm {
 				if len(c) < 2 {
 					continue
 				}
-				t := unescapeUnicode(c[1])
+				t := unescapeUnicode(string(c[1]))
 				t = html.UnescapeString(t)
 				t = strings.TrimSpace(t)
 				if t == "" {
