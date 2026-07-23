@@ -128,12 +128,12 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// yt-dlp --cookies gives hd+sd+caption for ALL reels, faster+more reliable than plugins
 	// Fallbacks: plugins/video.php -> fbhit dash_mpd -> plugins watch?v=DASH_ID
 	if isReel {
-		// Try yt-dlp FIRST as main method
+		// Try yt-dlp FIRST as main method - FIXED: no global vars, caption returned directly
 		cookieFile := "private/cookies/facebook.txt"
-		if hd, sd, err := tryYtdlWithCookies(ctx.ContentURL, cookieFile); err == nil && (hd != "" || sd != "") {
+		if hd, sd, cap, err := tryYtdlWithCookies(ctx.ContentURL, cookieFile); err == nil && (hd != "" || sd != "") {
 			data := &VideoData{HDURL: hd, SDURL: sd}
-			if ytdlDesc != "" {
-				data.Title = ytdlDesc
+			if cap != "" {
+				data.Title = cap
 			}
 			return data, nil
 		}
@@ -920,26 +920,26 @@ func tryYtdlNoCookie(contentURL string) (hdURL, sdURL string, err error) {
 
 // tryYtdlWithCookies calls yt-dlp with cookies for reels that fail without cookies
 // Reels like 2751407905232886 give "Cannot parse data" without cookies but work with cookies
-func tryYtdlWithCookies(contentURL, cookieFile string) (hdURL, sdURL string, err error) {
+// FIX: return caption directly, no global vars (race condition caused caption mismatch)
+func tryYtdlWithCookies(contentURL, cookieFile string) (hdURL, sdURL, caption string, err error) {
 	cmd := exec.Command("yt-dlp", "--cookies", cookieFile, "--skip-download", "-j", contentURL)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	var data map[string]interface{}
 	if err := json.Unmarshal(out, &data); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	// Extract title/description for caption
-	if title, ok := data["title"].(string); ok && title != "" {
-		ytdlTitle = title
-	}
+	// Extract title/description for caption - local var, not global
 	if desc, ok := data["description"].(string); ok && desc != "" {
-		ytdlDesc = desc
+		caption = desc
+	} else if title, ok := data["title"].(string); ok && title != "" {
+		caption = title
 	}
 	formats, ok := data["formats"].([]interface{})
 	if !ok {
-		return "", "", fmt.Errorf("no formats")
+		return "", "", "", fmt.Errorf("no formats")
 	}
 	for _, f := range formats {
 		fm, ok := f.(map[string]interface{})
@@ -958,13 +958,10 @@ func tryYtdlWithCookies(contentURL, cookieFile string) (hdURL, sdURL string, err
 		}
 	}
 	if hdURL == "" && sdURL == "" {
-		return "", "", fmt.Errorf("no hd/sd")
+		return "", "", "", fmt.Errorf("no hd/sd")
 	}
-	return hdURL, sdURL, nil
+	return hdURL, sdURL, caption, nil
 }
-
-var ytdlTitle string
-var ytdlDesc string
 
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	data := &VideoData{}
@@ -1349,37 +1346,48 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 
 	// Only run other regexes if anchored did not already succeed with URLs.
 	// This saves ~6 regex scans (60MB) on the happy path.
-	if data.Title == "" || data.HDURL == "" && data.SDURL == "" {
-		// lightly: try cheap patterns first (title already tried, so og tags)
-		if match := ogDescPattern.FindSubmatch(body); len(match) >= 2 {
-			addCandidate(string(match[1]))
-		}
-		if len(candidates) == 0 { // avoid extra scans if we already have a candidate
-			if match := ogTitlePattern.FindSubmatch(body); len(match) >= 2 {
+	// BUG FIX: For group permalink posts (videoID len >= 15 numeric), if anchored already tried and empty,
+	// and we have video URL, DO NOT fallback to full-body scan which can pick feed captions (RMA bug).
+	// Only allow fallback for non-group or when no video section found.
+	isGroupPost := len(videoID) >= 15
+	if data.Title == "" || (data.HDURL == "" && data.SDURL == "") {
+		if isGroupPost && (data.HDURL != "" || data.SDURL != "") {
+			// Group video post with video URL but no anchored caption = truly no caption (Ade video ja tapi caption takde)
+			// Don't scan full body for feed captions that cause RMA mismatch
+			// Only allow og:description if from section body, not full body
+			// So skip candidate search, keep Title empty
+		} else {
+			// lightly: try cheap patterns first (title already tried, so og tags)
+			if match := ogDescPattern.FindSubmatch(body); len(match) >= 2 {
 				addCandidate(string(match[1]))
 			}
-		}
-		if match := messagePattern.FindSubmatch(body); len(match) >= 2 {
-			addCandidate(string(match[1]))
-		}
-		if len(candidates) == 0 {
-			if match := storyPattern.FindSubmatch(body); len(match) >= 2 {
+			if len(candidates) == 0 { // avoid extra scans if we already have a candidate
+				if match := ogTitlePattern.FindSubmatch(body); len(match) >= 2 {
+					addCandidate(string(match[1]))
+				}
+			}
+			if match := messagePattern.FindSubmatch(body); len(match) >= 2 {
 				addCandidate(string(match[1]))
 			}
-			if match := creationStoryPattern.FindSubmatch(body); len(match) >= 2 {
-				addCandidate(string(match[1]))
+			if len(candidates) == 0 {
+				if match := storyPattern.FindSubmatch(body); len(match) >= 2 {
+					addCandidate(string(match[1]))
+				}
+				if match := creationStoryPattern.FindSubmatch(body); len(match) >= 2 {
+					addCandidate(string(match[1]))
+				}
+				if match := descriptionPattern.FindSubmatch(body); len(match) >= 2 {
+					addCandidate(string(match[1]))
+				}
 			}
-			if match := descriptionPattern.FindSubmatch(body); len(match) >= 2 {
-				addCandidate(string(match[1]))
-			}
-		}
-		// Also scrape ALL "message":{"text":"..."} occurrences and keep longest (page may have multiple)
-		// Only if we still need a caption - this is the heaviest scan (FindAllSubmatch)
-		if len(candidates) == 0 {
-			allMessages := messagePattern.FindAllSubmatch(body, 10)
-			for _, m := range allMessages {
-				if len(m) >= 2 {
-					addCandidate(string(m[1]))
+			// Also scrape ALL "message":{"text":"..."} occurrences and keep longest (page may have multiple)
+			// Only if we still need a caption - this is the heaviest scan (FindAllSubmatch)
+			if len(candidates) == 0 {
+				allMessages := messagePattern.FindAllSubmatch(body, 10)
+				for _, m := range allMessages {
+					if len(m) >= 2 {
+						addCandidate(string(m[1]))
+					}
 				}
 			}
 		}

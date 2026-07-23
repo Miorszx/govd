@@ -147,10 +147,35 @@ func taskFromDatabase(ctx *models.ExtractorContext) (*models.TaskResult, error) 
 	// Fresh caption: try to re-fetch caption from the extractor (light HTTP page fetch,
 	// no video download). This keeps file_id cache for instant send, but caption is always fresh.
 	// If fresh fetch fails (anti-bot 400, network, etc), fallback to cached caption.
-	if freshMedia := tryFetchFreshCaption(ctx); freshMedia != nil && freshMedia.Caption != "" {
-		media.Caption = freshMedia.Caption
+	// FIX BUG: Only overwrite if fresh caption non-empty AND contentID matches (prevent cross-post caption leak)
+	// Also: if fresh fetch returns empty caption but cached has caption, keep cached (don't clear)
+	// If fresh fetch returns empty and post truly has no caption, cached should already be empty
+	if freshMedia := tryFetchFreshCaption(ctx); freshMedia != nil {
+		// Only accept fresh caption if it's from same content_id (prevent collision leak)
+		if freshMedia.ContentID == ctx.ContentID || freshMedia.ContentID == "" {
+			if freshMedia.Caption != "" {
+				media.Caption = freshMedia.Caption
+			} else {
+				// Fresh says no caption - respect it if cached caption was from fresh logic
+				// But don't clear if cached caption exists and fresh is empty due to parse fail
+				// Check if fresh extraction actually succeeded in getting media items
+				if len(freshMedia.Items) > 0 {
+					// Fresh extraction succeeded but no caption = truly no caption, clear cached if needed
+					// Only clear if original fresh parse had no caption logic error
+					// For safety: don't auto-clear, keep cached only if fresh is empty
+					// User wants: post Ade video ja tapi caption takde = should be empty
+					// So if fresh says empty and we got items, set empty
+					if media.Caption != "" {
+						// Check if cached caption is actually from this same URL by comparing content_url
+						// If fresh succeeded with 0 caption, post truly has no caption
+						ctx.Debugf("fresh extraction has no caption, clearing stale cached caption")
+						media.Caption = ""
+					}
+				}
+			}
+		}
 		// Also update content_url in case it changed (e.g. short link -> canonical)
-		if freshMedia.ContentURL != "" {
+		if freshMedia.ContentURL != "" && (freshMedia.ContentID == ctx.ContentID || freshMedia.ContentID == "") {
 			media.ContentURL = freshMedia.ContentURL
 		}
 	}
