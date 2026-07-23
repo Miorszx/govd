@@ -280,6 +280,28 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		return io.ReadAll(resp.Body)
 	}
 
+	fetchBodyGooglebot := func(url string) ([]byte, error) {
+		resp, err := ctx.Fetch(
+			http.MethodGet,
+			url,
+			&networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent":      "Googlebot/2.1 (+http://www.google.com/bot.html)",
+					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					"Accept-Language": "en-us,en;q=0.5",
+				},
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("googlebot status %s", resp.Status)
+		}
+		return io.ReadAll(resp.Body)
+	}
+
 	// Try fetch + parse with fallback for groups 50K scontent 0 case (len=50617 scontent=0 oh=1 m4=1) - intermittent flagged
 	var body []byte
 	var parseErr error
@@ -552,7 +574,60 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			parseErr = err
 		}
 		time.Sleep(400 * time.Millisecond)
-		// Fallback to facebookexternalhit UA for groups - gives 4.3MB scontent 1806 m4 31 with m412 video (more robust when iPhone returns 50K scontent 0)
+		// Fallback to facebookexternalhit UA for groups and public posts - fixes flagged iPhone 50K sc0 case (public links x leh)
+		if len(b) < 60000 {
+			if b2, err := fetchBodyFBHit(tryURL); err == nil && len(b2) > 10000 {
+				// Try image/video extraction from fbhit body directly without HEAD check (HEAD 403 fails for fresh scontent video)
+				if dFb, errFb := parseVideoFromBody(b2, ctx.ContentID); errFb == nil {
+					if dFb.HDURL != "" || dFb.SDURL != "" || dFb.ImageURL != "" || len(dFb.ImageURLs) > 0 {
+						data = dFb
+						body = b2
+						if len(data.ImageURLs) > 1 || data.HDURL != "" || data.SDURL != "" {
+							break
+						}
+					}
+				}
+				// Fallback direct m4 regex without HEAD check - video URLs often 403 on HEAD but work on GET via govd downloader
+				bodyStr2 := string(b2)
+				bodyUnesc2 := strings.ReplaceAll(bodyStr2, `\/`, "/")
+				reAllM4_2 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+				for _, src := range []string{bodyStr2, bodyUnesc2} {
+					for _, raw := range reAllM4_2.FindAllString(src, -1) {
+						u := unescapeFacebookURL(raw)
+						u = strings.ReplaceAll(u, "&amp;", "&")
+						u = strings.ReplaceAll(u, `\/`, "/")
+						if strings.Contains(u, "scontent") {
+							d2 := &VideoData{SDURL: u}
+							if m := ogDescPattern.FindSubmatch(b2); len(m) >= 2 {
+								d2.Title = html.UnescapeString(string(m[1]))
+							}
+							data = d2
+							body = b2
+							break
+						}
+					}
+					if data != nil && (data.SDURL != "" || data.HDURL != "") {
+						break
+					}
+				}
+				if data != nil && (data.HDURL != "" || data.SDURL != "" || len(data.ImageURLs) > 0 || data.ImageURL != "") {
+					break
+				}
+			}
+			// Googlebot UA fallback for public posts that still fail (fbhit gives 873K sc1 oh0 no media, googlebot gives 4M sc1784 with multiple gamba)
+			// Fixes "Ade yg x leh langsung evetho link public" and "multiple gamba tapi detect satu"
+			if data == nil || (data.HDURL == "" && data.SDURL == "" && data.ImageURL == "" && len(data.ImageURLs) == 0) {
+				if b3, err := fetchBodyGooglebot(tryURL); err == nil && len(b3) > 10000 {
+					if dGb, errGb := parseVideoFromBody(b3, ctx.ContentID); errGb == nil {
+						if dGb.HDURL != "" || dGb.SDURL != "" || dGb.ImageURL != "" || len(dGb.ImageURLs) > 0 {
+							data = dGb
+							body = b3
+							break
+						}
+					}
+				}
+			}
+		}
 		if strings.Contains(tryURL, "/groups/") {
 			if b2, err := fetchBodyFBHit(tryURL); err == nil && len(b2) > 10000 {
 				// Try valid m4 URL extraction with HEAD check for fbhit body as well
