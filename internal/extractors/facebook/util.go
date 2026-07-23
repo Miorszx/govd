@@ -7,7 +7,6 @@ import (
 	"html"
 	"io"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -124,20 +123,11 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// Treat /videos/, /reel/, /watch all as plugins method
 	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch") || strings.Contains(ctx.ContentURL, "/videos/")
 
-	// REEL MAIN METHOD: yt-dlp with cookies (per user "jadikan die sebagai main bukan fallback sebab da jadi")
-	// yt-dlp --cookies gives hd+sd+caption for ALL reels, faster+more reliable than plugins
-	// Fallbacks: plugins/video.php -> fbhit dash_mpd -> plugins watch?v=DASH_ID
+	// REEL: PURE GO - plugins/video.php + fbhit dash_mpd -> plugins watch?v=DASH_ID (no yt-dlp)
+	// yt-dlp removed per user request "Ade cara ker x yah pakai ytdl? Memang fully on extractor kita jer"
+	// Method: plugins HD/SD direct, faster no external binary
 	if isReel {
-		// Try yt-dlp FIRST as main method - FIXED: no global vars, caption returned directly
-		cookieFile := "private/cookies/facebook.txt"
-		if hd, sd, cap, err := tryYtdlWithCookies(ctx.ContentURL, cookieFile); err == nil && (hd != "" || sd != "") {
-			data := &VideoData{HDURL: hd, SDURL: sd}
-			if cap != "" {
-				data.Title = cap
-			}
-			return data, nil
-		}
-		// Fallback 1: plugins/video.php if yt-dlp fails
+		// Main: plugins/video.php - Go net/http only
 		pluginsURL := "https://www.facebook.com/plugins/video.php?href=" + ctx.ContentURL + "&show_text=0"
 		resp, err := ctx.Fetch(
 			http.MethodGet,
@@ -860,107 +850,15 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 								}
 							}
 
-							// YG Ade video via ytdl fallback: if detected image but ytdl no-cookie says video (like 3512411595574224), use ytdl video
-	// This fixes "YG post YG Ade video via ytdl" SALAH image when cookies flagged
-	// Try ytdl without cookies for group video posts that are flagged as image due to 47K thumbnail
-	if data != nil && (data.ImageURL != "" || len(data.ImageURLs) > 0) {
-		// Only for group video posts that ytdl can get without cookies (fbhit 1.2M dash v=)
-		// Check if this is likely video post via ytdl: try ytdl no-cookie
-		if hd, sd, err := tryYtdlNoCookie(contentURL); err == nil && (hd != "" || sd != "") {
-			// ytdl found video, override image with video (YG Ade video via ytdl)
-			data.HDURL = hd
-			data.SDURL = sd
-			data.ImageURL = ""
-			data.ImageURLs = nil
-		}
-	}
 
 	return data, nil
 }
-
 func tryYtdlNoCookie(contentURL string) (hdURL, sdURL string, err error) {
-	// Call yt-dlp --skip-download -j without cookies to get video formats
-	// Used for YG Ade video via ytdl posts like 3512411595574224 that are flagged with cookies
-	// Returns hd m366 and sd m412 if found
-	// We exec yt-dlp directly, no cookie file
-	cmd := exec.Command("yt-dlp", "--skip-download", "-j", contentURL)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", "", err
-	}
-	var data map[string]interface{}
-	if err := json.Unmarshal(out, &data); err != nil {
-		return "", "", err
-	}
-	formats, ok := data["formats"].([]interface{})
-	if !ok {
-		return "", "", fmt.Errorf("no formats")
-	}
-	for _, f := range formats {
-		fm, ok := f.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		fid, _ := fm["format_id"].(string)
-		url, _ := fm["url"].(string)
-		if url == "" {
-			continue
-		}
-		if fid == "hd" {
-			hdURL = url
-		} else if fid == "sd" {
-			sdURL = url
-		}
-	}
-	if hdURL == "" && sdURL == "" {
-		return "", "", fmt.Errorf("no hd/sd")
-	}
-	return hdURL, sdURL, nil
+	return "", "", fmt.Errorf("ytdl removed - pure Go only")
 }
 
-// tryYtdlWithCookies calls yt-dlp with cookies for reels that fail without cookies
-// Reels like 2751407905232886 give "Cannot parse data" without cookies but work with cookies
-// FIX: return caption directly, no global vars (race condition caused caption mismatch)
 func tryYtdlWithCookies(contentURL, cookieFile string) (hdURL, sdURL, caption string, err error) {
-	cmd := exec.Command("yt-dlp", "--cookies", cookieFile, "--skip-download", "-j", contentURL)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", "", "", err
-	}
-	var data map[string]interface{}
-	if err := json.Unmarshal(out, &data); err != nil {
-		return "", "", "", err
-	}
-	// Extract title/description for caption - local var, not global
-	if desc, ok := data["description"].(string); ok && desc != "" {
-		caption = desc
-	} else if title, ok := data["title"].(string); ok && title != "" {
-		caption = title
-	}
-	formats, ok := data["formats"].([]interface{})
-	if !ok {
-		return "", "", "", fmt.Errorf("no formats")
-	}
-	for _, f := range formats {
-		fm, ok := f.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		fid, _ := fm["format_id"].(string)
-		url, _ := fm["url"].(string)
-		if url == "" {
-			continue
-		}
-		if fid == "hd" {
-			hdURL = url
-		} else if fid == "sd" {
-			sdURL = url
-		}
-	}
-	if hdURL == "" && sdURL == "" {
-		return "", "", "", fmt.Errorf("no hd/sd")
-	}
-	return hdURL, sdURL, caption, nil
+	return "", "", "", fmt.Errorf("ytdl removed - pure Go only")
 }
 
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
