@@ -1115,7 +1115,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 						}
 					}
 					if len(urls) > 0 {
-						// Cluster by album for multi-image posts like 1EC9Yune9P (3 gamba same album 4552750)
+						// Cluster by album for multi-image posts like 1EC9Yune9P (3 gamba same album 4552750) and Googlebot 160 images case
 						if len(urls) > 4 {
 							grp := map[string][]string{}
 							for _, u := range urls {
@@ -1131,7 +1131,9 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 								if len(parts) >= 2 && len(parts[1]) >= 7 {
 									prefix = parts[1][:7]
 								}
-								if prefix != "" && (strings.Contains(u, "t39.30808-6/749") || strings.Contains(u, "t39.30808-6/750") || strings.Contains(u, "t39.30808-6/751")) {
+								// Broaden multi-image detection: any t39.30808-6 or t15 or s1080x1920, not just 749/750/751
+								// Fixes "Ade post yg Ade multiple gamba tapi detect satu" for Googlebot 160 urls case
+								if prefix != "" && (strings.Contains(u, "t39.30808") || strings.Contains(u, "t15.") || strings.Contains(u, "p1080") || strings.Contains(u, "s720x720") || strings.Contains(u, "s1080x")) {
 									grp[prefix] = append(grp[prefix], u)
 								}
 							}
@@ -1146,8 +1148,43 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 							if len(best) >= 2 && len(best) <= 10 {
 								urls = best
 							} else {
-								// Single image post or no cluster - keep only first image, not 10 feed images
-								urls = urls[:1]
+								// Single image post or no cluster - check if Googlebot case with many images (160) but same post, keep up to 10 if anchored to ID section?
+								// For now keep first 1 to avoid feed pollution, but for Googlebot fallback with >50 urls, try keep more if post ID section has multiple
+								// Try anchored section extraction for multiple gamba
+								if sec := findImageSection(body, videoID); sec != nil && len(sec) > 1000 {
+									reImg := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+									m := reImg.FindAllString(string(sec), -1)
+									if len(m) >= 2 && len(m) <= 10 {
+										// Dedup anchored
+										seen2 := map[string]struct{}{}
+										anchored := []string{}
+										for _, raw := range m {
+											u := unescapeFacebookURL(raw)
+											u = strings.ReplaceAll(u, "&amp;", "&")
+											fn := u
+											if idx := strings.Index(fn, "?"); idx != -1 {
+												fn = fn[:idx]
+											}
+											if _, ok := seen2[fn]; ok {
+												continue
+											}
+											seen2[fn] = struct{}{}
+											anchored = append(anchored, u)
+											if len(anchored) >= 10 {
+												break
+											}
+										}
+										if len(anchored) >= 2 {
+											urls = anchored
+										} else {
+											urls = urls[:1]
+										}
+									} else {
+										urls = urls[:1]
+									}
+								} else {
+									urls = urls[:1]
+								}
 							}
 						}
 						if len(urls) == 1 {
@@ -1703,6 +1740,28 @@ func findVideoSection(body []byte, videoID string) []byte {
 		maxLen = len(remaining)
 	}
 	return remaining[:maxLen]
+}
+
+func findImageSection(body []byte, contentID string) []byte {
+	if contentID == "" {
+		return nil
+	}
+	// Search for contentID in body and take window around it for image extraction
+	// Similar to findCaptionAnchoredToID but for images
+	idx := bytes.Index(body, []byte(contentID))
+	if idx == -1 {
+		return nil
+	}
+	// Take 40k before and 40k after ID to capture album images near ID
+	start := idx - 40000
+	if start < 0 {
+		start = 0
+	}
+	end := idx + 40000
+	if end > len(body) {
+		end = len(body)
+	}
+	return body[start:end]
 }
 
 func unescapeFacebookURL(s string) string {
