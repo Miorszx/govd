@@ -2,7 +2,6 @@ package facebook
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"html"
 	"io"
