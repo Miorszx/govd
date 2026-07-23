@@ -1618,6 +1618,50 @@ func cleanFacebookCaption(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
 	// Unescape \/ -> / (FB escapes slashes in JSON)
 	s = strings.ReplaceAll(s, "\\/", "/")
+	// YTDL output perfect: json.loads decodes \uXXXX -> emoji, we already did via json.Unmarshal (👕 @ etc auto)
+	// Full emoticon map: text emoticon -> emoji
+	// Safe list (no URL conflict)
+	// Hearts
+	s = strings.ReplaceAll(s, "</3", "💔")
+	s = strings.ReplaceAll(s, "<3", "❤️")
+	s = strings.ReplaceAll(s, "&lt;3", "❤️")
+	s = strings.ReplaceAll(s, "&#x2764;", "❤️")
+	s = strings.ReplaceAll(s, "&#10084;", "❤️")
+	// Smileys - safe
+	s = strings.ReplaceAll(s, ":-)", "🙂")
+	s = strings.ReplaceAll(s, ":)", "🙂")
+	s = strings.ReplaceAll(s, ":-D", "😁")
+	s = strings.ReplaceAll(s, ":D", "😁")
+	s = strings.ReplaceAll(s, ":-(", "🙁")
+	s = strings.ReplaceAll(s, ":(", "🙁")
+	s = strings.ReplaceAll(s, ":'(", "😢")
+	s = strings.ReplaceAll(s, ":'-(", "😢")
+	s = strings.ReplaceAll(s, ":-P", "😛")
+	s = strings.ReplaceAll(s, ":P", "😛")
+	s = strings.ReplaceAll(s, ":-p", "😛")
+	s = strings.ReplaceAll(s, ":p", "😛")
+	s = strings.ReplaceAll(s, ";-)", "😉")
+	s = strings.ReplaceAll(s, ";)", "😉")
+	s = strings.ReplaceAll(s, ":-O", "😮")
+	s = strings.ReplaceAll(s, ":O", "😮")
+	s = strings.ReplaceAll(s, ":-o", "😮")
+	s = strings.ReplaceAll(s, ":o", "😮")
+	s = strings.ReplaceAll(s, ":-*", "😘")
+	s = strings.ReplaceAll(s, ":*", "😘")
+	s = strings.ReplaceAll(s, "XD", "😆")
+	s = strings.ReplaceAll(s, "xD", "😆")
+	s = strings.ReplaceAll(s, "X-D", "😆")
+	s = strings.ReplaceAll(s, ":X", "😘")
+	s = strings.ReplaceAll(s, ":x", "😘")
+	// Fix for :/ :\ :| which break https:// -> need boundary check not inside URL
+	// Replace :/ only when not part of :// (i.e. not followed by /) and preceded by space/start/non-alnum
+	// Use custom function to avoid breaking URLs
+	s = replaceEmoticonWithBoundary(s, ":/", "😕", true)
+	s = replaceEmoticonWithBoundary(s, ":-/", "😕", true)
+	s = replaceEmoticonWithBoundary(s, ":\\", "😕", false)
+	s = replaceEmoticonWithBoundary(s, ":-\\", "😕", false)
+	s = replaceEmoticonWithBoundary(s, ":|", "😐", false)
+	s = replaceEmoticonWithBoundary(s, ":-|", "😐", false)
 	// Split by double newline – FB separates page name and caption with \n\n
 	parts := strings.Split(s, "\n\n")
 	if len(parts) >= 2 {
@@ -1860,6 +1904,42 @@ func parseContentRangeTotal(header string) int64 {
 		total = total*10 + int64(c-'0')
 	}
 	return total
+}
+
+// replaceEmoticonWithBoundary replaces emoticon with emoji only when not inside URL
+// Prevents https:// from becoming https😕/ by checking that :/ is not followed by / and not part of ://
+func replaceEmoticonWithBoundary(s, old, new string, checkSlash bool) string {
+	if !strings.Contains(s, old) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		idx := strings.Index(s[i:], old)
+		if idx == -1 {
+			b.WriteString(s[i:])
+			break
+		}
+		absIdx := i + idx
+		// Check if inside URL: look behind for :// pattern or preceding char is alphanumeric part of URL
+		// For :/ case, if next char is / then it's :// -> skip (URL)
+		if checkSlash && absIdx+len(old) < len(s) && s[absIdx+len(old)] == '/' {
+			// :/ followed by / => :// URL scheme, skip
+			b.WriteString(s[i : absIdx+len(old)])
+			i = absIdx + len(old)
+			continue
+		}
+		// Also check if part of :// already handled, and if preceding char is ':'? Actually :// contains :/
+		// We already skipped :/ + / case. For :\ and :| no URL issue, but still check preceding char not part of http
+		// Allow replacement only if preceded by space/start/punctuation or preceded by :? No, :/ at start of line is emoticon
+		// To be safe, allow replacement unless we are inside https?://
+		// Simple heuristic: if 6 chars before contain "http" and :/ is part of "://", skip. Already handled above.
+		b.WriteString(s[i:absIdx])
+		b.WriteString(new)
+		i = absIdx + len(old)
+	}
+	return b.String()
 }
 
 func unescapeUnicode(s string) string {
