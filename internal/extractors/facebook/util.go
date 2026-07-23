@@ -118,21 +118,35 @@ func tryFetchHDFromPlugins(ctx *models.ExtractorContext, videoID string) (string
 }
 
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
-	// Detection image vs video dulu - user request
-	// isReel = HD-ONLY direct 1-fetch, no fallback (reel/share r/v)
-	// else = detect video mp4 first, then image scontent oh=, then error friendly
-	// Group video method V2: mbasic og:url -> plugins HD only, buang fallback
-	// For share/v group video: mbasic/share/v iPhone 46K og:url -> /videos/ permalink -> plugins SD/HD
-	// Treat /videos/, /reel/, /watch, /share/r/, /share/v/ all as plugins method
-	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch") || strings.Contains(ctx.ContentURL, "/videos/") || strings.Contains(ctx.ContentURL, "/share/")
+	// Detection image vs video dulu - user request pakai ID + URL
+	// isReel = HD-ONLY direct 1-fetch, no fallback (reel/share r/v only, NOT share/p photo)
+	// share/p = photo album (e.g. share/p/1Cs9f4wm7M) -> image path, not reel
+	// groups permalink, photo.php, posts, story.php -> detect video first then image
+	isReel := false
+	urlLower := strings.ToLower(ctx.ContentURL)
+	if strings.Contains(urlLower, "/reel/") || strings.Contains(urlLower, "/watch") || strings.Contains(urlLower, "/videos/") {
+		isReel = true
+	} else if strings.Contains(urlLower, "/share/r/") || strings.Contains(urlLower, "/share/v/") {
+		// share/r = reel share, share/v = group video share, share/p = photo -> NOT reel
+		isReel = true
+	}
 	// Also treat story.php?story_fbid as video first detection (not HD-ONLY, need image fallback)
-	if strings.Contains(ctx.ContentURL, "story.php") {
+	if strings.Contains(urlLower, "story.php") {
+		isReel = false
+	}
+	// Photo post share/p/ -> definitely not reel
+	if strings.Contains(urlLower, "/share/p/") {
+		isReel = false
+	}
+	// For /share/ without /r /v /p (bare id like share/1BSen1YRcQ) -> check via ID? Use contentURL contains /posts/ or /photo or try image detection first
+	// Bare share is album/photo from page, should go image path
+	if strings.Contains(urlLower, "/share/") && !strings.Contains(urlLower, "/share/r/") && !strings.Contains(urlLower, "/share/v/") && !strings.Contains(urlLower, "/share/p/") {
+		// Could be share/{id} bare - treat as photo/image first, not HD-ONLY
 		isReel = false
 	}
 
-	// REEL: PURE GO - plugins/video.php + fbhit dash_mpd -> plugins watch?v=DASH_ID (no yt-dlp)
-	// yt-dlp removed per user request "Ade cara ker x yah pakai ytdl? Memang fully on extractor kita jer"
-	// Method: HD-ONLY direct 1-fetch pure Go, no SD fallback, no fallback chains (spec memory)
+	// REEL: PURE GO - HD-ONLY direct 1-fetch pure Go, no SD fallback, no fallback chains (spec memory)
+	// yt-dlp removed per user request
 	if isReel {
 		// HD-ONLY: progressive_urls HD direct (ytdl videoDeliveryResponseResult.progressive_urls)
 		// 1 fetch watch/?v=ID -> scontent m367 HD muxed 720p (AQMkV9dq... 1.1MB for barrow)
@@ -1309,9 +1323,10 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		if strings.Contains(low, "story") && (strings.Contains(low, "not available") || strings.Contains(low, "expired") || strings.Contains(low, "unavailable") || strings.Contains(low, "content isn't") || strings.Contains(low, "isn't available")) {
 			return nil, fmt.Errorf("facebook story may have expired or is not accessible (len=%d id=%s) - story not available", len(body), videoID)
 		}
-		if strings.Contains(string(body), "story_fbid") {
-			// For story.php with no media at all (sc=0 m4=0), treat as expired
-			if sc == 0 && m4 == 0 {
+		// For story.php with no media at all (sc=0 m4=0), treat as expired - most reliable for 1407342004542486 case len 50434
+		if sc == 0 && m4 == 0 {
+			// Try if body still has story_fbid marker or just short len
+			if strings.Contains(s, "story_fbid") || strings.Contains(s, "story.php") || len(body) < 60000 {
 				return nil, fmt.Errorf("facebook story may have expired or is not accessible (len=%d id=%s)", len(body), videoID)
 			}
 		}
