@@ -1249,10 +1249,27 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	isGroupPost := len(videoID) >= 15
 	if data.Title == "" || (data.HDURL == "" && data.SDURL == "") {
 		if isGroupPost && (data.HDURL != "" || data.SDURL != "") {
-			// Group video post with video URL but no anchored caption = truly no caption (Ade video ja tapi caption takde)
-			// Don't scan full body for feed captions that cause RMA mismatch
-			// Only allow og:description if from section body, not full body
-			// So skip candidate search, keep Title empty
+			// Group video post with video URL but no anchored caption
+			// FIX: Try section-based og:description/message only, NOT full body (prevents RMA cross-post leak)
+			// This copies ytdl method: description = creation_story.comet_sections.message.text anchored to video ID
+			// Section already contains the post's own data, not feed
+			if len(section) > 0 {
+				if match := ogDescPattern.FindSubmatch(section); len(match) >= 2 {
+					addCandidate(string(match[1]))
+				}
+				if len(candidates) == 0 {
+					if match := messagePattern.FindSubmatch(section); len(match) >= 2 {
+						addCandidate(string(match[1]))
+					}
+				}
+				if len(candidates) == 0 {
+					if match := descriptionPattern.FindSubmatch(section); len(match) >= 2 {
+						addCandidate(string(match[1]))
+					}
+				}
+			}
+			// If still no candidate from section, truly no caption -> keep empty (Ade video ja)
+			// Don't scan full body which has feed captions
 		} else {
 			// lightly: try cheap patterns first (title already tried, so og tags)
 			if match := ogDescPattern.FindSubmatch(body); len(match) >= 2 {
