@@ -22,6 +22,16 @@ func HandleError(
 	chat := extractorCtx.Chat
 	localizer := localization.New(chat.Language)
 
+	// Friendly handling for story expired - don't show hashed ID, show clear message
+	if strings.Contains(strings.ToLower(err.Error()), "story may have expired") {
+		extractorCtx.Infof("story expired handled: %v", err)
+		sendErrorMessage(
+			b, ctx, "",
+			"This Facebook story has expired or is not accessible anymore.",
+		)
+		return
+	}
+
 	botError := asBotError(err)
 	if botError != nil {
 		sendErrorMessage(

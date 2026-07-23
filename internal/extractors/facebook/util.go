@@ -118,10 +118,17 @@ func tryFetchHDFromPlugins(ctx *models.ExtractorContext, videoID string) (string
 }
 
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
+	// Detection image vs video dulu - user request
+	// isReel = HD-ONLY direct 1-fetch, no fallback (reel/share r/v)
+	// else = detect video mp4 first, then image scontent oh=, then error friendly
 	// Group video method V2: mbasic og:url -> plugins HD only, buang fallback
 	// For share/v group video: mbasic/share/v iPhone 46K og:url -> /videos/ permalink -> plugins SD/HD
 	// Treat /videos/, /reel/, /watch, /share/r/, /share/v/ all as plugins method
 	isReel := strings.Contains(ctx.ContentURL, "/reel/") || strings.Contains(ctx.ContentURL, "/watch") || strings.Contains(ctx.ContentURL, "/videos/") || strings.Contains(ctx.ContentURL, "/share/")
+	// Also treat story.php?story_fbid as video first detection (not HD-ONLY, need image fallback)
+	if strings.Contains(ctx.ContentURL, "story.php") {
+		isReel = false
+	}
 
 	// REEL: PURE GO - plugins/video.php + fbhit dash_mpd -> plugins watch?v=DASH_ID (no yt-dlp)
 	// yt-dlp removed per user request "Ade cara ker x yah pakai ytdl? Memang fully on extractor kita jer"
@@ -1258,10 +1265,12 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		s := string(body)
 		sc := len(regexp.MustCompile(`scontent`).FindAllStringIndex(s, -1))
 		oh := len(regexp.MustCompile(`oh=`).FindAllStringIndex(s, -1))
-		m4 := len(regexp.MustCompile(`m4[0-9]`).FindAllStringIndex(s, -1))
-		// Try more permissive mp4 without scontent requirement for this case
+		// Count m4 mp4 more strictly, not SVG path m410.52
+		m4 := len(regexp.MustCompile(`m4[0-9][^"']*\.mp4`).FindAllStringIndex(s, -1))
+		// Try more permissive mp4 without scontent requirement for this case - handle escaped \/
 		if m4 > 0 {
-			reMP4b := regexp.MustCompile(`https://[^"' ]*?/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			// Handle both https:// and https:\/\/
+			reMP4b := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*?/m4[0-9][^"' ]*\.mp4[^"' ]*`)
 			for _, raw := range reMP4b.FindAllString(s, -1) {
 				u := unescapeFacebookURL(raw)
 				u = strings.ReplaceAll(u, "&amp;", "&")
@@ -1278,6 +1287,32 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 				if data.HDURL != "" || data.SDURL != "" {
 					return data, nil
 				}
+			}
+		}
+		// Detection image vs video dulu - try image scontent oh= as fallback before error
+		// For story/photo that Ade gamba, return image instead of failing with 3CD8E238
+		if sc > 0 && oh > 0 {
+			reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+			urls := reFresh.FindAllString(s, -1)
+			if len(urls) > 0 {
+				// Fresh scontent with oh
+				u := unescapeFacebookURL(urls[0])
+				u = strings.ReplaceAll(u, "&amp;", "&")
+				u = strings.ReplaceAll(u, `\/`, "/")
+				data.ImageURL = u
+				// caption already extracted
+				return data, nil
+			}
+		}
+		// Story expired or not video - friendly error instead of 3CD8E238 panic
+		low := strings.ToLower(s)
+		if strings.Contains(low, "story") && (strings.Contains(low, "not available") || strings.Contains(low, "expired") || strings.Contains(low, "unavailable") || strings.Contains(low, "content isn't") || strings.Contains(low, "isn't available")) {
+			return nil, fmt.Errorf("facebook story may have expired or is not accessible (len=%d id=%s) - story not available", len(body), videoID)
+		}
+		if strings.Contains(string(body), "story_fbid") {
+			// For story.php with no media at all (sc=0 m4=0), treat as expired
+			if sc == 0 && m4 == 0 {
+				return nil, fmt.Errorf("facebook story may have expired or is not accessible (len=%d id=%s)", len(body), videoID)
 			}
 		}
 		return nil, fmt.Errorf("no video URLs found in page: len=%d scontent=%d oh=%d m4=%d id=%s", len(body), sc, oh, m4, videoID)
