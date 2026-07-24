@@ -73,7 +73,8 @@ var Extractor = &models.Extractor{
 		`https?://(?:(?:www|m|mbasic)\.)?facebook\.com/` +
 			`(?:` +
 			// php endpoints like permalink.php?story_fbid=, video.php?v=, photo.php?fbid=, story.php?story_fbid= etc - from yt-dlp FacebookIE
-			`(?:permalink\.php|video/video\.php|photo\.php|video\.php|video/embed|story\.php|watch(?:/live)?/?)\?(?:[^#]*?)(?:v|video_id|story_fbid|fbid)=|` +
+			// FIX photo/?fbid=10246.. gm.17281.. idorvanity= group media link - was NO MATCH because only photo.php?fbid= handled, not photo/?fbid=
+			`(?:permalink\.php|video/video\.php|photo\.php|video\.php|video/embed|story\.php|watch(?:/live)?/?|photo/?)\?(?:[^#]*?)(?:v|video_id|story_fbid|fbid)=|` +
 			// /{page}/videos/{id}/, /{page}/posts/, groups/{id}/permalink/{id}, events, watchparty, reel, etc
 			`[^/]+/videos/(?:[^/]+/)?|` +
 			`[^/]+/posts/|` +
