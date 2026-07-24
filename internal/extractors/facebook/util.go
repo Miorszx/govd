@@ -1135,12 +1135,13 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 				// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
 				// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
 				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
+				// FIX for photo/?fbid=10246924783593277&set=gm.1728112355184367 group media: scontent URL has t39.30808-6/...jpg?stp= not oh=, need broaden
 				// If detected as image post, try to extract fresh scontent oh= images
 				if isImagePost {
 					var urls []string
 					seen := map[string]struct{}{}
-					// Fresh scontent with oh signature - only this, no upgrade, no og:image
-					reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+					// Fresh scontent with oh signature - primary, plus fallback for group media without oh= but with t39 jpg?stp=
+					reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*(?:oh=[^"' \s]+|t39\.30808-6/[^"' \s]+\.jpg[^"' \s]*)`)
 					for _, raw := range reFresh.FindAllString(string(body), -1) {
 						u := unescapeFacebookURL(raw)
 						u = strings.ReplaceAll(u, "&amp;", "&")
