@@ -890,6 +890,54 @@ func tryYtdlWithCookies(contentURL, cookieFile string) (hdURL, sdURL, caption st
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	data := &VideoData{}
 
+	// FIX share/p/1EKfYcssAD/ -> real numeric ID 3516131025202281 extraction for caption anchoring
+	// share/p codes are 10-char alphanumeric, not numeric, but body contains permalink with real ID
+	// Without this, anchored search for 1EKfYcssAD finds nothing, falls back to full body longest (fiber 516 chars) -> wrong caption
+	effectiveID := videoID
+	isNumeric := func(s string) bool {
+		for _, c := range s {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+		return len(s) > 0
+	}
+	absInt := func(a int) int {
+		if a < 0 {
+			return -a
+		}
+		return a
+	}
+	if len(videoID) == 10 || (len(videoID) >= 8 && len(videoID) <= 11 && !isNumeric(videoID)) {
+		// Try extract story_id or permalink numeric ID near 1EKfYcssAD
+		// Pattern in Googlebot body: "story_id":"3516131025202281" near share_url param
+		reStory := regexp.MustCompile(`"story_id"\s*:\s*"(\d{10,})"`)
+		if m := reStory.FindSubmatch(body); len(m) >= 2 {
+			candidate := string(m[1])
+			// Ensure candidate appears near the share code to avoid feed contamination
+			// Check if both IDs are within 2k of each other in body
+			idxShare := bytes.Index(body, []byte(videoID))
+			idxReal := bytes.Index(body, []byte(candidate))
+			if idxShare != -1 && idxReal != -1 && absInt(idxShare-idxReal) < 5000 {
+				effectiveID = candidate
+			} else if idxShare == -1 {
+				// share code not in body but story_id exists, likely real ID for this page
+				// Use it if title matches Arkibers etc? For now use first story_id if page is share/p
+				// Only if permalink pattern exists nearby
+				if bytes.Contains(body, []byte("/permalink/")) {
+					effectiveID = candidate
+				}
+			}
+		}
+		// Fallback: permalink/(\d+)/
+		if effectiveID == videoID {
+			rePerm := regexp.MustCompile(`/permalink/(\d{10,})/`)
+			if m := rePerm.FindSubmatch(body); len(m) >= 2 {
+				effectiveID = string(m[1])
+			}
+		}
+	}
+
 	// DETECT IMAGE vs VIDEO first - per user request "test sekali tuk image kalu x detect image kirenye ko Salah lagi"
 	// For group posts like 992068990489200 Insomnia and 3511388275676556 Malaikat:
 	// - section = findVideoSection for post ID - if section has m4/hd_src, it's VIDEO, if no m4 in section but og:image t15/t39 present, it's IMAGE
@@ -897,7 +945,11 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// Also fixes story vs post: story video 10s 140K is not post, post is image
 
 	// First find section belonging to this post ID (critical for group posts to avoid feed videos)
-	sectionEarly := findVideoSection(body, videoID)
+	sectionEarly := findVideoSection(body, effectiveID)
+	if sectionEarly == nil {
+		sectionEarly = findVideoSection(body, videoID)
+	}
+	// Also try with effectiveID for image section
 	// Check for video indicators IN SECTION (not full body which has feed videos)
 	var hasM4InSection bool
 	var hasHdSdInSection bool
@@ -1257,7 +1309,18 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// longest one that actually looks like a caption (not a short token).
 	// PRIORITY: caption anchored to this videoID (message closest to "id":"videoID")
 	candidates := []string{}
-	anchoredCaption := findCaptionAnchoredToID(body, videoID)
+	anchoredCaption := findCaptionAnchoredToID(body, effectiveID)
+	if anchoredCaption == "" && effectiveID != videoID {
+		anchoredCaption = findCaptionAnchoredToID(body, videoID)
+	}
+	// Also try findImageSection anchored caption extraction for share/p cases
+	if anchoredCaption == "" {
+		if sec := findImageSection(body, effectiveID); sec != nil && len(sec) > 1000 {
+			if m := messagePattern.FindSubmatch(sec); len(m) >= 2 {
+				anchoredCaption = string(m[1])
+			}
+		}
+	}
 
 	// helper: decode + html-unescape + trim + basic sanity (FB often wraps caption in entities)
 	addCandidate := func(raw string) {
@@ -1310,7 +1373,8 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// BUG FIX: For group permalink posts (videoID len >= 15 numeric), if anchored already tried and empty,
 	// and we have video URL, DO NOT fallback to full-body scan which can pick feed captions (RMA bug).
 	// Only allow fallback for non-group or when no video section found.
-	isGroupPost := len(videoID) >= 15
+	// For share/p/1EKfYcssAD/ case, effectiveID is numeric 3516131025202281, so treat as group post
+	isGroupPost := len(videoID) >= 15 || len(effectiveID) >= 15
 	if data.Title == "" || (data.HDURL == "" && data.SDURL == "") {
 		if isGroupPost && (data.HDURL != "" || data.SDURL != "") {
 			// Group video post with video URL but no anchored caption
