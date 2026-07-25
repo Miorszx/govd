@@ -2591,7 +2591,8 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL, sdURL, title string) {
 	// HD-ONLY spec but fallback to SD when HD not available (e.g. 2122477312020350 only SD m412)
 	// Extract HD first, then SD as fallback to avoid BD929D77
-	combinedReHD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,600}"quality"\s*:\s*"(hd)"`)
+	// Quality distance can be 820-1236 chars (1052595284124556 SD 820, HD 1236) so window 2000
+	combinedReHD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,2000}"quality"\s*:\s*"(hd)"`)
 	matchesHD := combinedReHD.FindAllSubmatch(body, -1)
 	for _, m := range matchesHD {
 		if len(m) < 3 {
@@ -2603,8 +2604,8 @@ func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL,
 			break // HD-ONLY: take first HD
 		}
 	}
-	// SD fallback for reels like 2122477312020350 that only have SD m412 (Googlebot 2640968 prog 2 m367 0 m4 2 SD only)
-	combinedReSD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,600}"quality"\s*:\s*"(sd)"`)
+	// SD fallback for reels like 2122477312020350 that only have SD m412 (Googlebot 2640968 prog 2 m367 0 m4 2 SD only) and 1052595284124556 (HD 1236, SD 820 distance)
+	combinedReSD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,2000}"quality"\s*:\s*"(sd)"`)
 	matchesSD := combinedReSD.FindAllSubmatch(body, -1)
 	for _, m := range matchesSD {
 		if len(m) < 3 {
