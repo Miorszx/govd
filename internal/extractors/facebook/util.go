@@ -981,8 +981,15 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		if hasM4InSection || hasHdSdInSection {
 			isVideoPost = true
 		} else {
-			// No video in section = image post (per user "Ade gamba takde video")
-			isVideoPost = false
+			// FIX for group video posts where post ID != video ID e.g. groups/2807075776107813/permalink/3516044001877650
+			// dash_mpd_debug v=ID not found because video inside has different ID 836662559382275, progressive 30 m4 36 in body
+			// If section not found (nil) and full body has m4/progressive, treat as video (Googlebot fallback case)
+			if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
+				isVideoPost = true
+			} else {
+				// No video in section = image post (per user "Ade gamba takde video")
+				isVideoPost = false
+			}
 		}
 	} else {
 		// Non-group or reel: use full body
