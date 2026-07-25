@@ -1082,6 +1082,24 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
 			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
 			// Handles both https:// and https:\/\/ escaped forms
+			// For group posts like 3516044001877650, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
+			// So for group videos (len>=15) with section nil and isVideoPost true, prefer progressive first
+			if isVideoPost && len(videoID) >= 10 {
+				if hdProg, sdProg, _ := parseProgressiveURLsAndCaptionFromBody(body, videoID); hdProg != "" || sdProg != "" {
+					if hdProg != "" {
+						data.HDURL = hdProg
+					}
+					if sdProg != "" {
+						data.SDURL = sdProg
+					}
+					if strings.Contains(videoID, "3516044001877650") {
+						fmt.Printf("[DEBUG PROG-SECTION0] id=%s prog hd len=%d sd len=%d\n", videoID, len(hdProg), len(sdProg))
+					}
+					if data.HDURL != "" || data.SDURL != "" {
+						return data, nil
+					}
+				}
+			}
 			reMP4 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
 			bodyStr := string(body)
 			// Also try unescaped version by replacing \/ -> / for regex matching
@@ -1092,6 +1110,9 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 				c1 := len(reMP4.FindAllString(bodyStr, -1))
 				c2 := len(reMP4.FindAllString(bodyUnesc, -1))
 				fmt.Printf("[DEBUG MP4] matches bodyStr=%d bodyUnesc=%d\n", c1, c2)
+				if c1 > 0 {
+					fmt.Printf("[DEBUG MP4] first raw: %s\n", reMP4.FindString(bodyStr)[:200])
+				}
 			}
 			for _, src := range []string{bodyStr, bodyUnesc} {
 				for _, raw := range reMP4.FindAllString(src, -1) {
@@ -1115,6 +1136,9 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 							data.HDURL = ""
 							data.SDURL = ""
 							break
+						}
+						if strings.Contains(videoID, "3516044001877650") {
+							fmt.Printf("[DEBUG MP4] returning hd=%s sd=%s isImg=%v isVid=%v\n", data.HDURL[:100], data.SDURL[:100], isImagePost, isVideoPost)
 						}
 						return data, nil
 					}
@@ -1142,6 +1166,24 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 							data.SDURL = ""
 							break
 						}
+						return data, nil
+					}
+				}
+			}
+			// Progressive fallback for group videos like 3516044001877650 where m4 matches are feed videos that 403
+			// parseProgressiveURLsAndCaptionFromBody extracts videoDeliveryResponseResult.progressive_urls[] HD/SD
+			if isVideoPost {
+				if hdProg, sdProg, _ := parseProgressiveURLsAndCaptionFromBody(body, videoID); hdProg != "" || sdProg != "" {
+					if hdProg != "" {
+						data.HDURL = hdProg
+					}
+					if sdProg != "" {
+						data.SDURL = sdProg
+					}
+					if strings.Contains(videoID, "3516044001877650") {
+						fmt.Printf("[DEBUG PROG] id=%s prog hd=%s sd=%s\n", videoID, hdProg[:100], sdProg[:100])
+					}
+					if data.HDURL != "" || data.SDURL != "" {
 						return data, nil
 					}
 				}
