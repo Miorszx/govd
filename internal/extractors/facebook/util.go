@@ -1008,10 +1008,16 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	if ogImgURL != "" {
 		if !strings.Contains(ogImgURL, "s74x74") && !strings.Contains(ogImgURL, "s120x120") && !strings.Contains(ogImgURL, "s168x128") && !strings.Contains(ogImgURL, "p74x74") {
 			// For group posts: if section has no video, it's image even if full body has video (feed)
+			// FIX: but if full body has m4/progressive and section is nil (post ID != video ID e.g. 3516044001877650 has m4 36 progressive 30), treat as video not image
 			if len(videoID) >= 15 {
 				if !hasM4InSection && !hasHdSdInSection {
-					isImagePost = true
-					isVideoPost = false
+					// If section nil and full body has video (Googlebot fallback), don't mark as image
+					if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
+						// keep as video, not image
+					} else {
+						isImagePost = true
+						isVideoPost = false
+					}
 				}
 			} else {
 				if !isVideoPost {
@@ -1023,12 +1029,27 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// For fbhit body 3.9M (facebookexternalhit UA) og:image is often empty but section has no m4/hd_src
 	// Still treat as image post if section is empty (no video) for group posts with len>=15
 	// Fixes 1EC9Yune9P 3 gamba: fbhit 3.9M og:image empty but section m4=0 hd_src=false -> isImagePost should be true
+	// FIX group video post 3516044001877650 has m4 36 progressive 30 but section nil (post ID != video ID) -> video not image
 	if len(videoID) >= 15 && !hasM4InSection && !hasHdSdInSection && !isVideoPost && !isImagePost {
-		// Check if body has scontent images (fresh oh=) - indicates image post even without og:image
-		reFreshCheck := regexp.MustCompile(`scontent[^"']*oh=`)
-		if reFreshCheck.MatchString(string(body)) {
-			isImagePost = true
+		if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
+			// video, skip image marking
+		} else {
+			reFreshCheck := regexp.MustCompile(`scontent[^"']*oh=`)
+			if reFreshCheck.MatchString(string(body)) {
+				isImagePost = true
+			}
 		}
+	}
+
+	// Final: if marked as video, ensure not also marked as image
+	if isVideoPost {
+		isImagePost = false
+	}
+
+	// DEBUG for 3516044001877650 group video fix
+	if len(videoID) >= 10 && (strings.Contains(videoID, "3516044001877650") || strings.Contains(videoID, "28611277075139846")) {
+		// Use fmt for debug, will appear in docker logs
+		fmt.Printf("[DEBUG FB] id=%s secNil=%v hasM4Sec=%v hasHdSec=%v hasM4Full=%v hasProg=%v isVid=%v isImg=%v bodyLen=%d\n", videoID, sectionEarly == nil, hasM4InSection, hasHdSdInSection, hasM4Full, strings.Contains(sBody, "progressive_url"), isVideoPost, isImagePost, len(body))
 	}
 
 	// find the section belonging to the requested video
@@ -1065,6 +1086,13 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 			bodyStr := string(body)
 			// Also try unescaped version by replacing \/ -> / for regex matching
 			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
+			if strings.Contains(videoID, "3516044001877650") {
+				fmt.Printf("[DEBUG MP4] id=%s bodyHas m4=%v prog=%v\n", videoID, strings.Contains(bodyStr, "/m4"), strings.Contains(bodyStr, "progressive_url"))
+				// Count matches
+				c1 := len(reMP4.FindAllString(bodyStr, -1))
+				c2 := len(reMP4.FindAllString(bodyUnesc, -1))
+				fmt.Printf("[DEBUG MP4] matches bodyStr=%d bodyUnesc=%d\n", c1, c2)
+			}
 			for _, src := range []string{bodyStr, bodyUnesc} {
 				for _, raw := range reMP4.FindAllString(src, -1) {
 					u := unescapeFacebookURL(raw)
