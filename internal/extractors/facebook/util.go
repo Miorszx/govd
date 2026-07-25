@@ -150,15 +150,20 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	if isReel {
 		// HD-ONLY: progressive_urls HD direct (ytdl videoDeliveryResponseResult.progressive_urls)
 		// 1 fetch watch/?v=ID -> scontent m367 HD muxed 720p (AQMkV9dq... 1.1MB for barrow)
-		// No SD, no plugins, no dash chain - speed priority, fail fast if flagged
+		// Fallback to SD when HD not available (e.g. 2122477312020350 only SD m412) to avoid BD929D77
 		if ctx.ContentID == "" {
 			return nil, fmt.Errorf("reel without content_id")
 		}
-		hd, _, title := tryFetchHDFromProgressiveURLs(ctx, ctx.ContentID)
-		if hd == "" {
+		hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, ctx.ContentID)
+		if hd == "" && sd == "" {
 			return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
 		}
-		data := &VideoData{HDURL: hd, Title: title}
+		// Prefer HD, fallback SD for 2122477312020350 case (Googlebot 2640968 prog 2 m367 0 m4 2 SD only)
+		useURL := hd
+		if useURL == "" {
+			useURL = sd
+		}
+		data := &VideoData{HDURL: useURL, Title: title}
 		// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
 		// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
 		if data.Title == "" {
@@ -1081,6 +1086,21 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		if len(section) == 0 {
 			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
 			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
+			// For group posts like 3516044001877650, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
+			// So for group videos with section nil and isVideoPost true, prefer progressive first
+			if isVideoPost && len(videoID) >= 10 {
+				if hdProg, sdProg, _ := parseProgressiveURLsAndCaptionFromBody(body, videoID); hdProg != "" || sdProg != "" {
+					if hdProg != "" {
+						data.HDURL = hdProg
+					}
+					if sdProg != "" {
+						data.SDURL = sdProg
+					}
+					if data.HDURL != "" || data.SDURL != "" {
+						return data, nil
+					}
+				}
+			}
 			// Handles both https:// and https:\/\/ escaped forms
 			// For group posts like 3516044001877650, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
 			// So for group videos (len>=15) with section nil and isVideoPost true, prefer progressive first
@@ -2569,11 +2589,11 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 }
 
 func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL, sdURL, title string) {
-	// HD-ONLY: Only extract HD quality from progressive_urls (memory spec: HD-ONLY reels NO SD fallback, NO fallback chains)
-	// Sample: "progressive_url":"https:\/\/scontent...","metadata":{"quality":"HD"}}
-	combinedRe := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,600}"quality"\s*:\s*"(hd)"`)
-	matches := combinedRe.FindAllSubmatch(body, -1)
-	for _, m := range matches {
+	// HD-ONLY spec but fallback to SD when HD not available (e.g. 2122477312020350 only SD m412)
+	// Extract HD first, then SD as fallback to avoid BD929D77
+	combinedReHD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,600}"quality"\s*:\s*"(hd)"`)
+	matchesHD := combinedReHD.FindAllSubmatch(body, -1)
+	for _, m := range matchesHD {
 		if len(m) < 3 {
 			continue
 		}
@@ -2583,10 +2603,22 @@ func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL,
 			break // HD-ONLY: take first HD
 		}
 	}
-	// No fallback: HD-ONLY direct, fail fast per spec (no SD, no browser_native, no playable_url)
+	// SD fallback for reels like 2122477312020350 that only have SD m412 (Googlebot 2640968 prog 2 m367 0 m4 2 SD only)
+	combinedReSD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,600}"quality"\s*:\s*"(sd)"`)
+	matchesSD := combinedReSD.FindAllSubmatch(body, -1)
+	for _, m := range matchesSD {
+		if len(m) < 3 {
+			continue
+		}
+		urlStr := unescapeFacebookURL(unescapeUnicode(string(m[1])))
+		if sdURL == "" {
+			sdURL = urlStr
+			break
+		}
+	}
 	// Caption via comet_sections (ytdl method) + json.Unmarshal for emoji 👕 @
 	title = tryExtractCaptionFromBodyBytes(body, videoID)
-	return hdURL, "", title
+	return hdURL, sdURL, title
 }
 
 func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
