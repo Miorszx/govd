@@ -154,11 +154,32 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		if ctx.ContentID == "" {
 			return nil, fmt.Errorf("reel without content_id")
 		}
-		hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, ctx.ContentID)
+		effectiveReelID := ctx.ContentID
+		// For share/r/ and share/v/ short codes like 191ccSK21J (10-char alnum), extract real numeric reel ID
+		// share/r/191ccSK21J -> reel/2126364571626222 via /reel/(\d+) or "video_id":"(\d+)" in Googlebot body
+		if len(ctx.ContentID) == 10 && (strings.Contains(urlLower, "/share/r/") || strings.Contains(urlLower, "/share/v/")) {
+			if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{
+				Headers: map[string]string{
+					"User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
+				},
+			}); err == nil && resp.StatusCode == 200 {
+				if bShare, err := io.ReadAll(resp.Body); err == nil && len(bShare) > 1000 {
+					if m := regexp.MustCompile(`/reel/(\d+)`).FindSubmatch(bShare); len(m) >= 2 {
+						effectiveReelID = string(m[1])
+					} else if m := regexp.MustCompile(`"video_id"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
+						effectiveReelID = string(m[1])
+					} else if m := regexp.MustCompile(`"videoId"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
+						effectiveReelID = string(m[1])
+					}
+				}
+				resp.Body.Close()
+			}
+		}
+		hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, effectiveReelID)
 		if hd == "" && sd == "" {
 			return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
 		}
-		// Prefer HD, fallback SD for 2122477312020350 case (Googlebot 2640968 prog 2 m367 0 m4 2 SD only)
+		// Prefer HD, fallback SD for 2122477312020350 case (Googlebot 2640968 prog 2 m367 0 m4 2 SD only) and 191ccSK21J -> 2126364571626222
 		useURL := hd
 		if useURL == "" {
 			useURL = sd
@@ -167,7 +188,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
 		// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
 		if data.Title == "" {
-			if capTitle := tryFetchReelCaptionViaGraphQL(ctx, ctx.ContentID); capTitle != "" {
+			if capTitle := tryFetchReelCaptionViaGraphQL(ctx, effectiveReelID); capTitle != "" {
 				data.Title = capTitle
 			}
 		}
@@ -2591,8 +2612,9 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL, sdURL, title string) {
 	// HD-ONLY spec but fallback to SD when HD not available (e.g. 2122477312020350 only SD m412)
 	// Extract HD first, then SD as fallback to avoid BD929D77
-	// Quality distance can be 820-1236 chars (1052595284124556 SD 820, HD 1236) so window 2000
-	combinedReHD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,2000}"quality"\s*:\s*"(hd)"`)
+	// Quality distance can be 820-1236 chars (1052595284124556 SD 820, HD 1236) so need window >1000
+	// Go RE2 max repeat is 1000, so {0,2000} invalid -> use {0,1000}{0,1000} = 2000
+	combinedReHD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(hd)"`)
 	matchesHD := combinedReHD.FindAllSubmatch(body, -1)
 	for _, m := range matchesHD {
 		if len(m) < 3 {
@@ -2605,7 +2627,7 @@ func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL,
 		}
 	}
 	// SD fallback for reels like 2122477312020350 that only have SD m412 (Googlebot 2640968 prog 2 m367 0 m4 2 SD only) and 1052595284124556 (HD 1236, SD 820 distance)
-	combinedReSD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,2000}"quality"\s*:\s*"(sd)"`)
+	combinedReSD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(sd)"`)
 	matchesSD := combinedReSD.FindAllSubmatch(body, -1)
 	for _, m := range matchesSD {
 		if len(m) < 3 {
