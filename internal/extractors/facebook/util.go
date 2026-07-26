@@ -1690,51 +1690,20 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 				return best
 			}
 		}
-		// Then try comet_sections specific (original)
-		csRe := regexp.MustCompile(`"comet_sections":\s*\{\s*"message":\s*\{[^}]*"story":\s*\{\s*"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
-		if mm := csRe.FindAllSubmatch(window, -1); len(mm) > 0 {
-			for i := len(mm) - 1; i >= 0; i-- {
-				m := mm[i]
-				if len(m) < 2 {
-					continue
-				}
-				pos := bytes.Index(window, m[0])
-				candidate := string(m[1])
-				if len(candidate) < 3 {
-					continue
-				}
-				candidate = unescapeUnicode(candidate)
-				candidate = html.UnescapeString(candidate)
-				candidate = strings.TrimSpace(candidate)
-				candidate = cleanFacebookCaption(candidate)
-				if candidate == "" {
-					continue
-				}
-				low := strings.ToLower(candidate)
-				if low == "facebook" || strings.HasPrefix(low, "only members") {
-					continue
-				}
-				dist := absIdx - (start + pos)
-				if best == "" || dist < bestDist || (dist == bestDist && len(candidate) > len(best)) {
-					best = candidate
-					bestDist = dist
-				}
-			}
-			if best != "" {
-				return best
-			}
-		}
+		// Then try comet_sections specific (original) - REMOVED for private group share/v fix
+		// For 284940... savable_description not found, comet_sections contains sharer's comments like TBH THO AY..., Big W..., 2016 #2016...
+		// These are NOT original, they are share comments. So we skip comet_sections and return empty if no savable found.
 		// For private group share/v like 1HfKCkk2V1 -> 2849405465418099, we have 34 occurrences of ID with nearby sharer comments
 		// "When she's into plastic crack", "Illie...", "When you want to get paid", "Big W..." - these are NOT original caption,
 		// they are other people's comments when they shared same video to different groups.
 		// Original caption for 284940... is empty (Only members can see...) - user said "Takde" is okay.
-		// So we do NOT fallback to generic messagePattern here, to avoid picking sharer's comment as caption.
-		// Return empty if no savable_description / comet_sections original found - deterministic no caption, not random sharer's comment.
+		// So we do NOT fallback to comet_sections/messagePattern here, to avoid picking sharer's comment as caption.
+		// Return empty if no savable_description original found - deterministic no caption, not random sharer's comment.
 		offset = absIdx + len(idMarker)
 	}
-	// No savable_description and no comet_sections original found in any window anchored to ID - return empty, not generic feed caption
-	// This fixes 284940... random caption bug: 6 different captions for same file 1356377 bytes
-	// Generic messagePattern fallback and pure caption fallback removed to prevent feed contamination for private group shares
+	// No savable_description original found in any window anchored to ID - return empty, not generic feed caption
+	// This fixes 284940... random caption bug: 9 different captions for same file 1356377 bytes
+	// comet_sections and generic messagePattern removed to prevent picking sharer's comment as caption for private group shares
 	// For private group share/v like 1HfKCkk2V1, original has no public caption (Only members...), so return empty (header only) as user said Takde is okay
 	return ""
 }
@@ -2451,6 +2420,35 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 	// 1) Try data-sjs ScheduledServerJS JSON -> creation_story.comet_sections.message.story.message.text
 	// Pattern same as ytdl: re.findall(r'data-sjs>({.*?ScheduledServerJS.*?})</script>', webpage)
 	// We look for message text near videoID
+	// FIX for private group share/v/1HfKCkk2V1/ -> 2849405465418099: 10 different captions for same file 1356377 bytes
+	// Original has no public caption (Only members...), but data-sjs contains 34 occurrences of ID with nearby sharer comments
+	// TBH THO AY..., Big W..., 2016 #2016..., When she's..., #greentreepython... etc are sharer's comments, not original
+	// If private group placeholder found, return empty to avoid picking sharer's comment as caption - user said Takde is okay
+	if strings.Contains(strings.ToLower(body), "only members can see") {
+		// For share/v/1HfKCkk2V1/ private group 459562825549584, original has no caption, user said Takde is okay
+		// Avoid picking sharer's comments like TBH THO AY..., When she's..., #greentreepython... etc from data-sjs
+		return ""
+	}
+	// Prioritize savable_description first (original)
+	savFirstRe := regexp.MustCompile(`"savable_description":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	if mm := savFirstRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
+		t := unescapeUnicode(string(mm[1]))
+		t = html.UnescapeString(t)
+		t = strings.TrimSpace(t)
+		t = cleanFacebookCaption(t)
+		if t != "" {
+			low := strings.ToLower(t)
+			if !strings.HasPrefix(low, "only members") && low != "facebook" {
+				return t
+			}
+		}
+	}
+	// If private group placeholder and no savable original, return empty to avoid picking sharer's comment as caption
+	if strings.Contains(strings.ToLower(body), "only members can see") {
+		// For share/v/1HfKCkk2V1/ private group 459562825549584, original has no caption, user said Takde is okay
+		// Avoid picking sharer's comments like TBH THO AY..., When she's..., etc from data-sjs
+		return ""
+	}
 	sjsRe := regexp.MustCompile(`data-sjs>(\{.*?ScheduledServerJS.*?\})</script>`)
 	matches := sjsRe.FindAllStringSubmatch(body, -1)
 	for _, m := range matches {

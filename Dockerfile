@@ -25,7 +25,7 @@ COPY . .
 RUN sqlc generate
 
 RUN --mount=type=cache,target="/root/.cache/go-build" \
-    CGO_ENABLED=1 go build \
+    CGO_ENABLED=1 GOMAXPROCS=1 GOGC=20 go build -p 1 \
         -ldflags="-s -w" \
         -o govd ./cmd/main.go
 
