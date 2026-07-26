@@ -1724,53 +1724,18 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 				return best
 			}
 		}
-		// Fallback to generic message pattern only if no savable/comet found - but still check context_layout to avoid feed
-		all := messagePattern.FindAllSubmatch(window, -1)
-		for i := len(all) - 1; i >= 0; i-- {
-			m := all[i]
-			if len(m) < 2 {
-				continue
-			}
-			pos := bytes.Index(window, m[0])
-			if pos != -1 {
-				cs := pos - 500
-				if cs < 0 {
-					cs = 0
-				}
-				if strings.Contains(string(window[cs:pos]), "context_layout") {
-					continue
-				}
-			}
-			candidate := string(m[1])
-			if len(candidate) < 3 {
-				continue
-			}
-			candidate = cleanFacebookCaption(candidate)
-			if candidate == "" {
-				continue
-			}
-			// Skip common feed captions that are sharer's comments for share/v private group case
-			// For 2849405465418099, we have 34 IDs with nearby sharer comments like "When she's into plastic crack", "Illie...", "When you want to get paid" - these are not original, but we still return best if no other
-			// To make it deterministic, we pick closest dist, not random
-			dist := absIdx - (start + pos)
-			if best == "" || dist < bestDist || (dist == bestDist && len(candidate) > len(best)) {
-				best = candidate
-				bestDist = dist
-			}
-		}
+		// For private group share/v like 1HfKCkk2V1 -> 2849405465418099, we have 34 occurrences of ID with nearby sharer comments
+		// "When she's into plastic crack", "Illie...", "When you want to get paid", "Big W..." - these are NOT original caption,
+		// they are other people's comments when they shared same video to different groups.
+		// Original caption for 284940... is empty (Only members can see...) - user said "Takde" is okay.
+		// So we do NOT fallback to generic messagePattern here, to avoid picking sharer's comment as caption.
+		// Return empty if no savable_description / comet_sections original found - deterministic no caption, not random sharer's comment.
 		offset = absIdx + len(idMarker)
 	}
-	if best != "" {
-		return best
-	}
-	if videoID != "" {
-		if pure := findPureCaptionAnchored(body, videoID); pure != "" {
-			return pure
-		}
-	}
-	if pure := findPureFacebookCaption(body); pure != "" {
-		return pure
-	}
+	// No savable_description and no comet_sections original found in any window anchored to ID - return empty, not generic feed caption
+	// This fixes 284940... random caption bug: 6 different captions for same file 1356377 bytes
+	// Generic messagePattern fallback and pure caption fallback removed to prevent feed contamination for private group shares
+	// For private group share/v like 1HfKCkk2V1, original has no public caption (Only members...), so return empty (header only) as user said Takde is okay
 	return ""
 }
 
