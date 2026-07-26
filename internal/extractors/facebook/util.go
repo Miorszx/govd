@@ -1651,6 +1651,80 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 			start = 0
 		}
 		window := body[start:absIdx]
+		// Prioritize savable_description (original caption) over generic message.text (sharer's comment)
+		// ytdl: savable_description.text is original, comet_sections.message.story.message.text is also original
+		// Generic message.text can be sharer's comment when sharing via share/v/ (e.g. "When she's into plastic crack" for 2849405465418099)
+		// For private group share/v/1HfKCkk2V1/ -> 284940..., we have 34 occurrences of ID with different nearby sharer comments (When she's..., Illie..., When you want...), causing random caption.
+		// Fix: try savable_description first, then comet_sections specific, then generic message as last resort, and prioritize original over sharer's comment.
+		savRe := regexp.MustCompile(`"savable_description":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+		if mm := savRe.FindAllSubmatch(window, -1); len(mm) > 0 {
+			for i := len(mm) - 1; i >= 0; i-- {
+				m := mm[i]
+				if len(m) < 2 {
+					continue
+				}
+				pos := bytes.Index(window, m[0])
+				candidate := string(m[1])
+				if len(candidate) < 3 {
+					continue
+				}
+				candidate = unescapeUnicode(candidate)
+				candidate = html.UnescapeString(candidate)
+				candidate = strings.TrimSpace(candidate)
+				candidate = cleanFacebookCaption(candidate)
+				if candidate == "" {
+					continue
+				}
+				low := strings.ToLower(candidate)
+				if low == "facebook" || strings.HasPrefix(low, "only members") {
+					continue
+				}
+				dist := absIdx - (start + pos)
+				if best == "" || dist < bestDist || (dist == bestDist && len(candidate) > len(best)) {
+					best = candidate
+					bestDist = dist
+				}
+			}
+			if best != "" {
+				// savable_description found anchored, return it immediately as original caption, not sharer's comment
+				return best
+			}
+		}
+		// Then try comet_sections specific (original)
+		csRe := regexp.MustCompile(`"comet_sections":\s*\{\s*"message":\s*\{[^}]*"story":\s*\{\s*"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+		if mm := csRe.FindAllSubmatch(window, -1); len(mm) > 0 {
+			for i := len(mm) - 1; i >= 0; i-- {
+				m := mm[i]
+				if len(m) < 2 {
+					continue
+				}
+				pos := bytes.Index(window, m[0])
+				candidate := string(m[1])
+				if len(candidate) < 3 {
+					continue
+				}
+				candidate = unescapeUnicode(candidate)
+				candidate = html.UnescapeString(candidate)
+				candidate = strings.TrimSpace(candidate)
+				candidate = cleanFacebookCaption(candidate)
+				if candidate == "" {
+					continue
+				}
+				low := strings.ToLower(candidate)
+				if low == "facebook" || strings.HasPrefix(low, "only members") {
+					continue
+				}
+				dist := absIdx - (start + pos)
+				if best == "" || dist < bestDist || (dist == bestDist && len(candidate) > len(best)) {
+					best = candidate
+					bestDist = dist
+				}
+			}
+			if best != "" {
+				return best
+			}
+		}
+		// Fallback to generic message pattern only if no savable/comet found - but still check context_layout to avoid feed
 		all := messagePattern.FindAllSubmatch(window, -1)
 		for i := len(all) - 1; i >= 0; i-- {
 			m := all[i]
@@ -1675,6 +1749,9 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 			if candidate == "" {
 				continue
 			}
+			// Skip common feed captions that are sharer's comments for share/v private group case
+			// For 2849405465418099, we have 34 IDs with nearby sharer comments like "When she's into plastic crack", "Illie...", "When you want to get paid" - these are not original, but we still return best if no other
+			// To make it deterministic, we pick closest dist, not random
 			dist := absIdx - (start + pos)
 			if best == "" || dist < bestDist || (dist == bestDist && len(candidate) > len(best)) {
 				best = candidate
