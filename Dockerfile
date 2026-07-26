@@ -1,6 +1,7 @@
 FROM golang:1.26-alpine AS builder
 
 ENV GOCACHE=/root/.cache/go-build
+ENV GOPROXY=https://proxy.golang.org,direct
 
 RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
     --mount=type=cache,target=/var/lib/apk,sharing=locked \
@@ -8,6 +9,7 @@ RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
         --repository="https://dl-cdn.alpinelinux.org/alpine/edge/main" \
         --repository="https://dl-cdn.alpinelinux.org/alpine/edge/community" \
         build-base \
+        git \
         libheif-dev
 
 WORKDIR /app
