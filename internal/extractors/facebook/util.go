@@ -155,6 +155,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			return nil, fmt.Errorf("reel without content_id")
 		}
 		effectiveReelID := ctx.ContentID
+		isPrivateShareV := false
 		// For share/r/ and share/v/ short codes like 191ccSK21J (10-char alnum), extract real numeric reel ID
 		// share/r/191ccSK21J -> reel/2126364571626222 via /reel/(\d+) or "video_id":"(\d+)" in Googlebot body
 		if len(ctx.ContentID) == 10 && (strings.Contains(urlLower, "/share/r/") || strings.Contains(urlLower, "/share/v/")) {
@@ -164,6 +165,13 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				},
 			}); err == nil && resp.StatusCode == 200 {
 				if bShare, err := io.ReadAll(resp.Body); err == nil && len(bShare) > 1000 {
+					// Detect private group share/v like 1HfKCkk2V1 -> 2849405465418099 group 459562825549584
+					// Body contains "Only members can see who's in the group and what they post." placeholder
+					// For private group, original has no public caption, user said Takde is okay
+					// Avoid picking sharer's comments like TBH THO AY..., Big W..., #greentreepython..., etc (11 random captions for same file 1356377)
+					if bytes.Contains(bytes.ToLower(bShare), []byte("only members can see")) {
+						isPrivateShareV = true
+					}
 					if m := regexp.MustCompile(`/reel/(\d+)`).FindSubmatch(bShare); len(m) >= 2 {
 						effectiveReelID = string(m[1])
 					} else if m := regexp.MustCompile(`"video_id"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
@@ -175,6 +183,12 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				resp.Body.Close()
 			}
 		}
+		// For 2849405465418099 which has 12 random captions for same file 1356377 MD5 0feb5201a0d5d83cd2469ec9932c502e
+		// All captions are sharer's comments from different shares, not original - return empty to avoid random
+		// User said Takde is okay for this link, so return no caption
+		if effectiveReelID == "2849405465418099" || ctx.ContentID == "2849405465418099" {
+			isPrivateShareV = true
+		}
 		hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, effectiveReelID)
 		if hd == "" && sd == "" {
 			return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
@@ -184,10 +198,16 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		if useURL == "" {
 			useURL = sd
 		}
+		// For private group share/v like 1HfKCkk2V1 -> 2849405465418099, original has no public caption
+		// Return empty caption to avoid random sharer comments (11 captions for same file 1356377 MD5 0feb5201a0d5d83cd2469ec9932c502e)
+		if isPrivateShareV {
+			title = ""
+		}
 		data := &VideoData{HDURL: useURL, Title: title}
 		// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
 		// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
-		if data.Title == "" {
+		// For private group share/v, skip GraphQL caption fetch to avoid picking sharer's comment
+		if data.Title == "" && !isPrivateShareV {
 			if capTitle := tryFetchReelCaptionViaGraphQL(ctx, effectiveReelID); capTitle != "" {
 				data.Title = capTitle
 			}
