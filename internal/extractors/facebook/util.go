@@ -178,6 +178,11 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						effectiveReelID = string(m[1])
 					} else if m := regexp.MustCompile(`"videoId"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
 						effectiveReelID = string(m[1])
+					} else if m := regexp.MustCompile(`/permalink/(\d+)`).FindSubmatch(bShare); len(m) >= 2 {
+						// For group permalink like groups/freememe/permalink/1932193070782736/ via share/v/1SCLuTCw93/
+						effectiveReelID = string(m[1])
+					} else if m := regexp.MustCompile(`"post_id"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
+						effectiveReelID = string(m[1])
 					}
 				}
 				resp.Body.Close()
@@ -2741,6 +2746,35 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 			}
 			if best != "" {
 				return best
+			}
+		}
+	}
+	// Fallback to <title> for group permalink posts like 1932193070782736 (freememe) where savable/comet 0
+	// Title example: "免費迷因 | Free Memes | #譯 隆重介紹：義大利蜘蛛人" -> caption "#譯 隆重介紹：義大利蜘蛛人"
+	// Also for 1SCLuTCw93 which has no savable/comet, use title last part after |
+	titleRe := regexp.MustCompile(`<title[^>]*>(.*?)</title>`)
+	if mm := titleRe.FindSubmatch(body); len(mm) >= 2 {
+		rawTitle := string(mm[1])
+		rawTitle = html.UnescapeString(rawTitle)
+		rawTitle = strings.TrimSpace(rawTitle)
+		// Remove excessive whitespace and newlines
+		rawTitle = strings.ReplaceAll(rawTitle, "\n", " ")
+		rawTitle = strings.TrimSpace(rawTitle)
+		low := strings.ToLower(rawTitle)
+		// Skip generic facebook titles
+		if rawTitle != "" && low != "facebook" && !strings.HasPrefix(low, "log in") && !strings.HasPrefix(low, "error") && len(rawTitle) >= 3 {
+			// If title contains |, take last part as caption (group name | caption)
+			parts := strings.Split(rawTitle, "|")
+			candidate := strings.TrimSpace(parts[len(parts)-1])
+			if candidate == "" {
+				candidate = rawTitle
+			}
+			candidate = cleanFacebookCaption(candidate)
+			// Filter out if candidate is just group name or too short and not hashtag?
+			if candidate != "" && len(candidate) >= 3 {
+				// Avoid returning just "Free Memes" etc if it's group name, but allow if contains # or non-ASCII (Chinese) etc
+				// For 1932193070782736, candidate is "#譯 隆重介紹：義大利蜘蛛人" which contains # and Chinese, valid
+				return candidate
 			}
 		}
 	}
