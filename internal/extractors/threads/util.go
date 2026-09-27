@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/govdbot/govd/internal/database"
@@ -17,72 +18,93 @@ var headers = map[string]string{
 	"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 }
 
-// videoVersion represents a single video quality entry from Threads JSON
+// ---------------------------------------------------------------------------
+// JSON model
+//
+// A Threads post page embeds the post (and its replies) both as inline JSON
+// inside <script type="application/json"> blobs and as escaped strings in the
+// HTML body. The authoritative shape is the JSON blob: the post lives at
+// `...result.data.media`, with `carousel_media` carrying album children.
+//
+// The previous implementation scanned the WHOLE body with regexes, which
+// (a) harvested media from replies/comments and (b) when bounded to the
+// "code" marker, dropped carousel children because those sit BEFORE the
+// marker. Parsing the JSON node is exact and fixes both.
+// ---------------------------------------------------------------------------
+
+type mediaNode struct {
+	Code           string          `json:"code"`
+	MediaType      int             `json:"media_type"`
+	Caption        *captionNode    `json:"caption"`
+	ImageVersions2 *candidatesWrap `json:"image_versions2"`
+	VideoVersions  []videoVersion  `json:"video_versions"`
+	CarouselMedia  []mediaNode     `json:"carousel_media"`
+}
+
+type captionNode struct {
+	Text string `json:"text"`
+}
+
+type candidatesWrap struct {
+	Candidates []imageCandidate `json:"candidates"`
+}
+
 type videoVersion struct {
 	Type int    `json:"type"`
 	URL  string `json:"url"`
 }
 
-// imageCandidate represents a single image candidate from Threads JSON
 type imageCandidate struct {
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
 	URL    string `json:"url"`
 }
 
-// postCodeRe matches the `"code":"<shortcode>"` marker that prefixes every
-// post/reply object embedded in a Threads page (root post first, then replies).
-var postCodeRe = regexp.MustCompile(`"code":"[a-zA-Z0-9_-]{5,}"`)
+var (
+	jsonScriptRe = regexp.MustCompile(`(?s)<script[^>]*type="application/json"[^>]*>(.*?)</script>`)
 
-// extractPostSection bounds the parsed region to the ORIGINAL post only.
-//
-// A Threads post page embeds the root post followed by EVERY reply, and each
-// reply object carries its own "code" + image_versions2/video_versions arrays.
-// Scanning the whole page therefore harvests media from replies/comments too,
-// which is the "extra media" bug: a post that is a single video came back with
-// the video plus photos/videos taken from the comment thread.
-//
-// We cut the body at the post's own "code" marker and stop before the next
-// (different) "code" marker, which is exactly where the reply stream starts.
-// If the marker cannot be located we fall back to the whole body so nothing
-// regresses on unusual page shapes.
-func extractPostSection(s, code string) string {
-	if len(code) < 5 {
-		return s
-	}
-	marker := `"code":"` + code + `"`
-	start := strings.Index(s, marker)
-	if start < 0 {
-		return s
-	}
-	rest := s[start+len(marker):]
-	if loc := postCodeRe.FindStringIndex(rest); loc != nil {
-		return s[start : start+len(marker)+loc[0]]
-	}
-	return s[start:]
-}
+	// Fallback regexes (used only when no JSON blob carries the media node).
+	postCodeRe      = regexp.MustCompile(`"code":"[a-zA-Z0-9_-]{5,}"`)
+	videoVersionsRe = regexp.MustCompile(`"video_versions":\[([^\]]+)\]`)
+	imageVersionsRe = regexp.MustCompile(`"image_versions2":\{"candidates":\[([^\]]+)\]`)
+)
 
 func ParsePostMedia(ctx *models.ExtractorContext, body []byte) (*models.Media, error) {
 	s := string(body)
-	if strings.Contains(s, "Thread not available") || strings.Contains(s, "not available") {
+	if strings.Contains(s, "Thread not available") {
 		return nil, util.ErrUnavailable
 	}
 
-	// Only consider the original post; skip media belonging to replies.
-	post := extractPostSection(s, ctx.ContentID)
-
 	media := ctx.NewMedia()
 
-	// Extract caption from JSON: "caption":{"text":"..."}
-	caption := extractCaption(post)
-	media.SetCaption(caption)
+	// Preferred path: parse the embedded JSON post node exactly.
+	node, ok := findMediaNode(s, ctx.ContentID)
+	if ok {
+		caption := ""
+		if node.Caption != nil {
+			caption = node.Caption.Text
+		}
+		media.SetCaption(caption)
+
+		if len(node.CarouselMedia) > 0 {
+			for i := range node.CarouselMedia {
+				appendMediaNode(media, &node.CarouselMedia[i])
+			}
+		} else {
+			appendMediaNode(media, node)
+		}
+		if len(media.Items) > 0 {
+			return media, nil
+		}
+	}
+
+	// Fallback: bounded regex scan of the original post only.
+	post := extractPostSection(s, ctx.ContentID)
+	media.SetCaption(extractCaption(post))
 
 	videoURLs := extractVideoURLs(post)
 	imageURLs := extractImageURLs(post)
-
 	if len(videoURLs) > 0 {
-		// Video post: emit the video formats and use the post's poster frame
-		// (image_versions2) as the thumbnail, matching the Instagram extractor.
 		item := media.NewItem()
 		formats := make([]*models.MediaFormat, 0, len(videoURLs))
 		for i, u := range videoURLs {
@@ -103,7 +125,6 @@ func ParsePostMedia(ctx *models.ExtractorContext, body []byte) (*models.Media, e
 		}
 		item.AddFormats(formats...)
 	} else {
-		// Photo post (single image or carousel): one item per image.
 		for _, u := range imageURLs {
 			item := media.NewItem()
 			item.AddFormats(&models.MediaFormat{
@@ -117,37 +138,216 @@ func ParsePostMedia(ctx *models.ExtractorContext, body []byte) (*models.Media, e
 	if len(media.Items) == 0 {
 		return nil, fmt.Errorf("no media found in post page")
 	}
-
 	return media, nil
 }
 
+// appendMediaNode emits one album item for a post/carousel child: a video item
+// (formats + poster frame) when video_versions is present, else a photo item.
+func appendMediaNode(media *models.Media, n *mediaNode) {
+	poster := bestImageURL(n.ImageVersions2)
+
+	if vids := videoURLsFrom(n.VideoVersions); len(vids) > 0 {
+		item := media.NewItem()
+		formats := make([]*models.MediaFormat, 0, len(vids))
+		for i, u := range vids {
+			fmtID := fmt.Sprintf("video_%d", i)
+			if i == 0 {
+				fmtID = "video"
+			}
+			formats = append(formats, &models.MediaFormat{
+				Type:       database.MediaTypeVideo,
+				FormatID:   fmtID,
+				URL:        []string{u},
+				VideoCodec: database.MediaCodecAvc,
+				AudioCodec: database.MediaCodecAac,
+			})
+		}
+		if poster != "" {
+			formats[0].ThumbnailURL = []string{poster}
+		}
+		item.AddFormats(formats...)
+		return
+	}
+
+	if poster != "" {
+		item := media.NewItem()
+		item.AddFormats(&models.MediaFormat{
+			Type:     database.MediaTypePhoto,
+			FormatID: "image",
+			URL:      []string{poster},
+		})
+	}
+}
+
+func bestImageURL(w *candidatesWrap) string {
+	if w == nil {
+		return ""
+	}
+	best := imageCandidate{}
+	for _, c := range w.Candidates {
+		if c.URL != "" && c.Width >= best.Width {
+			best = c
+		}
+	}
+	return best.URL
+}
+
+func videoURLsFrom(vs []videoVersion) []string {
+	if len(vs) == 0 {
+		return nil
+	}
+	sorted := make([]videoVersion, len(vs))
+	copy(sorted, vs)
+	// Higher type = better quality; keep best first, dedupe (types 101/102/103
+	// of the same video often share one URL).
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Type > sorted[j].Type })
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range sorted {
+		if v.URL != "" && !seen[v.URL] {
+			seen[v.URL] = true
+			out = append(out, v.URL)
+		}
+	}
+	return out
+}
+
+// findMediaNode walks every application/json script blob looking for the post
+// object whose code matches, exposed under a `media` key (Threads'
+// `...result.data.media`). Returns the decoded node.
+func findMediaNode(body, code string) (*mediaNode, bool) {
+	if len(code) < 5 {
+		return nil, false
+	}
+	for _, m := range jsonScriptRe.FindAllStringSubmatch(body, -1) {
+		if len(m) < 2 || !strings.Contains(m[1], code) {
+			continue
+		}
+		var root interface{}
+		if err := json.Unmarshal([]byte(m[1]), &root); err != nil {
+			continue
+		}
+		raw, ok := walkForMedia(root, code)
+		if !ok {
+			continue
+		}
+		buf, err := json.Marshal(raw)
+		if err != nil {
+			continue
+		}
+		var node mediaNode
+		if err := json.Unmarshal(buf, &node); err != nil {
+			continue
+		}
+		if node.Code == code {
+			return &node, true
+		}
+	}
+	return nil, false
+}
+
+// walkForMedia returns the map exposed under a `media` key whose code matches,
+// falling back to any object with the matching code that carries media arrays.
+func walkForMedia(v interface{}, code string) (map[string]interface{}, bool) {
+	fallback, hasFallback := walkForMediaFallback(v, code)
+	_ = fallback
+	_ = hasFallback
+	return walkPrimary(v, code)
+}
+
+func walkPrimary(v interface{}, code string) (map[string]interface{}, bool) {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		if m, ok := t["media"].(map[string]interface{}); ok {
+			if c, _ := m["code"].(string); c == code {
+				return m, true
+			}
+		}
+		for _, val := range t {
+			if r, ok := walkPrimary(val, code); ok {
+				return r, true
+			}
+		}
+	case []interface{}:
+		for _, val := range t {
+			if r, ok := walkPrimary(val, code); ok {
+				return r, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func walkForMediaFallback(v interface{}, code string) (map[string]interface{}, bool) {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		if c, _ := t["code"].(string); c == code {
+			if _, ok := t["image_versions2"]; ok {
+				return t, true
+			}
+			if _, ok := t["video_versions"]; ok {
+				return t, true
+			}
+			if _, ok := t["carousel_media"]; ok {
+				return t, true
+			}
+		}
+		for _, val := range t {
+			if r, ok := walkForMediaFallback(val, code); ok {
+				return r, true
+			}
+		}
+	case []interface{}:
+		for _, val := range t {
+			if r, ok := walkForMediaFallback(val, code); ok {
+				return r, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// extractPostSection bounds the parsed region to the ORIGINAL post only (used
+// by the regex fallback). A Threads page embeds the root post followed by every
+// reply; each reply carries its own "code" + media arrays. Scanning the whole
+// body therefore harvests media from replies/comments too.
+func extractPostSection(s, code string) string {
+	if len(code) < 5 {
+		return s
+	}
+	marker := `"code":"` + code + `"`
+	start := strings.Index(s, marker)
+	if start < 0 {
+		return s
+	}
+	rest := s[start+len(marker):]
+	if loc := postCodeRe.FindStringIndex(rest); loc != nil {
+		return s[start : start+len(marker)+loc[0]]
+	}
+	return s[start:]
+}
+
 func extractCaption(s string) string {
-	// "caption":{"text":"..."} — handle unicode escapes
 	re := regexp.MustCompile(`"caption":\{"text":"((?:[^"\\]|\\.)*)"`)
 	m := re.FindStringSubmatch(s)
 	if len(m) < 2 {
 		return ""
 	}
-	// Unescape JSON string
 	var caption string
 	if err := json.Unmarshal([]byte(`"`+m[1]+`"`), &caption); err != nil {
-		return m[1] // fallback raw
+		return m[1]
 	}
 	return caption
 }
 
 func extractVideoURLs(s string) []string {
-	// Find "video_versions":[{"type":101,"url":"..."},{"type":102,...}]
-	re := regexp.MustCompile(`"video_versions":\[([^\]]+)\]`)
 	var urls []string
 	seen := map[string]bool{}
-	for _, m := range re.FindAllStringSubmatch(s, -1) {
+	for _, m := range videoVersionsRe.FindAllStringSubmatch(s, -1) {
 		var versions []videoVersion
 		if err := json.Unmarshal([]byte("["+m[1]+"]"), &versions); err != nil {
 			continue
 		}
-		// Sort by type descending (higher type = better quality usually)
-		// type 103 > 102 > 101
 		for i := len(versions) - 1; i >= 0; i-- {
 			u := versions[i].URL
 			if u != "" && !seen[u] {
@@ -160,27 +360,16 @@ func extractVideoURLs(s string) []string {
 }
 
 func extractImageURLs(s string) []string {
-	// Find "image_versions2":{"candidates":[{"width":640,"height":360,"url":"..."},...]}
-	re := regexp.MustCompile(`"image_versions2":\{"candidates":\[([^\]]+)\]`)
 	var urls []string
 	seen := map[string]bool{}
-	for _, m := range re.FindAllStringSubmatch(s, -1) {
+	for _, m := range imageVersionsRe.FindAllStringSubmatch(s, -1) {
 		var candidates []imageCandidate
 		if err := json.Unmarshal([]byte("["+m[1]+"]"), &candidates); err != nil {
 			continue
 		}
-		// Get the largest candidate
-		if len(candidates) > 0 {
-			best := candidates[0]
-			for _, c := range candidates {
-				if c.Width > best.Width {
-					best = c
-				}
-			}
-			if best.URL != "" && !seen[best.URL] {
-				seen[best.URL] = true
-				urls = append(urls, best.URL)
-			}
+		if best := bestImageURL(&candidatesWrap{Candidates: candidates}); best != "" && !seen[best] {
+			seen[best] = true
+			urls = append(urls, best)
 		}
 	}
 	return urls
