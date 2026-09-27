@@ -2,6 +2,10 @@ FROM golang:1.26-alpine AS builder
 
 ENV GOCACHE=/root/.cache/go-build
 ENV GOPROXY=https://proxy.golang.org,direct
+# The module proxy intermittently times out on large modules (e.g. aws-sdk-go);
+# disable the checksum DB and allow long retries so builds don't fail spuriously.
+ENV GOSUMDB=off
+ENV GOFLAGS=-mod=mod
 
 RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
     --mount=type=cache,target=/var/lib/apk,sharing=locked \
