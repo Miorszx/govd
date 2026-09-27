@@ -18,18 +18,43 @@ func TestMain(m *testing.M) {
 
 const (
 	testPostCode  = "AAAAPOSTCODE1"
+	testCarousel  = "CCCCAROUSEL1"
 	testReplyOne  = "BBBBREPLYONE1"
 	testReplyTwo  = "BBBBREPLYTWO2"
 	postVideoURL  = "https://scontent.example/post-video.mp4"
 	postPosterURL = "https://scontent.example/post-poster.jpg"
+	carouselImg1  = "https://scontent.example/carousel-1.jpg"
+	carouselImg2  = "https://scontent.example/carousel-2.jpg"
+	carouselImg3  = "https://scontent.example/carousel-3.jpg"
+	carouselImg4  = "https://scontent.example/carousel-4.jpg"
 	replyOneURL   = "https://scontent.example/reply-one-image.jpg"
 	replyOneVid   = "https://scontent.example/reply-one-video.mp4"
 	replyTwoURL   = "https://scontent.example/reply-two-image.jpg"
 )
 
-// buildPage mimics the shape of a real Threads post page: the root post object
-// (prefix with its own "code") followed by the reply stream, where every reply
-// carries its own "code" + image_versions2 / video_versions arrays.
+// jsonPage wraps a JSON post object in the <script type="application/json">
+// shape Threads uses, with the reply stream as sibling nodes that must never
+// be parsed.
+func jsonPage(rootJSON string) []byte {
+	replyOne := `{"reply":{"code":"` + testReplyOne + `","caption":{"text":"reply one"},` +
+		`"image_versions2":{"candidates":[{"width":1080,"height":1080,"url":"` + replyOneURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + replyOneVid + `"}],"carousel_media":null}}`
+	replyTwo := `{"reply":{"code":"` + testReplyTwo + `","caption":{"text":"reply two"},` +
+		`"image_versions2":{"candidates":[{"width":1080,"height":1080,"url":"` + replyTwoURL + `"}]},"carousel_media":null}}`
+	inner := `{"data":{"media":{` + rootJSON + `},` +
+		`"related":{"thread_items":[` +
+		`{"post":` + replyOne + `,"line_type":"line"},` +
+		`{"post":` + replyTwo + `,"line_type":"line"}` +
+		`]}}}`
+	// Real pages nest the payload inside require/__bbox wrappers; wrap the valid
+	// inner object so the test exercises the deep recursive walk.
+	blob := `{"require":[{"__bbox":{"require":[{"__bbox":{"result":` + inner + `}}]}}]}`
+	return []byte(`<!doctype html><html><body><script type="application/json">` + blob + `</script></body></html>`)
+}
+
+// buildPage mimics the inline (escaped) body shape used by Threads fallback:
+// the root post object followed by the reply stream, each carrying its own
+// "code" + image_versions2 / video_versions arrays.
 func buildPage(rootIsVideo bool) []byte {
 	rootMedia := `"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},`
 	if rootIsVideo {
@@ -56,11 +81,15 @@ func newTestContext(code string) *models.ExtractorContext {
 	}
 }
 
+// --- JSON blob path (authoritative) -----------------------------------------
+
 // A video post must yield EXACTLY the original video (with poster thumbnail)
-// and nothing from the reply stream. Regression test for the "extra media from
-// comments" bug.
-func TestVideoPostExcludesReplies(t *testing.T) {
-	media, err := ParsePostMedia(newTestContext(testPostCode), buildPage(true))
+// and nothing from the reply stream.
+func TestJSONVideoPostExcludesReplies(t *testing.T) {
+	root := `"code":"` + testPostCode + `","caption":{"text":"root caption"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":101,"url":"` + postVideoURL + `"},{"type":103,"url":"` + postVideoURL + `"}],"carousel_media":null`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
 	if err != nil {
 		t.Fatalf("ParsePostMedia error: %v", err)
 	}
@@ -69,25 +98,104 @@ func TestVideoPostExcludesReplies(t *testing.T) {
 	}
 	formats := media.Items[0].Formats
 	if len(formats) != 1 {
-		t.Fatalf("expected 1 format (single distinct video), got %d: %+v", len(formats), formats)
+		t.Fatalf("expected 1 format (single distinct video), got %d", len(formats))
 	}
 	f := formats[0]
-	if f.Type != database.MediaTypeVideo {
-		t.Fatalf("expected video format, got type=%v", f.Type)
-	}
-	if len(f.URL) == 0 || f.URL[0] != postVideoURL {
-		t.Fatalf("expected post video URL %q, got %v", postVideoURL, f.URL)
+	if f.Type != database.MediaTypeVideo || f.URL[0] != postVideoURL {
+		t.Fatalf("unexpected video format: type=%v url=%v", f.Type, f.URL)
 	}
 	if len(f.ThumbnailURL) == 0 || f.ThumbnailURL[0] != postPosterURL {
 		t.Fatalf("expected poster thumbnail %q, got %v", postPosterURL, f.ThumbnailURL)
 	}
-	if got := media.Caption; got != "root caption" {
-		t.Fatalf("expected root caption, got %q", got)
+	if media.Caption != "root caption" {
+		t.Fatalf("expected root caption, got %q", media.Caption)
 	}
 }
 
-// A photo post must yield only the original image, never reply media.
-func TestPhotoPostExcludesReplies(t *testing.T) {
+// A CAROUSEL post must yield EVERY album child — the regression this fix
+// addresses: bounding the old regex to the "code" marker dropped album images
+// because carousel_media sits BEFORE the marker.
+func TestJSONCarouselPostYieldsAllImages(t *testing.T) {
+	child := func(url string) string {
+		return `{"code":"CHILDCODE` + url[len(url)-5:] + `","media_type":1,` +
+			`"image_versions2":{"candidates":[{"width":1080,"height":1080,"url":"` + url + `"}]},` +
+			`"video_versions":null,"carousel_media":null}`
+	}
+	root := `"code":"` + testCarousel + `","caption":{"text":"album caption"},"media_type":8,` +
+		`"carousel_media":[` + child(carouselImg1) + `,` + child(carouselImg2) + `,` +
+		child(carouselImg3) + `,` + child(carouselImg4) + `],` +
+		`"image_versions2":{"candidates":[{"width":1536,"height":2048,"url":"` + carouselImg1 + `"}]}`
+	media, err := ParsePostMedia(newTestContext(testCarousel), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 4 {
+		t.Fatalf("expected 4 album items, got %d", len(media.Items))
+	}
+	want := []string{carouselImg1, carouselImg2, carouselImg3, carouselImg4}
+	for i, item := range media.Items {
+		if len(item.Formats) == 0 || item.Formats[0].URL[0] != want[i] {
+			t.Fatalf("item %d: expected %q, got %+v", i, want[i], item.Formats)
+		}
+		if item.Formats[0].Type != database.MediaTypePhoto {
+			t.Fatalf("item %d: expected photo type, got %v", i, item.Formats[0].Type)
+		}
+	}
+	if media.Caption != "album caption" {
+		t.Fatalf("expected album caption, got %q", media.Caption)
+	}
+	for _, leaked := range []string{replyOneURL, replyOneVid, replyTwoURL} {
+		for _, item := range media.Items {
+			if len(item.Formats) > 0 && item.Formats[0].URL[0] == leaked {
+				t.Fatalf("reply media leaked into album: %s", leaked)
+			}
+		}
+	}
+}
+
+// A mixed carousel (photo + video child) must keep the video child's formats.
+func TestJSONMixedCarousel(t *testing.T) {
+	root := `"code":"` + testCarousel + `","caption":{"text":"mixed"},"media_type":8,` +
+		`"carousel_media":[` +
+		`{"code":"CHILDAAAAA1","media_type":1,"image_versions2":{"candidates":[{"width":1080,"height":1080,"url":"` + carouselImg1 + `"}]},"video_versions":null},` +
+		`{"code":"CHILDBBBBB2","media_type":2,"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},"video_versions":[{"type":103,"url":"` + postVideoURL + `"}]}` +
+		`]`
+	media, err := ParsePostMedia(newTestContext(testCarousel), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(media.Items))
+	}
+	if media.Items[0].Formats[0].Type != database.MediaTypePhoto {
+		t.Fatalf("child 0 should be photo, got %v", media.Items[0].Formats[0].Type)
+	}
+	vf := media.Items[1].Formats[0]
+	if vf.Type != database.MediaTypeVideo || vf.URL[0] != postVideoURL {
+		t.Fatalf("child 1 should be video, got %+v", vf)
+	}
+}
+
+// --- regex fallback path ----------------------------------------------------
+
+func TestFallbackVideoPostExcludesReplies(t *testing.T) {
+	media, err := ParsePostMedia(newTestContext(testPostCode), buildPage(true))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 1 {
+		t.Fatalf("expected 1 media item, got %d", len(media.Items))
+	}
+	f := media.Items[0].Formats[0]
+	if f.Type != database.MediaTypeVideo || f.URL[0] != postVideoURL {
+		t.Fatalf("unexpected fallback video format: %+v", f)
+	}
+	if media.Caption != "root caption" {
+		t.Fatalf("expected root caption, got %q", media.Caption)
+	}
+}
+
+func TestFallbackPhotoPostExcludesReplies(t *testing.T) {
 	media, err := ParsePostMedia(newTestContext(testPostCode), buildPage(false))
 	if err != nil {
 		t.Fatalf("ParsePostMedia error: %v", err)

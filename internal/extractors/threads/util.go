@@ -227,7 +227,10 @@ func findMediaNode(body, code string) (*mediaNode, bool) {
 		if err := json.Unmarshal([]byte(m[1]), &root); err != nil {
 			continue
 		}
-		raw, ok := walkForMedia(root, code)
+		raw, ok := walkPrimary(root, code)
+		if !ok {
+			raw, ok = walkForMediaFallback(root, code)
+		}
 		if !ok {
 			continue
 		}
@@ -246,15 +249,8 @@ func findMediaNode(body, code string) (*mediaNode, bool) {
 	return nil, false
 }
 
-// walkForMedia returns the map exposed under a `media` key whose code matches,
-// falling back to any object with the matching code that carries media arrays.
-func walkForMedia(v interface{}, code string) (map[string]interface{}, bool) {
-	fallback, hasFallback := walkForMediaFallback(v, code)
-	_ = fallback
-	_ = hasFallback
-	return walkPrimary(v, code)
-}
-
+// walkPrimary returns the object exposed under a `media` key whose code matches
+// (Threads' `...result.data.media` shape).
 func walkPrimary(v interface{}, code string) (map[string]interface{}, bool) {
 	switch t := v.(type) {
 	case map[string]interface{}:
