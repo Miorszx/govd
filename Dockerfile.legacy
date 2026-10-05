@@ -1,0 +1,42 @@
+FROM golang:1.26-alpine AS builder
+
+ENV GOCACHE=/root/.cache/go-build
+ENV GOSUMDB=off
+ENV GOFLAGS=-mod=mod
+
+RUN apk add --no-cache \
+        --repository="https://dl-cdn.alpinelinux.org/alpine/edge/main" \
+        --repository="https://dl-cdn.alpinelinux.org/alpine/edge/community" \
+        build-base \
+        git \
+        libheif-dev
+
+WORKDIR /app
+
+RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+
+COPY go.mod go.sum ./
+
+RUN go mod download
+
+COPY . .
+
+RUN sqlc generate
+
+RUN CGO_ENABLED=1 GOMAXPROCS=1 GOGC=20 go build -p 1 \
+        -ldflags="-s -w" \
+        -o govd ./cmd/main.go
+
+FROM alpine:3.22 AS runtime
+
+WORKDIR /app
+
+RUN apk add --no-cache \
+        --repository="https://dl-cdn.alpinelinux.org/alpine/edge/main" \
+        --repository="https://dl-cdn.alpinelinux.org/alpine/edge/community" \
+        ffmpeg \
+        libheif
+
+COPY --from=builder /app/govd ./govd
+
+ENTRYPOINT ["./govd"]
