@@ -229,3 +229,80 @@ func TestExtractPostSectionFallback(t *testing.T) {
 		t.Fatalf("expected fallback to full body when code absent")
 	}
 }
+
+// --- shared (quote / repost) text posts -------------------------------------
+
+const (
+	quotedPostCode = "QQQQQUOTED1"
+	quotedPostVid  = "https://scontent.example/quoted-video.mp4"
+	quotedImg1     = "https://scontent.example/quoted-1.jpg"
+	quotedImg2     = "https://scontent.example/quoted-2.jpg"
+)
+
+// A text post (media_type 19) carries no media of its own; the media lives on
+// the quoted post. The parser must borrow the quoted post's media and caption
+// instead of failing with "no media found in post page".
+func TestQuotedTextPostBorrowsMedia(t *testing.T) {
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"quote wrapper"},` +
+		`"image_versions2":{"candidates":[]},"video_versions":null,"carousel_media":null,` +
+		`"text_post_app_info":{"share_info":{"quoted_attachment_post":{` +
+		`"code":"` + quotedPostCode + `","media_type":2,` +
+		`"caption":{"text":"quoted caption"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + quotedPostVid + `"}],"carousel_media":null` +
+		`}}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 1 {
+		t.Fatalf("expected 1 item from quoted post, got %d", len(media.Items))
+	}
+	f := media.Items[0].Formats[0]
+	if f.Type != database.MediaTypeVideo || f.URL[0] != quotedPostVid {
+		t.Fatalf("expected quoted video %q, got %+v", quotedPostVid, f)
+	}
+	if media.Caption != "quoted caption" {
+		t.Fatalf("expected quoted caption, got %q", media.Caption)
+	}
+}
+
+// A quoted ALBUM must yield every child image from the quoted post.
+func TestQuotedTextPostAlbum(t *testing.T) {
+	child := func(url string) string {
+		return `{"code":"CHILD` + url[len(url)-6:] + `","media_type":1,` +
+			`"image_versions2":{"candidates":[{"width":1080,"height":1080,"url":"` + url + `"}]},` +
+			`"video_versions":null,"carousel_media":null}`
+	}
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"quote wrapper"},"image_versions2":{"candidates":[]},"video_versions":null,` +
+		`"text_post_app_info":{"share_info":{"quoted_attachment_post":{` +
+		`"code":"` + quotedPostCode + `","media_type":8,"caption":{"text":"quoted album"},` +
+		`"carousel_media":[` + child(quotedImg1) + `,` + child(quotedImg2) + `],` +
+		`"image_versions2":{"candidates":[]},"video_versions":null` +
+		`}}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 2 {
+		t.Fatalf("expected 2 quoted album items, got %d", len(media.Items))
+	}
+	want := []string{quotedImg1, quotedImg2}
+	for i, item := range media.Items {
+		if item.Formats[0].URL[0] != want[i] {
+			t.Fatalf("item %d: expected %q, got %v", i, want[i], item.Formats[0].URL)
+		}
+	}
+}
+
+// A text post with neither own media nor a shared post stays empty -> error.
+func TestTextPostWithoutSharedMediaErrors(t *testing.T) {
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"just text"},"image_versions2":{"candidates":[]},"video_versions":null,` +
+		`"text_post_app_info":{"share_info":{"quoted_attachment_post":null,"quoted_post":null,"reposted_post":null}}`
+	if _, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root)); err == nil {
+		t.Fatalf("expected error for media-less text post, got nil")
+	}
+}

@@ -39,6 +39,20 @@ type mediaNode struct {
 	ImageVersions2 *candidatesWrap `json:"image_versions2"`
 	VideoVersions  []videoVersion  `json:"video_versions"`
 	CarouselMedia  []mediaNode     `json:"carousel_media"`
+	TextPostInfo   *textPostInfo   `json:"text_post_app_info"`
+}
+
+// textPostInfo carries the share info for text posts. A Threads "text post"
+// (media_type 19) has no media of its own: the picture/video lives on the post
+// it quotes or reposts, exposed under share_info.
+type textPostInfo struct {
+	ShareInfo *shareInfo `json:"share_info"`
+}
+
+type shareInfo struct {
+	QuotedAttachmentPost *mediaNode `json:"quoted_attachment_post"`
+	QuotedPost           *mediaNode `json:"quoted_post"`
+	RepostedPost         *mediaNode `json:"reposted_post"`
 }
 
 type captionNode struct {
@@ -80,19 +94,26 @@ func ParsePostMedia(ctx *models.ExtractorContext, body []byte) (*models.Media, e
 	// Preferred path: parse the embedded JSON post node exactly.
 	node, ok := findMediaNode(s, ctx.ContentID)
 	if ok {
-		caption := ""
-		if node.Caption != nil {
-			caption = node.Caption.Text
-		}
-		media.SetCaption(caption)
+		appendNodeMedia(media, node)
 
-		if len(node.CarouselMedia) > 0 {
-			for i := range node.CarouselMedia {
-				appendMediaNode(media, &node.CarouselMedia[i])
+		// A Threads text post (media_type 19) often carries no media of its
+		// own: the picture/video lives on the post it quotes or reposts,
+		// exposed under text_post_app_info.share_info. Borrow the caption and
+		// media from there so share links to quote posts resolve.
+		if len(media.Items) == 0 {
+			if shared := firstSharedPost(node); shared != nil {
+				if shared.Caption != nil {
+					media.SetCaption(shared.Caption.Text)
+				}
+				appendNodeMedia(media, shared)
+				if len(media.Items) > 0 {
+					return media, nil
+				}
 			}
-		} else {
-			appendMediaNode(media, node)
+		} else if node.Caption != nil {
+			media.SetCaption(node.Caption.Text)
 		}
+
 		if len(media.Items) > 0 {
 			return media, nil
 		}
@@ -139,6 +160,36 @@ func ParsePostMedia(ctx *models.ExtractorContext, body []byte) (*models.Media, e
 		return nil, fmt.Errorf("no media found in post page")
 	}
 	return media, nil
+}
+
+// appendNodeMedia emits a node's media: one item per carousel child when the
+// node is an album, otherwise a single item for the node itself.
+func appendNodeMedia(media *models.Media, n *mediaNode) {
+	if n == nil {
+		return
+	}
+	if len(n.CarouselMedia) > 0 {
+		for i := range n.CarouselMedia {
+			appendMediaNode(media, &n.CarouselMedia[i])
+		}
+		return
+	}
+	appendMediaNode(media, n)
+}
+
+// firstSharedPost returns the post a text post quotes or reposts, if any. The
+// media for a media-less text post lives on that shared post.
+func firstSharedPost(n *mediaNode) *mediaNode {
+	if n == nil || n.TextPostInfo == nil || n.TextPostInfo.ShareInfo == nil {
+		return nil
+	}
+	si := n.TextPostInfo.ShareInfo
+	for _, cand := range []*mediaNode{si.QuotedAttachmentPost, si.QuotedPost, si.RepostedPost} {
+		if cand != nil {
+			return cand
+		}
+	}
+	return nil
 }
 
 // appendMediaNode emits one album item for a post/carousel child: a video item
