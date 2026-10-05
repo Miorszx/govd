@@ -51,25 +51,33 @@ func getThumbnail(
 			ctx, format.ThumbnailURL,
 			format.DownloadSettings,
 		)
-		if err != nil {
-			return "", err
+		if err == nil && file != nil {
+			var size int
+			if format.Type == database.MediaTypeAudio {
+				// for audio, use a smaller thumbnail
+				size = 320
+			}
+			bounds, cerr := util.ImgToJPEG(file, thumbnailFilePath, size)
+			if cerr == nil {
+				format.Width = bounds.W
+				format.Height = bounds.H
+				return thumbnailFilePath, nil
+			}
+			err = cerr
 		}
-		if file == nil {
-			return "", fmt.Errorf("downloaded file is nil")
+		// The remote poster can expire or be geo-blocked while the media
+		// itself is still reachable. Treat it as non-fatal: fall back to a
+		// frame extracted from the downloaded video below.
+		if format.Type != database.MediaTypeVideo {
+			if err != nil {
+				return "", fmt.Errorf("failed to get thumbnail: %w", err)
+			}
+			return thumbnailFilePath, nil
 		}
+		ctx.Warnf("poster thumbnail unavailable (%v), extracting frame from video", err)
+	}
 
-		var size int
-		if format.Type == database.MediaTypeAudio {
-			// for audio, use a smaller thumbnail
-			size = 320
-		}
-		bounds, err := util.ImgToJPEG(file, thumbnailFilePath, size)
-		if err != nil {
-			return "", err
-		}
-		format.Width = bounds.W
-		format.Height = bounds.H
-	} else if format.Type == database.MediaTypeVideo {
+	if format.Type == database.MediaTypeVideo {
 		return libav.ExtractVideoThumbnail(filePath, thumbnailFilePath)
 	}
 
