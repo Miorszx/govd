@@ -306,3 +306,94 @@ func TestTextPostWithoutSharedMediaErrors(t *testing.T) {
 		t.Fatalf("expected error for media-less text post, got nil")
 	}
 }
+
+// --- linked inline media (pasted link cards) --------------------------------
+
+const (
+	inlinePostCode = "IIIIINLINE1"
+	inlineVid      = "https://scontent.example/inline-video.mp4"
+	inlineImg1     = "https://scontent.example/inline-1.jpg"
+	inlineImg2     = "https://scontent.example/inline-2.jpg"
+)
+
+// A text post that pastes an Instagram/Threads URL renders the target as an
+// inline media card under text_post_app_info.linked_inline_media. share_info is
+// null in that case, so the parser must read the card instead of failing.
+func TestLinkedInlineMediaBorrowsMedia(t *testing.T) {
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"link wrapper"},` +
+		`"image_versions2":{"candidates":[]},"video_versions":null,"carousel_media":null,` +
+		`"text_post_app_info":{"share_info":null,` +
+		`"linked_inline_media":{` +
+		`"code":"` + inlinePostCode + `","media_type":2,` +
+		`"caption":{"text":"inline caption"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + inlineVid + `"}],"carousel_media":null}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 1 {
+		t.Fatalf("expected 1 item from inline card, got %d", len(media.Items))
+	}
+	f := media.Items[0].Formats[0]
+	if f.Type != database.MediaTypeVideo || f.URL[0] != inlineVid {
+		t.Fatalf("expected inline video %q, got %+v", inlineVid, f)
+	}
+	if len(f.ThumbnailURL) == 0 || f.ThumbnailURL[0] != postPosterURL {
+		t.Fatalf("expected inline poster %q, got %v", postPosterURL, f.ThumbnailURL)
+	}
+	if media.Caption != "inline caption" {
+		t.Fatalf("expected inline caption, got %q", media.Caption)
+	}
+}
+
+// A linked inline ALBUM must yield every child image.
+func TestLinkedInlineMediaAlbum(t *testing.T) {
+	child := func(url string) string {
+		return `{"code":"CHILD` + url[len(url)-5:] + `","media_type":1,` +
+			`"image_versions2":{"candidates":[{"width":1080,"height":1080,"url":"` + url + `"}]},` +
+			`"video_versions":null,"carousel_media":null}`
+	}
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"link wrapper"},"image_versions2":{"candidates":[]},"video_versions":null,` +
+		`"text_post_app_info":{"share_info":null,"linked_inline_media":{` +
+		`"code":"` + inlinePostCode + `","media_type":8,"caption":{"text":"inline album"},` +
+		`"carousel_media":[` + child(inlineImg1) + `,` + child(inlineImg2) + `],` +
+		`"image_versions2":{"candidates":[]},"video_versions":null}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 2 {
+		t.Fatalf("expected 2 inline album items, got %d", len(media.Items))
+	}
+	want := []string{inlineImg1, inlineImg2}
+	for i, item := range media.Items {
+		if item.Formats[0].URL[0] != want[i] {
+			t.Fatalf("item %d: expected %q, got %v", i, want[i], item.Formats[0].URL)
+		}
+	}
+}
+
+// When both share_info and linked_inline_media are present, the quoted/reposted
+// post wins — it is the media the author is actually sharing.
+func TestShareInfoBeatsLinkedInlineMedia(t *testing.T) {
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"wrapper"},"image_versions2":{"candidates":[]},"video_versions":null,` +
+		`"text_post_app_info":{"share_info":{"quoted_attachment_post":{` +
+		`"code":"` + quotedPostCode + `","media_type":2,"caption":{"text":"quoted caption"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + quotedPostVid + `"}]}},` +
+		`"linked_inline_media":{"code":"` + inlinePostCode + `","media_type":2,` +
+		`"caption":{"text":"inline caption"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + inlineVid + `"}]}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 1 || media.Items[0].Formats[0].URL[0] != quotedPostVid {
+		t.Fatalf("expected quoted post to win, got %+v", media.Items)
+	}
+}

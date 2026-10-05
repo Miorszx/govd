@@ -43,10 +43,12 @@ type mediaNode struct {
 }
 
 // textPostInfo carries the share info for text posts. A Threads "text post"
-// (media_type 19) has no media of its own: the picture/video lives on the post
-// it quotes or reposts, exposed under share_info.
+// (media_type 19) has no media of its own: the picture/video lives either on
+// the post it quotes or reposts (share_info) or on a pasted link rendered as a
+// media card (linked_inline_media).
 type textPostInfo struct {
-	ShareInfo *shareInfo `json:"share_info"`
+	ShareInfo         *shareInfo `json:"share_info"`
+	LinkedInlineMedia *mediaNode `json:"linked_inline_media"`
 }
 
 type shareInfo struct {
@@ -177,17 +179,23 @@ func appendNodeMedia(media *models.Media, n *mediaNode) {
 	appendMediaNode(media, n)
 }
 
-// firstSharedPost returns the post a text post quotes or reposts, if any. The
-// media for a media-less text post lives on that shared post.
+// firstSharedPost returns the post carrying the media for a media-less text
+// post. That is the post it quotes/reposts (share_info), or the pasted link
+// rendered as an inline media card (linked_inline_media) — a Threads text post
+// that drops an Instagram/Threads URL produces the latter.
 func firstSharedPost(n *mediaNode) *mediaNode {
-	if n == nil || n.TextPostInfo == nil || n.TextPostInfo.ShareInfo == nil {
+	if n == nil || n.TextPostInfo == nil {
 		return nil
 	}
-	si := n.TextPostInfo.ShareInfo
-	for _, cand := range []*mediaNode{si.QuotedAttachmentPost, si.QuotedPost, si.RepostedPost} {
-		if cand != nil {
-			return cand
+	if si := n.TextPostInfo.ShareInfo; si != nil {
+		for _, cand := range []*mediaNode{si.QuotedAttachmentPost, si.QuotedPost, si.RepostedPost} {
+			if cand != nil {
+				return cand
+			}
 		}
+	}
+	if lim := n.TextPostInfo.LinkedInlineMedia; lim != nil {
+		return lim
 	}
 	return nil
 }
