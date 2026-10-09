@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/govdbot/govd/internal/util"
 )
 
 func TestParseUniversalDataSupportsWebappVideoDetail(t *testing.T) {
@@ -23,6 +25,23 @@ func TestParseUniversalDataSupportsWebappVideoDetail(t *testing.T) {
 	}
 	if item.Video == nil || item.Video.PlayAddr == nil || len(item.Video.PlayAddr.URLList) != 1 {
 		t.Fatalf("expected parsed video play address, got %#v", item.Video)
+	}
+}
+
+func TestGetVideoWebStatusErrorMapsCrossBorderViolation(t *testing.T) {
+	// 10231 = "cross_border_violation": a region-locked (but existing) post
+	// must be reported as geo-restricted, not as generically unavailable.
+	if err := getVideoWebStatusError(10231); err != util.ErrGeoRestrictedContent {
+		t.Fatalf("10231: expected ErrGeoRestrictedContent, got %v", err)
+	}
+	if err := getVideoWebStatusError(0); err != nil {
+		t.Fatalf("0: expected nil, got %v", err)
+	}
+	if err := getVideoWebStatusError(10204); err != util.ErrTikTokIPBlocked {
+		t.Fatalf("10204: expected ErrTikTokIPBlocked, got %v", err)
+	}
+	if err := getVideoWebStatusError(99999); err != util.ErrUnavailable {
+		t.Fatalf("99999: expected ErrUnavailable, got %v", err)
 	}
 }
 

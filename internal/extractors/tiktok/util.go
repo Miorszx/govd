@@ -289,6 +289,12 @@ func getVideoWebStatusError(status int) error {
 		return util.ErrTikTokIPBlocked
 	case 10216, 10222:
 		return util.ErrAuthenticationNeeded
+	// 10231 = statusMsg "cross_border_violation": the video exists but is
+	// region-locked, so it is only visible from TikTok's allowed audience
+	// region(s). Report it as geo-restricted instead of a generic
+	// "unavailable", which wrongly implies the post was deleted.
+	case 10231:
+		return util.ErrGeoRestrictedContent
 	default:
 		return util.ErrUnavailable
 	}
