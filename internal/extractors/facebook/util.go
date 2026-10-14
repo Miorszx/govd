@@ -1000,6 +1000,20 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	if sectionEarly == nil {
 		sectionEarly = findVideoSection(body, videoID)
 	}
+	// Group permalink posts can carry a numeric post ID that differs from the
+	// numeric video ID, and the HTML only anchors dash_mpd_debug.mpd?v= on the
+	// video ID. Both lookups above then miss and a later full-body scan grabs
+	// the first progressive URL from an unrelated feed video. Resolve the post's
+	// own video and re-anchor on it so section + caption stay on the right post.
+	if sectionEarly == nil {
+		if rsec, rvid := resolvePostVideoSection(body, effectiveID); rsec != nil {
+			sectionEarly, effectiveID = rsec, rvid
+		} else if effectiveID != videoID {
+			if rsec, rvid := resolvePostVideoSection(body, videoID); rsec != nil {
+				sectionEarly, effectiveID = rsec, rvid
+			}
+		}
+	}
 	// Also try with effectiveID for image section
 	// Check for video indicators IN SECTION (not full body which has feed videos)
 	var hasM4InSection bool
@@ -1959,6 +1973,91 @@ func findVideoSection(body []byte, videoID string) []byte {
 		maxLen = len(remaining)
 	}
 	return remaining[:maxLen]
+}
+
+// resolvePostVideoSection handles group permalink posts where the numeric post
+// ID differs from the numeric video ID. Such pages never anchor
+// dash_mpd_debug.mpd?v= on the post ID, so findVideoSection(postID) is nil and
+// a full-body scan grabs the first progressive URL from an unrelated feed
+// video. This resolver locates the post's own video instead:
+//
+//	tier 1: the post attachment block "__typename":"Video","id":"<vid>" that
+//	        sits immediately after a post ID occurrence (most reliable)
+//	tier 2: the dash_mpd_debug anchor nearest to a post ID occurrence, within
+//	        a bounded window (post media lives close to the permalink in HTML)
+//
+// It returns the section and resolved video ID, or nil when nothing is
+// confidently tied to the post (caller then keeps its existing behaviour).
+func resolvePostVideoSection(body []byte, postID string) ([]byte, string) {
+	if postID == "" {
+		return nil, ""
+	}
+	reAttach := regexp.MustCompile(`"__typename"\s*:\s*"Video"\s*,\s*"id"\s*:\s*"(\d{6,})"`)
+	reAnchor := regexp.MustCompile(`dash_mpd_debug\.mpd\?v=(\d{6,})`)
+	anchors := reAnchor.FindAllSubmatchIndex(body, -1)
+
+	// tier 1: attachment video ID right after a post ID occurrence
+	searchFrom := 0
+	for {
+		i := bytes.Index(body[searchFrom:], []byte(postID))
+		if i < 0 {
+			break
+		}
+		i += searchFrom
+		searchFrom = i + 1
+		windowEnd := i + 4000
+		if windowEnd > len(body) {
+			windowEnd = len(body)
+		}
+		if m := reAttach.FindSubmatchIndex(body[i:windowEnd]); m != nil {
+			vid := string(body[i+m[2] : i+m[3]])
+			if sec := findVideoSection(body, vid); sec != nil {
+				return sec, vid
+			}
+		}
+	}
+
+	// tier 2: nearest forward dash_mpd_debug anchor within a bounded window.
+	// Post media blocks sit close to the permalink in the HTML, so only trust
+	// an anchor that is genuinely nearby; anything further is left alone so the
+	// caller keeps its previous behaviour instead of guessing.
+	const maxAnchorDist = 30000
+	searchFrom = 0
+	for {
+		i := bytes.Index(body[searchFrom:], []byte(postID))
+		if i < 0 {
+			break
+		}
+		i += searchFrom
+		searchFrom = i + 1
+		best := -1
+		bestDist := 0
+		for _, a := range anchors {
+			if a[0] <= i {
+				continue
+			}
+			d := a[0] - i
+			if d > maxAnchorDist {
+				break
+			}
+			if best == -1 || d < bestDist {
+				best = a[2]
+				bestDist = d
+			}
+		}
+		if best != -1 {
+			// extract the video ID at index `best`
+			end := best
+			for end < len(body) && body[end] >= '0' && body[end] <= '9' {
+				end++
+			}
+			vid := string(body[best:end])
+			if sec := findVideoSection(body, vid); sec != nil {
+				return sec, vid
+			}
+		}
+	}
+	return nil, ""
 }
 
 func findImageSection(body []byte, contentID string) []byte {
