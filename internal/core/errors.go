@@ -28,6 +28,7 @@ func HandleError(
 		sendErrorMessage(
 			b, ctx, "",
 			"This Facebook story has expired or is not accessible anymore.",
+			"",
 		)
 		return
 	}
@@ -39,6 +40,7 @@ func HandleError(
 			localizer.T(&i18n.LocalizeConfig{
 				MessageID: botError.ID,
 			}),
+			"",
 		)
 		return
 	}
@@ -55,6 +57,7 @@ func HandleError(
 			localizer.T(&i18n.LocalizeConfig{
 				MessageID: localization.ErrorPermissionDenied.ID,
 			}),
+			"",
 		)
 		return
 	}
@@ -63,11 +66,25 @@ func HandleError(
 
 	extractorCtx.Errorf("unexpected error: [%s] %v", errorID, err)
 
+	// Telegram rejects an oversized multipart upload with HTTP 413
+	// "Request Entity Too Large" - e.g. a media album whose combined
+	// size exceeds the 50 MiB cloud Bot API cap even when every file in
+	// it is individually under it. When that happens, append the real
+	// reason after the hashed generic message so the user knows it was a
+	// size limit, not a transient bug.
+	var note string
+	if isTelegramRequestTooLarge(err) {
+		note = localizer.T(&i18n.LocalizeConfig{
+			MessageID: localization.ErrorTelegramFileTooLarge.ID,
+		})
+	}
+
 	sendErrorMessage(
 		b, ctx, errorID,
 		localizer.T(&i18n.LocalizeConfig{
 			MessageID: localization.ErrorMessage.ID,
 		}),
+		note,
 	)
 
 	database.Q().LogError(
@@ -87,6 +104,18 @@ func isPermissionDenied(err error) bool {
 	return strings.Contains(err.Error(), "not enough rights")
 }
 
+// isTelegramRequestTooLarge reports whether the error came from Telegram
+// rejecting an upload because the request payload was too big - the Bot
+// API answers oversized multipart uploads (a single file above the cap,
+// or a media album whose combined size exceeds it) with HTTP 413
+// "Request Entity Too Large".
+func isTelegramRequestTooLarge(err error) bool {
+	return strings.Contains(
+		strings.ToLower(err.Error()),
+		"request entity too large",
+	)
+}
+
 func asBotError(err error) *util.Error {
 	currentErr := err
 	for currentErr != nil {
@@ -99,7 +128,7 @@ func asBotError(err error) *util.Error {
 	return nil
 }
 
-func formatErrorMessage(ctx *ext.Context, message string, errorID string) string {
+func formatErrorMessage(ctx *ext.Context, message string, errorID string, note string) string {
 	var suffix string
 	if errorID != "" {
 		if ctx.CallbackQuery != nil || ctx.InlineQuery != nil {
@@ -108,7 +137,11 @@ func formatErrorMessage(ctx *ext.Context, message string, errorID string) string
 			suffix = " [<code>" + errorID + "</code>]"
 		}
 	}
-	return "⚠️ " + message + suffix
+	text := "⚠️ " + message + suffix
+	if note != "" {
+		text += "\n" + note
+	}
+	return text
 }
 
 func sendErrorMessage(
@@ -116,8 +149,9 @@ func sendErrorMessage(
 	ctx *ext.Context,
 	errroID string,
 	message string,
+	note string,
 ) {
-	message = formatErrorMessage(ctx, message, errroID)
+	message = formatErrorMessage(ctx, message, errroID, note)
 
 	switch {
 	case ctx.Message != nil:
