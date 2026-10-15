@@ -889,29 +889,45 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 										continue
 									}
 									fn := u
-									if idx := strings.Index(fn, "?"); idx != -1 { fn = fn[:idx] }
-									if idx := strings.LastIndex(fn, "/"); idx != -1 { fn = fn[idx+1:] }
-									if _, ok := seen2[fn]; ok { continue }
+									if idx := strings.Index(fn, "?"); idx != -1 {
+										fn = fn[:idx]
+									}
+									if idx := strings.LastIndex(fn, "/"); idx != -1 {
+										fn = fn[idx+1:]
+									}
+									if _, ok := seen2[fn]; ok {
+										continue
+									}
 									seen2[fn] = struct{}{}
 									urls2 = append(urls2, u)
-									if len(urls2) >= 20 { break }
+									if len(urls2) >= 20 {
+										break
+									}
 								}
 								if len(urls2) > 3 {
 									grp := map[string][]string{}
 									for _, u := range urls2 {
 										fn := u
-										if idx := strings.Index(fn, "?"); idx != -1 { fn = fn[:idx] }
-										if idx := strings.LastIndex(fn, "/"); idx != -1 { fn = fn[idx+1:] }
+										if idx := strings.Index(fn, "?"); idx != -1 {
+											fn = fn[:idx]
+										}
+										if idx := strings.LastIndex(fn, "/"); idx != -1 {
+											fn = fn[idx+1:]
+										}
 										parts := strings.Split(fn, "_")
 										prefix := ""
-										if len(parts) >= 2 && len(parts[1]) >= 7 { prefix = parts[1][:7] }
+										if len(parts) >= 2 && len(parts[1]) >= 7 {
+											prefix = parts[1][:7]
+										}
 										if prefix != "" && strings.Contains(u, "t39.30808-6/749") {
 											grp[prefix] = append(grp[prefix], u)
 										}
 									}
 									var best []string
 									for _, g := range grp {
-										if len(g) > len(best) { best = g }
+										if len(g) > len(best) {
+											best = g
+										}
 									}
 									if len(best) >= 2 {
 										data.ImageURLs = best
@@ -920,13 +936,12 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 									}
 								}
 							}
-												}
-											}
-										}
-									}
-								}
-							}
-
+						}
+					}
+				}
+			}
+		}
+	}
 
 	return data, nil
 }
@@ -1022,7 +1037,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		sSec := string(sectionEarly)
 		reM4Sec := regexp.MustCompile(`scontent[^"']*/m4[0-9]`)
 		reM4EscSec := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9]`)
-		hasM4InSection = len(reM4Sec.FindAllString(sSec, -1)) + len(reM4EscSec.FindAllString(sSec, -1)) > 0
+		hasM4InSection = len(reM4Sec.FindAllString(sSec, -1))+len(reM4EscSec.FindAllString(sSec, -1)) > 0
 		hasHdSdInSection = strings.Contains(sSec, "\"hd_src\"") || strings.Contains(sSec, "\"sd_src\"")
 	}
 
@@ -1036,7 +1051,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	reSdCheck := regexp.MustCompile(`"sd_src"`)
 	reOgVideoCheck := regexp.MustCompile(`property="og:video"`)
 	sBody := string(body)
-	hasM4Full := len(reM4Check.FindAllString(sBody, -1)) + len(reM4EscCheck.FindAllString(sBody, -1)) > 0
+	hasM4Full := len(reM4Check.FindAllString(sBody, -1))+len(reM4EscCheck.FindAllString(sBody, -1)) > 0
 	hasHdSdFull := reHdCheck.MatchString(sBody) || reSdCheck.MatchString(sBody)
 	hasOgVideoFull := reOgVideoCheck.MatchString(sBody)
 
@@ -1746,7 +1761,6 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 	// For private group share/v like 1HfKCkk2V1, original has no public caption (Only members...), so return empty (header only) as user said Takde is okay
 	return ""
 }
-
 
 // findPureCaptionAnchored searches pure caption path anchored near specific videoID
 func findPureCaptionAnchored(body []byte, videoID string) string {
@@ -2550,12 +2564,12 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 	reelURL := "https://www.facebook.com/reel/" + videoID + "/"
 	resp, err := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{
 		Headers: map[string]string{
-			"User-Agent":                webHeaders["User-Agent"],
-			"Accept":                    webHeaders["Accept"],
-			"Accept-Language":           webHeaders["Accept-Language"],
-			"Sec-Fetch-Dest":            webHeaders["Sec-Fetch-Dest"],
-			"Sec-Fetch-Mode":            webHeaders["Sec-Fetch-Mode"],
-			"Sec-Fetch-Site":            webHeaders["Sec-Fetch-Site"],
+			"User-Agent":      webHeaders["User-Agent"],
+			"Accept":          webHeaders["Accept"],
+			"Accept-Language": webHeaders["Accept-Language"],
+			"Sec-Fetch-Dest":  webHeaders["Sec-Fetch-Dest"],
+			"Sec-Fetch-Mode":  webHeaders["Sec-Fetch-Mode"],
+			"Sec-Fetch-Site":  webHeaders["Sec-Fetch-Site"],
 		},
 	})
 	if err != nil || resp.StatusCode != 200 {
@@ -2643,44 +2657,11 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 				return best
 			}
 		}
-		// Fallback: any "message":{"text":"..."} in this scheduled chunk (relaxed, allow 3 chars)
-		// This copies ytdl's get_first(media, ('creation_story', 'comet_sections', 'message', 'story', 'message', 'text'))
-		if !strings.Contains(chunk, videoID) && len(matches) > 1 {
-			// Still try if chunk doesn't contain ID but is only scheduled chunk (some pages have caption in separate chunk)
-			// Check if chunk contains comet_sections
-			if !strings.Contains(chunk, "comet_sections") {
-				continue
-			}
-		}
-		csRe := regexp.MustCompile(`"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
-		caps := csRe.FindAllStringSubmatch(chunk, -1)
-		best := ""
-		for _, c := range caps {
-			if len(c) < 2 {
-				continue
-			}
-			t := unescapeUnicode(c[1])
-			t = html.UnescapeString(t)
-			t = strings.TrimSpace(t)
-			low := strings.ToLower(t)
-			if low == "facebook" || strings.HasPrefix(low, "log in to facebook") || strings.HasPrefix(low, "by using meta ai") {
-				continue
-			}
-			t = cleanFacebookCaption(t)
-			if t == "" {
-				continue
-			}
-			// Skip very short UI like "Like", "Share"
-			if len(t) < 4 {
-				continue
-			}
-			if len(t) > len(best) {
-				best = t
-			}
-		}
-		if best != "" {
-			return best
-		}
+		// NOTE: we deliberately do NOT fall back to a bare "message":{"text":...}
+		// search over the data-sjs chunk. That chunk is a whole feed payload in
+		// which our videoID and many unrelated stories coexist, so "chunk
+		// contains videoID" is not real anchoring. It produced a different
+		// random caption on every fetch for posts that actually have none.
 	}
 
 	// 2) Try JSON-LD and meta description fallback from this page (anchored)
@@ -2702,20 +2683,8 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 		}
 	}
 
-	// 4) Last resort: try to find creation_story.message.text in whole body (not just data-sjs)
-	// From dump: "creation_story":{"message":{"text":"Peak era Kacang"}}
-	// Go RE2 max repeat is 1000, so {0,2000} is invalid -> use {0,1000}{0,1000}.
-	creationRe := regexp.MustCompile(`"creation_story":\s*\{[^}]{0,1000}[^}]{0,1000}"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
-	if mm := creationRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
-		t := unescapeUnicode(string(mm[1]))
-		t = html.UnescapeString(t)
-		t = strings.TrimSpace(t)
-		t = cleanFacebookCaption(t)
-		if t != "" {
-			return t
-		}
-	}
-
+	// No caption genuinely anchored to this video -> return empty (post has no
+	// caption). Returning a recommended-feed caption here would be wrong.
 	return ""
 }
 
