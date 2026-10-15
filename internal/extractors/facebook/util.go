@@ -2108,7 +2108,7 @@ func unescapeFacebookURL(s string) string {
 // where first part may be page category (short). Uses dedicated
 // EdgeMediaToCaption field that is pure caption; we strip the prefix for FB to match.
 // isGenericFBTitle reports whether an HTML <title> is just Facebook's generic
-// page shell ("Video", "Facebook", "Watch", "Reel", "Abangk Khairi on Reels"
+// page shell ("Video", "Facebook", "Watch", "Reel", "<PageName> on Reels"
 // style view-count noise) rather than a real post caption. Logged-in fetches of
 // /watch/?v=ID and /reel/ID return <title>Video</title>, which previously
 // leaked into the caption as the literal string "Video" for caption-less reels.
