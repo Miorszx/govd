@@ -1457,7 +1457,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		}
 		t = strings.TrimSpace(t)
 		// Skip generic "Facebook" title
-		if len(t) > len(data.Title) && !strings.EqualFold(t, "Facebook") && !strings.HasPrefix(strings.ToLower(t), "log in") {
+		if len(t) > len(data.Title) && !isGenericFBTitle(t) {
 			data.Title = t
 		}
 	}
@@ -2093,6 +2093,33 @@ func unescapeFacebookURL(s string) string {
 // FB often returns "PageName\n\nActual caption" in message/creation_story fields,
 // where first part may be page category (short). Uses dedicated
 // EdgeMediaToCaption field that is pure caption; we strip the prefix for FB to match.
+// isGenericFBTitle reports whether an HTML <title> is just Facebook's generic
+// page shell ("Video", "Facebook", "Watch", "Reel", "Abangk Khairi on Reels"
+// style view-count noise) rather than a real post caption. Logged-in fetches of
+// /watch/?v=ID and /reel/ID return <title>Video</title>, which previously
+// leaked into the caption as the literal string "Video" for caption-less reels.
+func isGenericFBTitle(s string) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return true
+	}
+	low := strings.ToLower(t)
+	if low == "facebook" || strings.HasPrefix(low, "log in") || strings.HasPrefix(low, "error") {
+		return true
+	}
+	switch low {
+	case "video", "videos", "photo", "photos", "watch", "reel", "reels",
+		"facebook watch", "facebook video":
+		return true
+	}
+	// "… on Reels" / "… on Watch" page-shell titles carry a view/reaction count
+	// and page name, not the post caption.
+	if strings.HasSuffix(low, " on reels") || strings.HasSuffix(low, " on watch") {
+		return true
+	}
+	return false
+}
+
 func cleanFacebookCaption(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -2677,7 +2704,8 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 
 	// 4) Last resort: try to find creation_story.message.text in whole body (not just data-sjs)
 	// From dump: "creation_story":{"message":{"text":"Peak era Kacang"}}
-	creationRe := regexp.MustCompile(`"creation_story":\s*\{[^}]{0,2000}?"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	// Go RE2 max repeat is 1000, so {0,2000} is invalid -> use {0,1000}{0,1000}.
+	creationRe := regexp.MustCompile(`"creation_story":\s*\{[^}]{0,1000}[^}]{0,1000}"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
 	if mm := creationRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
 		t := unescapeUnicode(string(mm[1]))
 		t = html.UnescapeString(t)
@@ -2859,9 +2887,9 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 		// Remove excessive whitespace and newlines
 		rawTitle = strings.ReplaceAll(rawTitle, "\n", " ")
 		rawTitle = strings.TrimSpace(rawTitle)
-		low := strings.ToLower(rawTitle)
-		// Skip generic facebook titles
-		if rawTitle != "" && low != "facebook" && !strings.HasPrefix(low, "log in") && !strings.HasPrefix(low, "error") && len(rawTitle) >= 3 {
+		// Skip generic page-shell titles ("Video", "Facebook", "X on Reels",
+		// "Watch", …) that carry no post caption.
+		if rawTitle != "" && !isGenericFBTitle(rawTitle) && len(rawTitle) >= 3 {
 			// If title contains |, take last part as caption (group name | caption)
 			parts := strings.Split(rawTitle, "|")
 			candidate := strings.TrimSpace(parts[len(parts)-1])
