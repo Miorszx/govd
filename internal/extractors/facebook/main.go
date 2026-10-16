@@ -29,11 +29,11 @@ var ShareExtractor = &models.Extractor{
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
 		// share/r = reel share, share/v = group video share, share/p = photo share, share/{id} bare = album/photo
-		// BEST METHOD from 18-method test for 1AqSuAy25i & 1Baf5GpFgU & 1BSen1YRcQ:
+		// BEST METHOD from 18-method test for <code> & <code> & <code>:
 		// Method 3/5/10/12 = facebookexternalhit/1.1 redirect share/{type}/{id} -> final videos/{id}/?rdid=...&share_url=... -> reel/{id}
-		// - share/r/1Baf5GpFgU: www external+cookie 902K final reel/1556140136059509/?rdid=... ✅
-		// - share/v/1AqSuAy25i: www no-cookie external 443K final blanchealys/videos/2039635563428674/?rdid=... og:url reel/2039635563428674/ scontent 14 -> plugins 275933 hd=true sd=true ✅ BEST
-		// - share/1BSen1YRcQ bare: www no-cookie external 323K final 100044139261197/posts/27816362968003357/ ✅ redirect work (image blocked flagged)
+		// - share/r/<code>: www external+cookie 902K final reel/<id>/?rdid=... ✅
+		// - share/v/<code>: www no-cookie external 443K final blanchealys/videos/<id>/?rdid=... og:url reel/<id>/ scontent 14 -> plugins 275933 hd=true sd=true ✅ BEST
+		// - share/<code> bare: www no-cookie external 323K final <id>/posts/<id>/ ✅ redirect work (image blocked flagged)
 		// All fail methods: www desktop+cookie 400 1542, iphone+cookie 50620 no scontent, mbasic external 4622, plugins share/v direct 86507 no hd
 		// Per user request no fallback chains - single method external redirect only
 		webHeaders := map[string]string{
@@ -50,7 +50,7 @@ var ShareExtractor = &models.Extractor{
 			return &models.ExtractorResponse{URL: finalURL}, nil
 		}
 
-		// Fallback for flagged case where FetchLocation returns same URL but body has og:url (mbasic case for 1AqSuAy25i gave og:url via no-cookie iphone 10525)
+		// Fallback for flagged case where FetchLocation returns same URL but body has og:url (mbasic case for <code> gave og:url via no-cookie iphone 10525)
 		// Try direct fetch with external to get og:url
 		if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{Headers: webHeaders}); err == nil && resp.StatusCode == 200 {
 			bodyAll, _ := io.ReadAll(resp.Body)
@@ -261,7 +261,7 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 
 // tryMbasicShareAlbum fetches mbasic.facebook.com/share/{id}/ with iPhone UA + shares via group permalink
 // METHOD V2 per user request: fresh scontent oh= only, no og:image fallback, no upgrade p1080 (causes 403 Bad Hash)
-// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone 47K -> og:url groups/.../posts/351067... -> mbasic/groups/... iPhone 222KB 11 scontent oh= fresh dl 200 OK
+// Tested on share/p/<code>: mbasic/share/p iPhone 47K -> og:url groups/.../posts/351067... -> mbasic/groups/... iPhone 222KB 11 scontent oh= fresh dl 200 OK
 func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
 	iphoneHeaders := map[string]string{
 		"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
@@ -316,7 +316,7 @@ func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
 	body = bestBody
 
 	// Step 1b: if share/p gives og:url group post, fetch that group permalink with mbasic iPhone for fresh images
-	// This is the working method: share/p/1Cs9f4wm7M -> groups/280707.../posts/351067... -> mbasic/groups/... 222KB 11 scontent oh=
+	// This is the working method: share/p/<code> -> groups/280707.../posts/351067... -> mbasic/groups/... 222KB 11 scontent oh=
 	if m := regexp.MustCompile(`property="og:url" content="([^"]+)"`).FindSubmatch(body); len(m) == 2 {
 		ogURL := string(m[1])
 		// convert to mbasic
