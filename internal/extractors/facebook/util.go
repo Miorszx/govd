@@ -63,12 +63,6 @@ var (
 	ogImagePattern = regexp.MustCompile(
 		`<meta[^>]+property="og:image"[^>]+content="([^"]+)"`,
 	)
-	ogVideoPattern = regexp.MustCompile(
-		`<meta[^>]+property="og:video"[^>]+content="([^"]+)"`,
-	)
-	scontentPattern = regexp.MustCompile(
-		`https://[^"\s]*scontent[^"\s]*\.(?:jpg|png)[^"\s]*`,
-	)
 	messagePattern = regexp.MustCompile(
 		`"(?:message|attached_story)"\s*:\s*\{\s*"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`,
 	)
@@ -85,37 +79,6 @@ var (
 	)
 )
 
-func tryFetchHDFromPlugins(ctx *models.ExtractorContext, videoID string) (string, string) {
-	// Plugins endpoint gives hd_src only with desktop UA - iPhone UA returns 63719 no HD
-	pluginsURL := "https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/reel/" + videoID + "&show_text=0"
-	resp, err := ctx.Fetch(
-		"GET",
-		pluginsURL,
-		&networking.RequestParams{
-			Headers: webHeaders,
-		},
-	)
-	if err != nil {
-		return "", ""
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", ""
-	}
-	var hd, sd string
-	if m := regexp.MustCompile(`"hd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-		hd = unescapeFacebookURL(string(m[1]))
-		hd = strings.ReplaceAll(hd, `\/`, "/")
-		hd = strings.ReplaceAll(hd, "&amp;", "&")
-	}
-	if m := regexp.MustCompile(`"sd_src"\s*:\s*"([^"]+)"`).FindSubmatch(body); len(m) >= 2 {
-		sd = unescapeFacebookURL(string(m[1]))
-		sd = strings.ReplaceAll(sd, `\/`, "/")
-		sd = strings.ReplaceAll(sd, "&amp;", "&")
-	}
-	return hd, sd
-}
 
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// Detection image vs video dulu - user request pakai ID + URL
@@ -944,13 +907,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	}
 
 	return data, nil
-}
-func tryYtdlNoCookie(contentURL string) (hdURL, sdURL string, err error) {
-	return "", "", fmt.Errorf("ytdl removed - pure Go only")
-}
-
-func tryYtdlWithCookies(contentURL, cookieFile string) (hdURL, sdURL, caption string, err error) {
-	return "", "", "", fmt.Errorf("ytdl removed - pure Go only")
 }
 
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
