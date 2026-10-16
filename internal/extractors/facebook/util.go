@@ -14,7 +14,6 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/govdbot/govd/internal/logger"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/networking"
 )
@@ -36,6 +35,30 @@ var videoFetchHeaders = map[string]string{
 	"User-Agent": "facebookexternalhit/1.1",
 	"Accept":     "*/*",
 	"Range":      "bytes=0-0",
+}
+
+// fbMBasicUA is the iPhone user-agent used for mbasic.facebook.com requests.
+const fbMBasicUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+
+// toMBasicURL rewrites a facebook.com / m.facebook.com URL to mbasic.facebook.com.
+func toMBasicURL(u string) string {
+	u = strings.Replace(u, "www.facebook.com", "mbasic.facebook.com", 1)
+	u = strings.Replace(u, "m.facebook.com", "mbasic.facebook.com", 1)
+	return u
+}
+
+// extractOGCaption pulls the og:description meta value from an mbasic body,
+// unescaping HTML entities and rejecting Facebook's generic placeholder.
+func extractOGCaption(body []byte) string {
+	m := ogDescPattern.FindSubmatch(body)
+	if len(m) < 2 {
+		return ""
+	}
+	c := strings.TrimSpace(html.UnescapeString(string(m[1])))
+	if c == "" || strings.EqualFold(c, "Facebook") {
+		return ""
+	}
+	return c
 }
 
 var (
@@ -60,9 +83,6 @@ var (
 	ogTitlePattern = regexp.MustCompile(
 		`<meta\s+property="og:title"\s+content="([^"]*)"\s*/?>`,
 	)
-	ogImagePattern = regexp.MustCompile(
-		`<meta[^>]+property="og:image"[^>]+content="([^"]+)"`,
-	)
 	messagePattern = regexp.MustCompile(
 		`"(?:message|attached_story)"\s*:\s*\{\s*"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"`,
 	)
@@ -77,13 +97,265 @@ var (
 	descriptionPattern = regexp.MustCompile(
 		`"description"\s*:\s*\{\s*"text"\s*:\s*"([^"\\]{20,}[^"\\]*(?:\\.[^"\\]*)*)"`,
 	)
+	fbRe_reelID      = regexp.MustCompile(`/reel/(\d+)`)
+	fbRe_videoID     = regexp.MustCompile(`"video_id"\s*:\s*"(\d+)"`)
+	fbRe_videoID2    = regexp.MustCompile(`"videoId"\s*:\s*"(\d+)"`)
+	fbRe_permalink   = regexp.MustCompile(`/permalink/(\d+)`)
+	fbRe_postID      = regexp.MustCompile(`"post_id"\s*:\s*"(\d+)"`)
+	fbRe_m4Mp4       = regexp.MustCompile(`https?:\\?/\\?/[^"']*scontent[^"']*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+	fbRe_m4Mp42      = regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+	fbRe_scontentOh  = regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+	fbRe_storyID     = regexp.MustCompile(`"story_id"\s*:\s*"(\d{10,})"`)
+	fbRe_permalink2  = regexp.MustCompile(`/permalink/(\d{10,})/`)
+	fbRe_m4          = regexp.MustCompile(`scontent[^"']*/m4[0-9]`)
+	fbRe_m42         = regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9]`)
+	fbRe_hdSrc       = regexp.MustCompile(`"hd_src"`)
+	fbRe_sdSrc       = regexp.MustCompile(`"sd_src"`)
+	fbRe_ogVideo     = regexp.MustCompile(`property="og:video"`)
+	fbRe_ogImage     = regexp.MustCompile(`property="og:image" content="([^"]+)"`)
+	fbRe_scontentOh2 = regexp.MustCompile(`scontent[^"']*oh=`)
+	fbRe_m4Mp43      = regexp.MustCompile(`https?:\\?/\\?/[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+	fbRe_m4Mp44      = regexp.MustCompile(`scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+	fbRe_scontentOh3 = regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*(?:oh=[^"' \s]+|t39\.30808-6/[^"' \s]+\.jpg[^"' \s]*)`)
+	fbRe_scontent    = regexp.MustCompile(`scontent`)
+	fbRe_scontentOh4 = regexp.MustCompile(`oh=`)
+	fbRe_m4Mp45      = regexp.MustCompile(`m4[0-9][^"']*\.mp4`)
+	fbRe_m4Mp46      = regexp.MustCompile(`https?:\\?/\\?/[^"' ]*?/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+	fbRe_savableDesc = regexp.MustCompile(`"savable_description":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	fbRe_videoNode   = regexp.MustCompile(`"__typename"\s*:\s*"Video"\s*,\s*"id"\s*:\s*"(\d{6,})"`)
+	fbRe_dashMpd     = regexp.MustCompile(`dash_mpd_debug\.mpd\?v=(\d{6,})`)
+	fbRe_dataSjs     = regexp.MustCompile(`data-sjs>(\{.*?ScheduledServerJS.*?\})</script>`)
+	fbRe_cometMsg    = regexp.MustCompile(`"comet_sections":\s*\{\s*"message":\s*\{[^}]*"story":\s*\{\s*"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	fbRe_progURL     = regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(hd)"`)
+	fbRe_progURL2    = regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(sd)"`)
+	fbRe_htmlTitle   = regexp.MustCompile(`<title[^>]*>(.*?)</title>`)
 )
 
+// fetchBodyFBHit fetches u with the facebookexternalhit user-agent, which
+// returns the full server-rendered page (used for multi-image album posts).
+func fetchBodyFBHit(ctx *models.ExtractorContext, url string) ([]byte, error) {
+	resp, err := ctx.Fetch(
+		http.MethodGet,
+		url,
+		&networking.RequestParams{
+			Headers: map[string]string{
+				"User-Agent":      "facebookexternalhit/1.1",
+				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Accept-Language": "en-us,en;q=0.5",
+				"Sec-Fetch-Mode":  "navigate",
+			},
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fbhit status %s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// fetchMBasicCaption fetches the mbasic variant of u and returns its
+// og:description caption ("" when absent or generic).
+func fetchMBasicCaption(ctx *models.ExtractorContext, u string) string {
+	if idx := strings.Index(u, "?"); idx != -1 {
+		u = u[:idx]
+	}
+	u = toMBasicURL(u)
+	resp, err := ctx.Fetch(http.MethodGet, u, &networking.RequestParams{
+		Headers: map[string]string{"User-Agent": fbMBasicUA},
+	})
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	return extractOGCaption(b)
+}
+
+// fetchMBasicCaptionOrTitle is like fetchMBasicCaption but falls back to the
+// page <title> (stripping a trailing " | Facebook" and short page-name prefix).
+func fetchMBasicCaptionOrTitle(ctx *models.ExtractorContext, u string) string {
+	if idx := strings.Index(u, "?"); idx != -1 {
+		u = u[:idx]
+	}
+	u = toMBasicURL(u)
+	resp, err := ctx.Fetch(http.MethodGet, u, &networking.RequestParams{
+		Headers: map[string]string{"User-Agent": fbMBasicUA},
+	})
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	if c := extractOGCaption(b); c != "" {
+		return c
+	}
+	m := htmlTitlePattern.FindSubmatch(b)
+	if len(m) < 2 {
+		return ""
+	}
+	t := strings.TrimSpace(html.UnescapeString(string(m[1])))
+	if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
+		t = t[:idx]
+	}
+	if idx := strings.LastIndex(t, " - "); idx != -1 {
+		if parts := strings.SplitN(t, " - ", 2); len(parts) == 2 && len(parts[0]) <= 30 {
+			t = parts[1]
+		}
+	}
+	t = strings.TrimSpace(t)
+	if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
+		return t
+	}
+	return ""
+}
+
+// isTinyImageURL reports whether a facebook CDN URL is a profile/thumbnail
+// icon (tiny square) rather than a post image worth downloading.
+func isTinyImageURL(u string) bool {
+	return strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") || strings.Contains(u, "c256.") || strings.Contains(u, "_s224") || strings.Contains(u, "_s320")
+}
+
+// imageFilename returns the basename of a URL with any query string removed.
+// Used to de-duplicate facebook CDN image URLs.
+func imageFilename(u string) string {
+	if idx := strings.Index(u, "?"); idx != -1 {
+		u = u[:idx]
+	}
+	if idx := strings.LastIndex(u, "/"); idx != -1 {
+		u = u[idx+1:]
+	}
+	return u
+}
+
+// enhanceMultipleImages upgrades a single-image result to a multi-image
+// album when the mbasic or facebookexternalhit body exposes more images
+// (e.g. multi-photo posts). Returns the possibly-updated data and body.
+func enhanceMultipleImages(ctx *models.ExtractorContext, data *VideoData, body []byte, contentURL string) (*VideoData, []byte) {
+	if data != nil && data.ImageURL != "" && len(data.ImageURLs) == 0 {
+		mbasicURL := contentURL
+		if idx := strings.Index(mbasicURL, "?"); idx != -1 {
+			mbasicURL = mbasicURL[:idx]
+		}
+		mbasicURL = toMBasicURL(mbasicURL)
+		if mbasicURL != contentURL {
+			if respM, errM := ctx.Fetch(http.MethodGet, mbasicURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "fbMBasicUA"}}); errM == nil {
+				if respM.StatusCode == 200 {
+					if bM, errR := io.ReadAll(respM.Body); errR == nil {
+						if dM, errP := parseVideoFromBody(bM, ctx.ContentID); errP == nil {
+							if len(dM.ImageURLs) > 1 {
+								// Found multiple gamba via mbasic like <code> 3 gamba - use it
+								data = dM
+								body = bM
+							}
+						}
+					}
+				}
+				respM.Body.Close()
+			}
+		}
+		// Only fetch fbhit again if we don't already have multiple and mbasic didn't give multiple
+		// Reuse body if it's already fbhit 3.9M (avoid duplicate 3.2s fetch)
+		if data != nil && (data.ImageURL != "" && len(data.ImageURLs) == 0) {
+			// Try parse existing body first (might be fbhit 3.9M already)
+			if d2, errP := parseVideoFromBody(body, ctx.ContentID); errP == nil && len(d2.ImageURLs) > 1 {
+				data = d2
+			} else {
+				// Only fetch fbhit if body is not already fbhit (small body = iPhone/mbasic, need fbhit for multiple)
+				if len(body) < 100000 {
+					if b2, err := fetchBodyFBHit(ctx, contentURL); err == nil && len(b2) > 10000 {
+						if d2, errP := parseVideoFromBody(b2, ctx.ContentID); errP == nil {
+							if len(d2.ImageURLs) > 1 {
+								data = d2
+								body = b2
+							} else if len(d2.ImageURLs) == 0 && d2.ImageURL == "" {
+								// Try manual fresh extraction with clustering for <code> case
+								reFresh2 := fbRe_scontentOh
+								all2 := reFresh2.FindAllString(string(b2), -1)
+								seen2 := map[string]struct{}{}
+								var urls2 []string
+								for _, raw := range all2 {
+									u := unescapeFacebookURL(raw)
+									u = strings.ReplaceAll(u, "&amp;", "&")
+									u = strings.ReplaceAll(u, `\/`, "/")
+									if isTinyImageURL(u) {
+										continue
+									}
+									fn := imageFilename(u)
+									if _, ok := seen2[fn]; ok {
+										continue
+									}
+									seen2[fn] = struct{}{}
+									urls2 = append(urls2, u)
+									if len(urls2) >= 20 {
+										break
+									}
+								}
+								if len(urls2) > 3 {
+									grp := map[string][]string{}
+									for _, u := range urls2 {
+										fn := imageFilename(u)
+										parts := strings.Split(fn, "_")
+										prefix := ""
+										if len(parts) >= 2 && len(parts[1]) >= 7 {
+											prefix = parts[1][:7]
+										}
+										if prefix != "" && strings.Contains(u, "t39.30808-6/749") {
+											grp[prefix] = append(grp[prefix], u)
+										}
+									}
+									var best []string
+									for _, g := range grp {
+										if len(g) > len(best) {
+											best = g
+										}
+									}
+									if len(best) >= 2 {
+										data.ImageURLs = best
+										data.ImageURL = ""
+										body = b2
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return data, body
+}
+
+// assignVideoQuality records u as the HD URL when it is an m367/m366
+// variant, otherwise as the SD URL. Only the first URL of each kind is kept.
+func assignVideoQuality(data *VideoData, u string) {
+	if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+		if data.HDURL == "" {
+			data.HDURL = u
+		}
+	} else if data.SDURL == "" {
+		data.SDURL = u
+	}
+}
 
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// Detection image vs video dulu - user request pakai ID + URL
 	// isReel = HD-ONLY direct 1-fetch, no fallback (reel/share r/v only, NOT share/p photo)
-	// share/p = photo album (e.g. share/p/1Cs9f4wm7M) -> image path, not reel
+	// share/p = photo album (e.g. share/p/<code>) -> image path, not reel
 	// groups permalink, photo.php, posts, story.php -> detect video first then image
 	isReel := false
 	urlLower := strings.ToLower(ctx.ContentURL)
@@ -112,15 +384,15 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// yt-dlp removed per user request
 	if isReel {
 		// HD-ONLY: progressive_urls HD direct (ytdl videoDeliveryResponseResult.progressive_urls)
-		// 1 fetch watch/?v=ID -> scontent m367 HD muxed 720p (AQMkV9dq... 1.1MB for barrow)
-		// Fallback to SD when HD not available (e.g. 2122477312020350 only SD m412) to avoid BD929D77
+		// 1 fetch watch/?v=ID -> scontent m367 HD muxed 720p (<caption> 1.1MB for barrow)
+		// Fallback to SD when HD not available (e.g. <id> only SD m412) to avoid BD929D77
 		if ctx.ContentID == "" {
 			return nil, fmt.Errorf("reel without content_id")
 		}
 		effectiveReelID := ctx.ContentID
 		isPrivateShareV := false
-		// For share/r/ and share/v/ short codes like 191ccSK21J (10-char alnum), extract real numeric reel ID
-		// share/r/191ccSK21J -> reel/2126364571626222 via /reel/(\d+) or "video_id":"(\d+)" in Googlebot body
+		// For share/r/ and share/v/ short codes like <code> (10-char alnum), extract real numeric reel ID
+		// share/r/<code> -> reel/<id> via /reel/(\d+) or "video_id":"(\d+)" in Googlebot body
 		if len(ctx.ContentID) == 10 && (strings.Contains(urlLower, "/share/r/") || strings.Contains(urlLower, "/share/v/")) {
 			if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{
 				Headers: map[string]string{
@@ -128,46 +400,40 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				},
 			}); err == nil && resp.StatusCode == 200 {
 				if bShare, err := io.ReadAll(resp.Body); err == nil && len(bShare) > 1000 {
-					// Detect private group share/v like 1HfKCkk2V1 -> 2849405465418099 group 459562825549584
+					// Detect private group share/v like <code> -> <id> group <id>
 					// Body contains "Only members can see who's in the group and what they post." placeholder
 					// For private group, original has no public caption, user said Takde is okay
-					// Avoid picking sharer's comments like TBH THO AY..., Big W..., #greentreepython..., etc (11 random captions for same file 1356377)
+					// Avoid picking sharer's comments like <page> <caption>, <page>..., #<page>python..., etc (11 random captions for same file <id>)
 					if bytes.Contains(bytes.ToLower(bShare), []byte("only members can see")) {
 						isPrivateShareV = true
 					}
-					if m := regexp.MustCompile(`/reel/(\d+)`).FindSubmatch(bShare); len(m) >= 2 {
+					if m := fbRe_reelID.FindSubmatch(bShare); len(m) >= 2 {
 						effectiveReelID = string(m[1])
-					} else if m := regexp.MustCompile(`"video_id"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
+					} else if m := fbRe_videoID.FindSubmatch(bShare); len(m) >= 2 {
 						effectiveReelID = string(m[1])
-					} else if m := regexp.MustCompile(`"videoId"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
+					} else if m := fbRe_videoID2.FindSubmatch(bShare); len(m) >= 2 {
 						effectiveReelID = string(m[1])
-					} else if m := regexp.MustCompile(`/permalink/(\d+)`).FindSubmatch(bShare); len(m) >= 2 {
-						// For group permalink like groups/freememe/permalink/1932193070782736/ via share/v/1SCLuTCw93/
+					} else if m := fbRe_permalink.FindSubmatch(bShare); len(m) >= 2 {
+						// For group permalink like groups/<code>/permalink/<id>/ via share/v/<code>/
 						effectiveReelID = string(m[1])
-					} else if m := regexp.MustCompile(`"post_id"\s*:\s*"(\d+)"`).FindSubmatch(bShare); len(m) >= 2 {
+					} else if m := fbRe_postID.FindSubmatch(bShare); len(m) >= 2 {
 						effectiveReelID = string(m[1])
 					}
 				}
 				resp.Body.Close()
 			}
 		}
-		// For 2849405465418099 which has 12 random captions for same file 1356377 MD5 0feb5201a0d5d83cd2469ec9932c502e
-		// All captions are sharer's comments from different shares, not original - return empty to avoid random
-		// User said Takde is okay for this link, so return no caption
-		if effectiveReelID == "2849405465418099" || ctx.ContentID == "2849405465418099" {
-			isPrivateShareV = true
-		}
 		hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, effectiveReelID)
 		if hd == "" && sd == "" {
 			return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
 		}
-		// Prefer HD, fallback SD for 2122477312020350 case (Googlebot 2640968 prog 2 m367 0 m4 2 SD only) and 191ccSK21J -> 2126364571626222
+		// Prefer HD, fallback SD for <id> case (Googlebot <id> prog 2 m367 0 m4 2 SD only) and <code> -> <id>
 		useURL := hd
 		if useURL == "" {
 			useURL = sd
 		}
-		// For private group share/v like 1HfKCkk2V1 -> 2849405465418099, original has no public caption
-		// Return empty caption to avoid random sharer comments (11 captions for same file 1356377 MD5 0feb5201a0d5d83cd2469ec9932c502e)
+		// For private group share/v like <code> -> <id>, original has no public caption
+		// Return empty caption to avoid random sharer comments (11 captions for same file <id> MD5 <hash>)
 		if isPrivateShareV {
 			title = ""
 		}
@@ -184,56 +450,17 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	}
 
 	// PHOTO POST / SHARE / PERMALINK: direct mbasic - single fetch
-	// BUT for groups permalink, www iPhone gives m412 video (134K with video) while mbasic iPhone gives only jpg (46K) - fix bagi gamba bug for 18znZbiVx6
-	// For 992068990489200 (Insomnia) - actual is image post og:image t15 743975243 56KB m4 count 0, not video - should return gamba per user
+	// BUT for groups permalink, www iPhone gives m412 video (134K with video) while mbasic iPhone gives only jpg (46K) - fix bagi gamba bug for <code>
+	// For <id> (<page>) - actual is image post og:image t15 <id> 56KB m4 count 0, not video - should return gamba per user
 	contentURL := ctx.ContentURL
 	// Keep original for fallback
 	originalURL := contentURL
-	if strings.Contains(contentURL, "992068990489200") || ctx.ContentID == "992068990489200" {
-		// Return gamba image directly - og:image from mbasic 47809 has oh= valid 56KB
-		mbasicURL := "https://mbasic.facebook.com/groups/665131546516281/permalink/992068990489200/"
-		if resp, err := ctx.Fetch(http.MethodGet, mbasicURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); err == nil {
-			if resp.StatusCode == 200 {
-				if b, err := io.ReadAll(resp.Body); err == nil {
-					// Extract og:image
-					if m := ogImagePattern.FindSubmatch(b); len(m) >= 2 {
-						imgURL := string(m[1])
-						imgURL = strings.ReplaceAll(imgURL, "&amp;", "&")
-						imgURL = html.UnescapeString(imgURL)
-						// Validate HEAD 200
-						if resp2, err := ctx.HTTPClient.FetchWithContext(ctx.Context, "HEAD", imgURL, &networking.RequestParams{}); err == nil {
-							if resp2.StatusCode == 200 {
-								resp2.Body.Close()
-								// Extract caption
-								title := ""
-								if m2 := ogDescPattern.FindSubmatch(b); len(m2) >= 2 {
-									c := html.UnescapeString(string(m2[1]))
-									c = strings.TrimSpace(c)
-									if c != "" {
-										title = c
-									}
-								}
-								resp.Body.Close()
-								return &VideoData{ImageURL: imgURL, Title: title}, nil
-							}
-							resp2.Body.Close()
-						}
-					}
-				}
-			}
-			resp.Body.Close()
-		}
-		// Fallback to known image URL if fetch fails
-		fallbackImg := "https://scontent-fra3-2.xx.fbcdn.net/v/t15.5256-10/743975243_1045945174554838_7974587148393253220_n.jpg?_nc_cat=111&ccb=1-7&_nc_sid=a27664&_nc_ohc=3EJg-lMVWPgQ7kNvwEKgaDd&_nc_oc=Adr6orOEhwIfuOCKa-OTf5uLEZ8cvThdrGg1ITlhKjhI_bT0MDM1rrbPkU5TQ82Wmjo&_nc_zt=23&_nc_ht=scontent-fra3-2.xx.fbcdn.net&_nc_gid=1a4892195a2a9c53a0e48e57c92ced73&oh=00_AfN3jLRkOfY8XCu8GSpdy9eylgoLqjMYWhMv2v1olAEAuQ&oe=6886595B"
-		return &VideoData{ImageURL: fallbackImg, Title: "Yang ada Insomnia pun boleh tertidur la sial"}, nil
-	}
 	if strings.Contains(contentURL, "/groups/") {
 		// Keep www for groups to preserve m412/m367 video - www+iphone 134K has m412 488x358 22s 641KB vs mbasic 46K jpg only
 		contentURL = strings.Replace(contentURL, "mbasic.facebook.com", "www.facebook.com", 1)
 		contentURL = strings.Replace(contentURL, "m.facebook.com", "www.facebook.com", 1)
 	} else {
-		contentURL = strings.Replace(contentURL, "www.facebook.com", "mbasic.facebook.com", 1)
-		contentURL = strings.Replace(contentURL, "m.facebook.com", "mbasic.facebook.com", 1)
+		contentURL = toMBasicURL(contentURL)
 	}
 
 	fetchBody := func(url string) ([]byte, error) {
@@ -242,7 +469,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			url,
 			&networking.RequestParams{
 				Headers: map[string]string{
-					"User-Agent":      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+					"User-Agent":      "fbMBasicUA",
 					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 					"Accept-Language": "en-US,en;q=0.5",
 				},
@@ -269,29 +496,6 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 		}
 		return body, nil
-	}
-
-	fetchBodyFBHit := func(url string) ([]byte, error) {
-		resp, err := ctx.Fetch(
-			http.MethodGet,
-			url,
-			&networking.RequestParams{
-				Headers: map[string]string{
-					"User-Agent":      "facebookexternalhit/1.1",
-					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-					"Accept-Language": "en-us,en;q=0.5",
-					"Sec-Fetch-Mode":  "navigate",
-				},
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("fbhit status %s", resp.Status)
-		}
-		return io.ReadAll(resp.Body)
 	}
 
 	fetchBodyGooglebot := func(url string) ([]byte, error) {
@@ -329,7 +533,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	if idx := strings.Index(base, "?"); idx != -1 {
 		base = base[:idx]
 	}
-	// For image posts like 992068990489200 (Insomnia) and 3511388275676556 (Malaikat) - www iPhone 50619 no og:image m4 0, mbasic 47809/48413 og:image t15/t39 56KB/800x588 m4 0 has image
+	// For image posts like <id> (<page>) and <id> (<page>) - www iPhone 50619 no og:image m4 0, mbasic 47809/48413 og:image t15/t39 56KB/800x588 m4 0 has image
 	// Add mbasic fallback EARLY for image posts so gamba returned instead of feed video from fbhit 3.9M 18 m4 (wrong per "Ade gamba takde video")
 	// Move mbasic before m. and fbhit fallback to avoid returning feed video - apply to ALL fb posts YG Ade gamba
 	mbasicBase := strings.Replace(base, "www.facebook.com", "mbasic.facebook.com", 1)
@@ -358,7 +562,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		}
 	} else {
 		// For non-group posts (photo.php, posts/, share/p/ etc) that Ade gamba - also try mbasic early
-		// Example share/p/1H1MTDu7Fe/ -> groups/3511388275676556 is group, but share/p/ on pages also image posts
+		// Example share/p/<code>/ -> groups/<id> is group, but share/p/ on pages also image posts
 		if base != contentURL {
 			urlsToTry = append(urlsToTry, base)
 		}
@@ -379,10 +583,10 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		b, err := fetchBody(tryURL)
 		if err == nil {
 			// First try to find valid m412 URL directly via HEAD check from body - more robust than parseVideoFromBody first pick (which may be 403)
-			// For groups 992068990489200, body has 1 m412 but may be 403, try all m412 URLs in body
+			// For groups <id>, body has 1 m412 but may be 403, try all m412 URLs in body
 			bodyStr := string(b)
 			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
-			reAllM4 := regexp.MustCompile(`https?:\\?/\\?/[^"']*scontent[^"']*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			reAllM4 := fbRe_m4Mp4
 			var validM4URL string
 			for _, src := range []string{bodyStr, bodyUnesc} {
 				for _, raw := range reAllM4.FindAllString(src, -1) {
@@ -391,7 +595,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 					u = strings.ReplaceAll(u, `\/`, "/")
 					// Check if this URL is from feed or post - for group posts, check if section has video
 					// If section has no video (image post), skip m4 from feed - fixes "Ade gamba takde video"
-					// For YG Ade video via ytdl posts like 3512411595574224, section may have video even when cookies flagged give 47K thumbnail only
+					// For YG Ade video via ytdl posts like <id>, section may have video even when cookies flagged give 47K thumbnail only
 					// Need to check section for video indicators before returning feed video
 					isFeedVideo := false
 					if len(ctx.ContentID) >= 10 {
@@ -450,75 +654,18 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						}
 					}
 				}
-				// If still no caption, fetch mbasic for caption (mbasic has og:description Yang ada Insomnia... even when flagged, www 50K has no caption)
-				if d.Title == "" {
-					// Build mbasic URL from contentURL: www -> mbasic, strip query
-					mbasicCapURL := contentURL
-					if idx := strings.Index(mbasicCapURL, "?"); idx != -1 {
-						mbasicCapURL = mbasicCapURL[:idx]
-					}
-					mbasicCapURL = strings.Replace(mbasicCapURL, "www.facebook.com", "mbasic.facebook.com", 1)
-					mbasicCapURL = strings.Replace(mbasicCapURL, "m.facebook.com", "mbasic.facebook.com", 1)
-					if !strings.Contains(mbasicCapURL, "mbasic.facebook.com") {
-						// fallback construct from tryURL base
-						baseCap := tryURL
-						if idx := strings.Index(baseCap, "?"); idx != -1 {
-							baseCap = baseCap[:idx]
-						}
-						baseCap = strings.Replace(baseCap, "www.facebook.com", "mbasic.facebook.com", 1)
-						baseCap = strings.Replace(baseCap, "m.facebook.com", "mbasic.facebook.com", 1)
-						mbasicCapURL = baseCap
-					}
-					ctx.Infof("caption fallback trying mbasic %s", mbasicCapURL)
-					if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
-						ctx.Infof("caption mbasic fetch status %s", respCap.Status)
-						if respCap.StatusCode == 200 {
-							if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
-								ctx.Infof("caption mbasic body len %d hasInsomnia %t", len(bCap), strings.Contains(string(bCap), "Insomnia"))
-								if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
-									c := html.UnescapeString(string(m[1]))
-									c = strings.TrimSpace(c)
-									ctx.Infof("caption ogDesc found %.100s", c)
-									if c != "" && !strings.EqualFold(c, "Facebook") {
-										d.Title = c
-									}
-								}
-								if d.Title == "" {
-									if m := htmlTitlePattern.FindSubmatch(bCap); len(m) >= 2 {
-										t := html.UnescapeString(string(m[1]))
-										t = strings.TrimSpace(t)
-										ctx.Infof("caption htmlTitle %.100s", t)
-										if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
-											t = t[:idx]
-										}
-										if idx := strings.LastIndex(t, " - "); idx != -1 {
-											if strings.Contains(t, "Insomnia") {
-												if parts := strings.SplitN(t, " - ", 2); len(parts) == 2 {
-													t = parts[1]
-												}
-											}
-										}
-										t = strings.TrimSpace(t)
-										if len(t) > 5 && !strings.EqualFold(t, "Facebook") {
-											d.Title = t
-										}
-									}
-								}
-							}
-						}
-						respCap.Body.Close()
-					} else {
-						ctx.Infof("caption mbasic fetch err %v", errCap)
-					}
-					ctx.Infof("caption final Title len %d %.100s", len(d.Title), d.Title)
+				// If still no caption, fetch mbasic for caption
+				if c := fetchMBasicCaptionOrTitle(ctx, contentURL); c != "" {
+					d.Title = c
 				}
+
 				data = d
 				body = b
 				break
 			}
 			// Fallback to original parseVideoFromBody (handles HD/SD patterns, image fallback)
 			if d, err2 := parseVideoFromBody(b, ctx.ContentID); err2 == nil {
-				// Validate extracted video URL is not 403 - old m412 AQMTeJHK... still 200, new AQNIK65... 403
+				// Validate extracted video URL is not 403 - old m412 <caption>... still 200, new <caption>... 403
 				// If 403, try next URL for fresh valid URL
 				if d.HDURL != "" || d.SDURL != "" {
 					valid := false
@@ -541,36 +688,11 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						}
 					}
 					if valid || tryURL == urlsToTry[len(urlsToTry)-1] {
-						// If Title empty, try mbasic caption fallback (www 50K has no caption, mbasic 47K has og:desc)
-						if d.Title == "" {
-							mbasicCapURL := contentURL
-							if idx := strings.Index(mbasicCapURL, "?"); idx != -1 {
-								mbasicCapURL = mbasicCapURL[:idx]
-							}
-							mbasicCapURL = strings.Replace(mbasicCapURL, "www.facebook.com", "mbasic.facebook.com", 1)
-							mbasicCapURL = strings.Replace(mbasicCapURL, "m.facebook.com", "mbasic.facebook.com", 1)
-							ctx.Infof("caption2 fallback trying mbasic %s", mbasicCapURL)
-							if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
-								ctx.Infof("caption2 mbasic status %s", respCap.Status)
-								if respCap.StatusCode == 200 {
-									if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
-										ctx.Infof("caption2 body len %d hasInsomnia %t", len(bCap), strings.Contains(string(bCap), "Insomnia"))
-										if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
-											c := html.UnescapeString(string(m[1]))
-											c = strings.TrimSpace(c)
-											ctx.Infof("caption2 ogDesc %.100s", c)
-											if c != "" && !strings.EqualFold(c, "Facebook") {
-												d.Title = c
-											}
-										}
-									}
-								}
-								respCap.Body.Close()
-							} else {
-								ctx.Infof("caption2 err %v", errCap)
-							}
-							ctx.Infof("caption2 final len %d %.100s", len(d.Title), d.Title)
+						// If Title empty, try mbasic caption fallback
+						if c := fetchMBasicCaption(ctx, contentURL); c != "" {
+							d.Title = c
 						}
+
 						data = d
 						body = b
 						break
@@ -590,7 +712,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		time.Sleep(400 * time.Millisecond)
 		// Fallback to facebookexternalhit UA for groups and public posts - fixes flagged iPhone 50K sc0 case (public links x leh)
 		if len(b) < 60000 {
-			if b2, err := fetchBodyFBHit(tryURL); err == nil && len(b2) > 10000 {
+			if b2, err := fetchBodyFBHit(ctx, tryURL); err == nil && len(b2) > 10000 {
 				// Try image/video extraction from fbhit body directly without HEAD check (HEAD 403 fails for fresh scontent video)
 				if dFb, errFb := parseVideoFromBody(b2, ctx.ContentID); errFb == nil {
 					if dFb.HDURL != "" || dFb.SDURL != "" || dFb.ImageURL != "" || len(dFb.ImageURLs) > 0 {
@@ -604,7 +726,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				// Fallback direct m4 regex without HEAD check - video URLs often 403 on HEAD but work on GET via govd downloader
 				bodyStr2 := string(b2)
 				bodyUnesc2 := strings.ReplaceAll(bodyStr2, `\/`, "/")
-				reAllM4_2 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+				reAllM4_2 := fbRe_m4Mp42
 				for _, src := range []string{bodyStr2, bodyUnesc2} {
 					for _, raw := range reAllM4_2.FindAllString(src, -1) {
 						u := unescapeFacebookURL(raw)
@@ -643,11 +765,11 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			}
 		}
 		if strings.Contains(tryURL, "/groups/") {
-			if b2, err := fetchBodyFBHit(tryURL); err == nil && len(b2) > 10000 {
+			if b2, err := fetchBodyFBHit(ctx, tryURL); err == nil && len(b2) > 10000 {
 				// Try valid m4 URL extraction with HEAD check for fbhit body as well
 				bodyStr2 := string(b2)
 				bodyUnesc2 := strings.ReplaceAll(bodyStr2, `\/`, "/")
-				reAllM4_2 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+				reAllM4_2 := fbRe_m4Mp42
 				var validM4URL2 string
 				for _, src := range []string{bodyStr2, bodyUnesc2} {
 					for _, raw := range reAllM4_2.FindAllString(src, -1) {
@@ -667,16 +789,16 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						break
 					}
 				}
-				// For image posts like 1EC9Yune9P (3 gamba), fbhit body 3.9M has multiple images even when validM4URL2 is empty (no m4 for image posts)
+				// For image posts like <code> (3 gamba), fbhit body 3.9M has multiple images even when validM4URL2 is empty (no m4 for image posts)
 				// Try image extraction from fbhit body b2 even if no validM4URL2 - fixes multiple gamba
 				if dImgFB, errImgFB := parseVideoFromBody(b2, ctx.ContentID); errImgFB == nil {
 					if dImgFB.ImageURL != "" || len(dImgFB.ImageURLs) > 0 {
-						// If fbhit has multiple gamba like 1EC9Yune9P (3 gamba), use it even if iPhone had single/no image
-						// For 1421063836168451, fbhit gives 15 filtered with 3 post (4552750 cluster)
+						// If fbhit has multiple gamba like <code> (3 gamba), use it even if iPhone had single/no image
+						// For <id>, fbhit gives 15 filtered with 3 post (<id> cluster)
 						if len(dImgFB.ImageURLs) > 1 || (data == nil || (data.ImageURL == "" && len(data.ImageURLs) == 0)) || len(dImgFB.ImageURLs) > len(data.ImageURLs) {
 							data = dImgFB
 							body = b2
-							// If multiple found, return immediately for 1EC9Yune9P case
+							// If multiple found, return immediately for <code> case
 							if len(data.ImageURLs) > 1 {
 								break
 							}
@@ -702,14 +824,13 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						}
 					}
 					// Try mbasic image fallback for group posts - fbhit 3.9M has 18 m4 feed but no og:image, mbasic 48K has og:image t39 749... (Ade gamba takde video)
-					// This fixes 3511388275676556 returning video 15s 882K AQN-0D_L when should be image gamba
+					// This fixes <id> returning video 15s 882K <caption> when should be image gamba
 					mbasicImgURL := tryURL
 					if idx := strings.Index(mbasicImgURL, "?"); idx != -1 {
 						mbasicImgURL = mbasicImgURL[:idx]
 					}
-					mbasicImgURL = strings.Replace(mbasicImgURL, "www.facebook.com", "mbasic.facebook.com", 1)
-					mbasicImgURL = strings.Replace(mbasicImgURL, "m.facebook.com", "mbasic.facebook.com", 1)
-					if respM, errM := ctx.Fetch(http.MethodGet, mbasicImgURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errM == nil {
+					mbasicImgURL = toMBasicURL(mbasicImgURL)
+					if respM, errM := ctx.Fetch(http.MethodGet, mbasicImgURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "fbMBasicUA"}}); errM == nil {
 						if respM.StatusCode == 200 {
 							if bM, errR := io.ReadAll(respM.Body); errR == nil {
 								if dM, errP := parseVideoFromBody(bM, ctx.ContentID); errP == nil {
@@ -730,26 +851,8 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						d.Title = d2.Title
 					}
 					if d.Title == "" {
-						// mbasic caption fallback for fbhit path as well
-						mbasicCapURL2 := contentURL
-						if idx := strings.Index(mbasicCapURL2, "?"); idx != -1 {
-							mbasicCapURL2 = mbasicCapURL2[:idx]
-						}
-						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "www.facebook.com", "mbasic.facebook.com", 1)
-						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "m.facebook.com", "mbasic.facebook.com", 1)
-						if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL2, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
-							if respCap.StatusCode == 200 {
-								if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
-									if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
-										c := html.UnescapeString(string(m[1]))
-										c = strings.TrimSpace(c)
-										if c != "" && !strings.EqualFold(c, "Facebook") {
-											d.Title = c
-										}
-									}
-								}
-							}
-							respCap.Body.Close()
+						if c := fetchMBasicCaption(ctx, contentURL); c != "" {
+							d.Title = c
 						}
 					}
 					data = d
@@ -758,25 +861,8 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 				}
 				if d, err2 := parseVideoFromBody(b2, ctx.ContentID); err2 == nil {
 					if d.Title == "" {
-						mbasicCapURL2 := contentURL
-						if idx := strings.Index(mbasicCapURL2, "?"); idx != -1 {
-							mbasicCapURL2 = mbasicCapURL2[:idx]
-						}
-						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "www.facebook.com", "mbasic.facebook.com", 1)
-						mbasicCapURL2 = strings.Replace(mbasicCapURL2, "m.facebook.com", "mbasic.facebook.com", 1)
-						if respCap, errCap := ctx.Fetch(http.MethodGet, mbasicCapURL2, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errCap == nil {
-							if respCap.StatusCode == 200 {
-								if bCap, errRead := io.ReadAll(respCap.Body); errRead == nil {
-									if m := ogDescPattern.FindSubmatch(bCap); len(m) >= 2 {
-										c := html.UnescapeString(string(m[1]))
-										c = strings.TrimSpace(c)
-										if c != "" && !strings.EqualFold(c, "Facebook") {
-											d.Title = c
-										}
-									}
-								}
-							}
-							respCap.Body.Close()
+						if c := fetchMBasicCaption(ctx, contentURL); c != "" {
+							d.Title = c
 						}
 					}
 					data = d
@@ -795,644 +881,34 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		}
 		return nil, fmt.Errorf("failed to get video data after retries")
 	}
-	logger.WriteFile("fb_response", struct{ Body string }{Body: string(body[:min(1000, len(body))])})
 
-	// MULTIPLE GAMBA support for 1EC9Yune9P (3 gamba) - if single image found, try mbasic for multiple
-	// mbasic 264572 gives 3 images, www fbhit 3664991 gives 15 with 3 post cluster 4552750
-	// For image posts, try mbasic if current is single but mbasic has multiple
-	// OPTIMIZATION: reuse fbhit body from earlier fetch (line 676 b2) instead of fetching again
-	if data != nil && data.ImageURL != "" && len(data.ImageURLs) == 0 {
-		mbasicURL := contentURL
-		if idx := strings.Index(mbasicURL, "?"); idx != -1 {
-			mbasicURL = mbasicURL[:idx]
-		}
-		mbasicURL = strings.Replace(mbasicURL, "www.facebook.com", "mbasic.facebook.com", 1)
-		mbasicURL = strings.Replace(mbasicURL, "m.facebook.com", "mbasic.facebook.com", 1)
-		if mbasicURL != contentURL {
-			if respM, errM := ctx.Fetch(http.MethodGet, mbasicURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"}}); errM == nil {
-				if respM.StatusCode == 200 {
-					if bM, errR := io.ReadAll(respM.Body); errR == nil {
-						if dM, errP := parseVideoFromBody(bM, ctx.ContentID); errP == nil {
-							if len(dM.ImageURLs) > 1 {
-								// Found multiple gamba via mbasic like 1EC9Yune9P 3 gamba - use it
-								data = dM
-								body = bM
-							}
-						}
-					}
-				}
-				respM.Body.Close()
-			}
-		}
-		// Only fetch fbhit again if we don't already have multiple and mbasic didn't give multiple
-		// Reuse body if it's already fbhit 3.9M (avoid duplicate 3.2s fetch)
-		if data != nil && (data.ImageURL != "" && len(data.ImageURLs) == 0) {
-			// Try parse existing body first (might be fbhit 3.9M already)
-			if d2, errP := parseVideoFromBody(body, ctx.ContentID); errP == nil && len(d2.ImageURLs) > 1 {
-				data = d2
-			} else {
-				// Only fetch fbhit if body is not already fbhit (small body = iPhone/mbasic, need fbhit for multiple)
-				if len(body) < 100000 {
-					if b2, err := fetchBodyFBHit(contentURL); err == nil && len(b2) > 10000 {
-						if d2, errP := parseVideoFromBody(b2, ctx.ContentID); errP == nil {
-							if len(d2.ImageURLs) > 1 {
-								data = d2
-								body = b2
-							} else if len(d2.ImageURLs) == 0 && d2.ImageURL == "" {
-								// Try manual fresh extraction with clustering for 1EC9Yune9P case
-								reFresh2 := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
-								all2 := reFresh2.FindAllString(string(b2), -1)
-								seen2 := map[string]struct{}{}
-								var urls2 []string
-								for _, raw := range all2 {
-									u := unescapeFacebookURL(raw)
-									u = strings.ReplaceAll(u, "&amp;", "&")
-									u = strings.ReplaceAll(u, `\/`, "/")
-									if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") || strings.Contains(u, "c256.") || strings.Contains(u, "_s224") || strings.Contains(u, "_s320") {
-										continue
-									}
-									fn := u
-									if idx := strings.Index(fn, "?"); idx != -1 {
-										fn = fn[:idx]
-									}
-									if idx := strings.LastIndex(fn, "/"); idx != -1 {
-										fn = fn[idx+1:]
-									}
-									if _, ok := seen2[fn]; ok {
-										continue
-									}
-									seen2[fn] = struct{}{}
-									urls2 = append(urls2, u)
-									if len(urls2) >= 20 {
-										break
-									}
-								}
-								if len(urls2) > 3 {
-									grp := map[string][]string{}
-									for _, u := range urls2 {
-										fn := u
-										if idx := strings.Index(fn, "?"); idx != -1 {
-											fn = fn[:idx]
-										}
-										if idx := strings.LastIndex(fn, "/"); idx != -1 {
-											fn = fn[idx+1:]
-										}
-										parts := strings.Split(fn, "_")
-										prefix := ""
-										if len(parts) >= 2 && len(parts[1]) >= 7 {
-											prefix = parts[1][:7]
-										}
-										if prefix != "" && strings.Contains(u, "t39.30808-6/749") {
-											grp[prefix] = append(grp[prefix], u)
-										}
-									}
-									var best []string
-									for _, g := range grp {
-										if len(g) > len(best) {
-											best = g
-										}
-									}
-									if len(best) >= 2 {
-										data.ImageURLs = best
-										data.ImageURL = ""
-										body = b2
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
+	data, body = enhanceMultipleImages(ctx, data, body, contentURL)
 
 	return data, nil
 }
 
-func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
-	data := &VideoData{}
+// tryProgressiveVideo fills data.HDURL/SDURL from the page's
+// videoDeliveryResponseResult.progressive_urls[] list (HD/SD muxed) for the
+// given video, reporting whether any URL was found. Used for group videos
+// whose m4 matches are feed videos that 403 while progressive_url is valid.
+func tryProgressiveVideo(data *VideoData, body []byte, videoID string) bool {
+	hd, sd, _ := parseProgressiveURLsAndCaptionFromBody(body, videoID)
+	if hd == "" && sd == "" {
+		return false
+	}
+	if hd != "" {
+		data.HDURL = hd
+	}
+	if sd != "" {
+		data.SDURL = sd
+	}
+	return data.HDURL != "" || data.SDURL != ""
+}
 
-	// FIX share/p/1EKfYcssAD/ -> real numeric ID 3516131025202281 extraction for caption anchoring
-	// share/p codes are 10-char alphanumeric, not numeric, but body contains permalink with real ID
-	// Without this, anchored search for 1EKfYcssAD finds nothing, falls back to full body longest (fiber 516 chars) -> wrong caption
-	effectiveID := videoID
-	isNumeric := func(s string) bool {
-		for _, c := range s {
-			if c < '0' || c > '9' {
-				return false
-			}
-		}
-		return len(s) > 0
-	}
-	absInt := func(a int) int {
-		if a < 0 {
-			return -a
-		}
-		return a
-	}
-	if len(videoID) == 10 || (len(videoID) >= 8 && len(videoID) <= 11 && !isNumeric(videoID)) {
-		// Try extract story_id or permalink numeric ID near 1EKfYcssAD
-		// Pattern in Googlebot body: "story_id":"3516131025202281" near share_url param
-		reStory := regexp.MustCompile(`"story_id"\s*:\s*"(\d{10,})"`)
-		if m := reStory.FindSubmatch(body); len(m) >= 2 {
-			candidate := string(m[1])
-			// Ensure candidate appears near the share code to avoid feed contamination
-			// Check if both IDs are within 2k of each other in body
-			idxShare := bytes.Index(body, []byte(videoID))
-			idxReal := bytes.Index(body, []byte(candidate))
-			if idxShare != -1 && idxReal != -1 && absInt(idxShare-idxReal) < 5000 {
-				effectiveID = candidate
-			} else if idxShare == -1 {
-				// share code not in body but story_id exists, likely real ID for this page
-				// Use it if title matches Arkibers etc? For now use first story_id if page is share/p
-				// Only if permalink pattern exists nearby
-				if bytes.Contains(body, []byte("/permalink/")) {
-					effectiveID = candidate
-				}
-			}
-		}
-		// Fallback: permalink/(\d+)/
-		if effectiveID == videoID {
-			rePerm := regexp.MustCompile(`/permalink/(\d{10,})/`)
-			if m := rePerm.FindSubmatch(body); len(m) >= 2 {
-				effectiveID = string(m[1])
-			}
-		}
-	}
-
-	// DETECT IMAGE vs VIDEO first - per user request "test sekali tuk image kalu x detect image kirenye ko Salah lagi"
-	// For group posts like 992068990489200 Insomnia and 3511388275676556 Malaikat:
-	// - section = findVideoSection for post ID - if section has m4/hd_src, it's VIDEO, if no m4 in section but og:image t15/t39 present, it's IMAGE
-	// This fixes "Masalahnye post tu Ade gamba takde video" - post has image, no video, but we gave video from feed (wrong)
-	// Also fixes story vs post: story video 10s 140K is not post, post is image
-
-	// First find section belonging to this post ID (critical for group posts to avoid feed videos)
-	sectionEarly := findVideoSection(body, effectiveID)
-	if sectionEarly == nil {
-		sectionEarly = findVideoSection(body, videoID)
-	}
-	// Group permalink posts can carry a numeric post ID that differs from the
-	// numeric video ID, and the HTML only anchors dash_mpd_debug.mpd?v= on the
-	// video ID. Both lookups above then miss and a later full-body scan grabs
-	// the first progressive URL from an unrelated feed video. Resolve the post's
-	// own video and re-anchor on it so section + caption stay on the right post.
-	if sectionEarly == nil {
-		if rsec, rvid := resolvePostVideoSection(body, effectiveID); rsec != nil {
-			sectionEarly, effectiveID = rsec, rvid
-		} else if effectiveID != videoID {
-			if rsec, rvid := resolvePostVideoSection(body, videoID); rsec != nil {
-				sectionEarly, effectiveID = rsec, rvid
-			}
-		}
-	}
-	// Also try with effectiveID for image section
-	// Check for video indicators IN SECTION (not full body which has feed videos)
-	var hasM4InSection bool
-	var hasHdSdInSection bool
-	if sectionEarly != nil && len(sectionEarly) > 0 {
-		sSec := string(sectionEarly)
-		reM4Sec := regexp.MustCompile(`scontent[^"']*/m4[0-9]`)
-		reM4EscSec := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9]`)
-		hasM4InSection = len(reM4Sec.FindAllString(sSec, -1))+len(reM4EscSec.FindAllString(sSec, -1)) > 0
-		hasHdSdInSection = strings.Contains(sSec, "\"hd_src\"") || strings.Contains(sSec, "\"sd_src\"")
-	}
-
-	isImagePost := false
-	isVideoPost := false
-
-	// Check for video indicators in full body as fallback for non-group posts
-	reM4Check := regexp.MustCompile(`scontent[^"']*/m4[0-9]`)
-	reM4EscCheck := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9]`)
-	reHdCheck := regexp.MustCompile(`"hd_src"`)
-	reSdCheck := regexp.MustCompile(`"sd_src"`)
-	reOgVideoCheck := regexp.MustCompile(`property="og:video"`)
-	sBody := string(body)
-	hasM4Full := len(reM4Check.FindAllString(sBody, -1))+len(reM4EscCheck.FindAllString(sBody, -1)) > 0
-	hasHdSdFull := reHdCheck.MatchString(sBody) || reSdCheck.MatchString(sBody)
-	hasOgVideoFull := reOgVideoCheck.MatchString(sBody)
-
-	// For group posts: use section check, not full body (full body has feed videos causing wrong detection)
-	if strings.Contains(videoID, "992068990489200") || strings.Contains(videoID, "3511388275676556") || len(videoID) >= 15 {
-		// Group post ID - rely on section, not full body
-		if hasM4InSection || hasHdSdInSection {
-			isVideoPost = true
-		} else {
-			// FIX for group video posts where post ID != video ID e.g. groups/2807075776107813/permalink/3516044001877650
-			// dash_mpd_debug v=ID not found because video inside has different ID 836662559382275, progressive 30 m4 36 in body
-			// If section not found (nil) and full body has m4/progressive, treat as video (Googlebot fallback case)
-			if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
-				isVideoPost = true
-			} else {
-				// No video in section = image post (per user "Ade gamba takde video")
-				isVideoPost = false
-			}
-		}
-	} else {
-		// Non-group or reel: use full body
-		if hasM4Full || hasHdSdFull || hasOgVideoFull {
-			isVideoPost = true
-		}
-	}
-
-	// Check for image indicators - og:image t15 (photo posts) or t39 (video thumbnails but also image posts)
-	reOgImgCheck := regexp.MustCompile(`property="og:image" content="([^"]+)"`)
-	var ogImgURL string
-	if m := reOgImgCheck.FindSubmatch(body); len(m) >= 2 {
-		ogImgURL = string(m[1])
-	}
-	// If has og:image and no video in SECTION, it's image post
-	if ogImgURL != "" {
-		if !strings.Contains(ogImgURL, "s74x74") && !strings.Contains(ogImgURL, "s120x120") && !strings.Contains(ogImgURL, "s168x128") && !strings.Contains(ogImgURL, "p74x74") {
-			// For group posts: if section has no video, it's image even if full body has video (feed)
-			// FIX: but if full body has m4/progressive and section is nil (post ID != video ID e.g. 3516044001877650 has m4 36 progressive 30), treat as video not image
-			if len(videoID) >= 15 {
-				if !hasM4InSection && !hasHdSdInSection {
-					// If section nil and full body has video (Googlebot fallback), don't mark as image
-					if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
-						// keep as video, not image
-					} else {
-						isImagePost = true
-						isVideoPost = false
-					}
-				}
-			} else {
-				if !isVideoPost {
-					isImagePost = true
-				}
-			}
-		}
-	}
-	// For fbhit body 3.9M (facebookexternalhit UA) og:image is often empty but section has no m4/hd_src
-	// Still treat as image post if section is empty (no video) for group posts with len>=15
-	// Fixes 1EC9Yune9P 3 gamba: fbhit 3.9M og:image empty but section m4=0 hd_src=false -> isImagePost should be true
-	// FIX group video post 3516044001877650 has m4 36 progressive 30 but section nil (post ID != video ID) -> video not image
-	if len(videoID) >= 15 && !hasM4InSection && !hasHdSdInSection && !isVideoPost && !isImagePost {
-		if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
-			// video, skip image marking
-		} else {
-			reFreshCheck := regexp.MustCompile(`scontent[^"']*oh=`)
-			if reFreshCheck.MatchString(string(body)) {
-				isImagePost = true
-			}
-		}
-	}
-
-	// Final: if marked as video, ensure not also marked as image
-	if isVideoPost {
-		isImagePost = false
-	}
-
-	// DEBUG for 3516044001877650 group video fix
-	if len(videoID) >= 10 && (strings.Contains(videoID, "3516044001877650") || strings.Contains(videoID, "28611277075139846")) {
-		// Use fmt for debug, will appear in docker logs
-		fmt.Printf("[DEBUG FB] id=%s secNil=%v hasM4Sec=%v hasHdSec=%v hasM4Full=%v hasProg=%v isVid=%v isImg=%v bodyLen=%d\n", videoID, sectionEarly == nil, hasM4InSection, hasHdSdInSection, hasM4Full, strings.Contains(sBody, "progressive_url"), isVideoPost, isImagePost, len(body))
-	}
-
-	// find the section belonging to the requested video
-	// NEVER fallback to full body when section not found - this prevents photo posts like share/p
-	// returning random video from feed (Ayah Bopley bug). All video pages have dash_mpd_debug marker,
-	// so section==nil means it's a photo/album post or blocked page - return image or error.
-	section := sectionEarly
-	if section == nil {
-		section = []byte{}
-	}
-
-	if match := hdURLPattern.FindSubmatch(section); len(match) >= 2 {
-		data.HDURL = unescapeFacebookURL(string(match[1]))
-	}
-	if match := sdURLPattern.FindSubmatch(section); len(match) >= 2 {
-		data.SDURL = unescapeFacebookURL(string(match[1]))
-	}
-
-	// findVideoSection anchors on dash_mpd_debug.mpd?v=VIDEO_ID and bounds
-	// the block by the following "id":"VIDEO_ID" marker. On some page
-	// variants that marker lands BEFORE the progressive_url's trailing
-	// failure_reason/metadata (which carries the HD/SD quality), so the
-	// URL regexes above cannot match inside the truncated slice and we
-	// end up with no URLs even though the page clearly has them. Retry
-	// on the full body (single-video posts/reels) so the extraction does
-	// not falsely fail. Caption extraction already runs against body.
-	if data.HDURL == "" && data.SDURL == "" {
-		// Don't fallback to full body if we already determined it's feed/photo (section empty)
-		if len(section) == 0 {
-			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. 18znZbiVx6 992068990489200 488x358 22s 641KB)
-			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
-			// For group posts like 3516044001877650, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
-			// So for group videos with section nil and isVideoPost true, prefer progressive first
-			if isVideoPost && len(videoID) >= 10 {
-				if hdProg, sdProg, _ := parseProgressiveURLsAndCaptionFromBody(body, videoID); hdProg != "" || sdProg != "" {
-					if hdProg != "" {
-						data.HDURL = hdProg
-					}
-					if sdProg != "" {
-						data.SDURL = sdProg
-					}
-					if data.HDURL != "" || data.SDURL != "" {
-						return data, nil
-					}
-				}
-			}
-			// Handles both https:// and https:\/\/ escaped forms
-			// For group posts like 3516044001877650, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
-			// So for group videos (len>=15) with section nil and isVideoPost true, prefer progressive first
-			if isVideoPost && len(videoID) >= 10 {
-				if hdProg, sdProg, _ := parseProgressiveURLsAndCaptionFromBody(body, videoID); hdProg != "" || sdProg != "" {
-					if hdProg != "" {
-						data.HDURL = hdProg
-					}
-					if sdProg != "" {
-						data.SDURL = sdProg
-					}
-					if strings.Contains(videoID, "3516044001877650") {
-						fmt.Printf("[DEBUG PROG-SECTION0] id=%s prog hd len=%d sd len=%d\n", videoID, len(hdProg), len(sdProg))
-					}
-					if data.HDURL != "" || data.SDURL != "" {
-						return data, nil
-					}
-				}
-			}
-			reMP4 := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
-			bodyStr := string(body)
-			// Also try unescaped version by replacing \/ -> / for regex matching
-			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
-			if strings.Contains(videoID, "3516044001877650") {
-				fmt.Printf("[DEBUG MP4] id=%s bodyHas m4=%v prog=%v\n", videoID, strings.Contains(bodyStr, "/m4"), strings.Contains(bodyStr, "progressive_url"))
-				// Count matches
-				c1 := len(reMP4.FindAllString(bodyStr, -1))
-				c2 := len(reMP4.FindAllString(bodyUnesc, -1))
-				fmt.Printf("[DEBUG MP4] matches bodyStr=%d bodyUnesc=%d\n", c1, c2)
-				if c1 > 0 {
-					fmt.Printf("[DEBUG MP4] first raw: %s\n", reMP4.FindString(bodyStr)[:200])
-				}
-			}
-			for _, src := range []string{bodyStr, bodyUnesc} {
-				for _, raw := range reMP4.FindAllString(src, -1) {
-					u := unescapeFacebookURL(raw)
-					u = strings.ReplaceAll(u, "&amp;", "&")
-					u = strings.ReplaceAll(u, `\/`, "/")
-					// Prefer m367/m366 as HD, m412 as SD
-					if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
-						if data.HDURL == "" {
-							data.HDURL = u
-						}
-					} else {
-						if data.SDURL == "" {
-							data.SDURL = u
-						}
-					}
-					if data.HDURL != "" || data.SDURL != "" {
-						// If we detected this is image post (9920), don't return video from feed - return image instead
-						if isImagePost && !isVideoPost {
-							// Skip video, go to image extraction
-							data.HDURL = ""
-							data.SDURL = ""
-							break
-						}
-						if strings.Contains(videoID, "3516044001877650") {
-							fmt.Printf("[DEBUG MP4] returning hd=%s sd=%s isImg=%v isVid=%v\n", data.HDURL[:100], data.SDURL[:100], isImagePost, isVideoPost)
-						}
-						return data, nil
-					}
-				}
-			}
-			// Second try: any /m4xx mp4 without requiring scontent (for 50617 len scontent=0 case)
-			reMP4Any := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
-			for _, src := range []string{bodyStr, bodyUnesc} {
-				for _, raw := range reMP4Any.FindAllString(src, -1) {
-					u := unescapeFacebookURL(raw)
-					u = strings.ReplaceAll(u, "&amp;", "&")
-					u = strings.ReplaceAll(u, `\/`, "/")
-					if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
-						if data.HDURL == "" {
-							data.HDURL = u
-						}
-					} else {
-						if data.SDURL == "" {
-							data.SDURL = u
-						}
-					}
-					if data.HDURL != "" || data.SDURL != "" {
-						if isImagePost && !isVideoPost {
-							data.HDURL = ""
-							data.SDURL = ""
-							break
-						}
-						return data, nil
-					}
-				}
-			}
-			// Progressive fallback for group videos like 3516044001877650 where m4 matches are feed videos that 403
-			// parseProgressiveURLsAndCaptionFromBody extracts videoDeliveryResponseResult.progressive_urls[] HD/SD
-			if isVideoPost {
-				if hdProg, sdProg, _ := parseProgressiveURLsAndCaptionFromBody(body, videoID); hdProg != "" || sdProg != "" {
-					if hdProg != "" {
-						data.HDURL = hdProg
-					}
-					if sdProg != "" {
-						data.SDURL = sdProg
-					}
-					if strings.Contains(videoID, "3516044001877650") {
-						fmt.Printf("[DEBUG PROG] id=%s prog hd=%s sd=%s\n", videoID, hdProg[:100], sdProg[:100])
-					}
-					if data.HDURL != "" || data.SDURL != "" {
-						return data, nil
-					}
-				}
-			}
-			// Third try: scontent without https prefix (relative or protocol-relative)
-			reScontentM4 := regexp.MustCompile(`scontent[^"' ]*/m4[0-9][^"' ]*\.mp4[^"' ]*`)
-			for _, raw := range reScontentM4.FindAllString(bodyUnesc, -1) {
-				u := raw
-				if !strings.HasPrefix(u, "http") {
-					u = "https://" + strings.TrimLeft(u, "/")
-				}
-				u = unescapeFacebookURL(u)
-				u = strings.ReplaceAll(u, "&amp;", "&")
-				if data.SDURL == "" {
-					data.SDURL = u
-					if isImagePost && !isVideoPost {
-						data.SDURL = ""
-						break
-					}
-					return data, nil
-				}
-			}
-			if data.HDURL != "" || data.SDURL != "" {
-				// found direct mp4, skip image extraction
-			} else {
-				// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
-				// Tested on share/p/1Cs9f4wm7M: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
-				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
-				// FIX for photo/?fbid=10246924783593277&set=gm.1728112355184367 group media: scontent URL has t39.30808-6/...jpg?stp= not oh=, need broaden
-				// If detected as image post, try to extract fresh scontent oh= images
-				if isImagePost {
-					var urls []string
-					seen := map[string]struct{}{}
-					// Fresh scontent with oh signature - primary, plus fallback for group media without oh= but with t39 jpg?stp=
-					reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*(?:oh=[^"' \s]+|t39\.30808-6/[^"' \s]+\.jpg[^"' \s]*)`)
-					for _, raw := range reFresh.FindAllString(string(body), -1) {
-						u := unescapeFacebookURL(raw)
-						u = strings.ReplaceAll(u, "&amp;", "&")
-						u = strings.ReplaceAll(u, `\/`, "/")
-						// filter tiny/profile icons - for 1EC9Yune9P has 4 but 1 is c256 s224 profile
-						if strings.Contains(u, "t39.30808-1") || strings.Contains(u, "p50x50") || strings.Contains(u, "p100x100") || strings.Contains(u, "s120x120") || strings.Contains(u, "s74x74") || strings.Contains(u, "s168x128") || strings.Contains(u, "p74x74") || strings.Contains(u, "emoji") || strings.Contains(u, "p120x120") || strings.Contains(u, "p32x32") || strings.Contains(u, "c256.") || strings.Contains(u, "_s224") || strings.Contains(u, "_s320") {
-							continue
-						}
-						// dedup by filename (without query)
-						fn := u
-						if idx := strings.Index(fn, "?"); idx != -1 {
-							fn = fn[:idx]
-						}
-						if idx := strings.LastIndex(fn, "/"); idx != -1 {
-							fn = fn[idx+1:]
-						}
-						if _, ok := seen[fn]; ok {
-							continue
-						}
-						seen[fn] = struct{}{}
-						urls = append(urls, u)
-						if len(urls) >= 10 {
-							break
-						}
-					}
-					if len(urls) > 0 {
-						// Cluster by album for multi-image posts like 1EC9Yune9P (3 gamba same album 4552750) and Googlebot 160 images case
-						if len(urls) > 4 {
-							grp := map[string][]string{}
-							for _, u := range urls {
-								fn := u
-								if idx := strings.Index(fn, "?"); idx != -1 {
-									fn = fn[:idx]
-								}
-								if idx := strings.LastIndex(fn, "/"); idx != -1 {
-									fn = fn[idx+1:]
-								}
-								parts := strings.Split(fn, "_")
-								prefix := ""
-								if len(parts) >= 2 && len(parts[1]) >= 7 {
-									prefix = parts[1][:7]
-								}
-								// Broaden multi-image detection: any t39.30808-6 or t15 or s1080x1920, not just 749/750/751
-								// Fixes "Ade post yg Ade multiple gamba tapi detect satu" for Googlebot 160 urls case
-								if prefix != "" && (strings.Contains(u, "t39.30808") || strings.Contains(u, "t15.") || strings.Contains(u, "p1080") || strings.Contains(u, "s720x720") || strings.Contains(u, "s1080x")) {
-									grp[prefix] = append(grp[prefix], u)
-								}
-							}
-							var best []string
-							for _, g := range grp {
-								if len(g) > len(best) {
-									best = g
-								}
-							}
-							// Only use cluster if best group has >=2 (multi-image post like 1EC9Yune9P 3 gamba)
-							// For single image posts like 3511 (749258980), best group size 1 -> keep single, don't return 10 feed images
-							if len(best) >= 2 && len(best) <= 10 {
-								urls = best
-							} else {
-								// Single image post or no cluster - check if Googlebot case with many images (160) but same post, keep up to 10 if anchored to ID section?
-								// For now keep first 1 to avoid feed pollution, but for Googlebot fallback with >50 urls, try keep more if post ID section has multiple
-								// Try anchored section extraction for multiple gamba
-								if sec := findImageSection(body, videoID); sec != nil && len(sec) > 1000 {
-									reImg := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
-									m := reImg.FindAllString(string(sec), -1)
-									if len(m) >= 2 && len(m) <= 10 {
-										// Dedup anchored
-										seen2 := map[string]struct{}{}
-										anchored := []string{}
-										for _, raw := range m {
-											u := unescapeFacebookURL(raw)
-											u = strings.ReplaceAll(u, "&amp;", "&")
-											fn := u
-											if idx := strings.Index(fn, "?"); idx != -1 {
-												fn = fn[:idx]
-											}
-											if _, ok := seen2[fn]; ok {
-												continue
-											}
-											seen2[fn] = struct{}{}
-											anchored = append(anchored, u)
-											if len(anchored) >= 10 {
-												break
-											}
-										}
-										if len(anchored) >= 2 {
-											urls = anchored
-										} else {
-											urls = urls[:1]
-										}
-									} else {
-										urls = urls[:1]
-									}
-								} else {
-									urls = urls[:1]
-								}
-							}
-						}
-						if len(urls) == 1 {
-							data.ImageURL = urls[0]
-						} else {
-							data.ImageURLs = urls
-						}
-					} else {
-
-						// Fallback to og:image if no fresh scontent found but is image post (e.g. 9920 t15 image)
-						if ogImgURL != "" {
-							// Check if og:image has oh= or is valid t15/t39 larger image
-							if strings.Contains(ogImgURL, "oh=") || strings.Contains(ogImgURL, "t15.") || strings.Contains(ogImgURL, "t39.") {
-								data.ImageURL = strings.ReplaceAll(ogImgURL, "&amp;", "&")
-							}
-						}
-					}
-				}
-			}
-		} else {
-			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.HDURL = unescapeFacebookURL(string(match[1]))
-			}
-			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.SDURL = unescapeFacebookURL(string(match[1]))
-			}
-			// REEL FALLBACKS REMOVED per user request: og:video (sve_sd 482KB flagged), browser_native_*, playable_url
-			// For non-reel (watch?v=, group video permalink) we keep progressive_url HD/SD only - main method
-		}
-	}
-	// title can be anywhere in the page
-	if match := titlePattern.FindSubmatch(body); len(match) >= 2 {
-		data.Title = unescapeUnicode(string(match[1]))
-	}
-	// HTML <title> tag often has fuller caption than og:title for m reels - prefer it if longer
-	if match := htmlTitlePattern.FindSubmatch(body); len(match) >= 2 {
-
-		t := unescapeUnicode(string(match[1]))
-		t = html.UnescapeString(t)
-		t = strings.TrimSpace(t)
-		// Remove zero-width unicode characters (LRM, RLM, ZWSP, etc.) that FB injects
-		t = strings.Map(func(r rune) rune {
-			switch r {
-			case 0x200E, 0x200F, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF:
-				return -1
-			}
-			return r
-		}, t)
-		t = strings.TrimSpace(t)
-		// Remove trailing "| Facebook" suffix
-		if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
-			t = t[:idx]
-		}
-		// Strip trailing page name like " | Modern Warfare - DS" or " | SameerGamer" if it looks like metadata
-		if idx := strings.LastIndex(t, " | "); idx != -1 {
-			suffix := t[idx+3:]
-			if len(suffix) < 50 && !strings.Contains(suffix, "#") && suffix != "" {
-				t = t[:idx]
-			}
-		}
-		t = strings.TrimSpace(t)
-		// Skip generic "Facebook" title
-		if len(t) > len(data.Title) && !isGenericFBTitle(t) {
-			data.Title = t
-		}
-	}
-
+// resolveCaption fills data.Title from the page body, preferring the caption
+// anchored to the video/post ID. Returns true when an anchored caption is
+// substantial and a video URL is already present (caller may return early).
+func resolveCaption(data *VideoData, body, section []byte, videoID, effectiveID string) bool {
 	// Facebook stores the post caption / description in several places
 	// depending on page variant. Collect all candidates and keep the
 	// longest one that actually looks like a caption (not a short token).
@@ -1487,7 +963,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 				if isSubstantial {
 					data.Title = anchoredCaption
 					if data.HDURL != "" || data.SDURL != "" {
-						return data, nil
+						return true
 					}
 				} else {
 					// not substantial, treat as candidate
@@ -1502,7 +978,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// BUG FIX: For group permalink posts (videoID len >= 15 numeric), if anchored already tried and empty,
 	// and we have video URL, DO NOT fallback to full-body scan which can pick feed captions (RMA bug).
 	// Only allow fallback for non-group or when no video section found.
-	// For share/p/1EKfYcssAD/ case, effectiveID is numeric 3516131025202281, so treat as group post
+	// For share/p/<code>/ case, effectiveID is numeric <id>, so treat as group post
 	isGroupPost := len(videoID) >= 15 || len(effectiveID) >= 15
 	if data.Title == "" || (data.HDURL == "" && data.SDURL == "") {
 		if isGroupPost && (data.HDURL != "" || data.SDURL != "") {
@@ -1572,37 +1048,484 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		}
 	}
 	data.Title = best
+	return false
+}
+
+// extractImages fills data.ImageURL/ImageURLs from the page body by scanning
+// fresh scontent "oh=" URLs, de-duplicated and clustered by album, falling
+// back to og:image. Only meaningful for image posts (isImagePost).
+func extractImages(data *VideoData, body []byte, isImagePost bool, ogImgURL, videoID string) {
+	if isImagePost {
+		var urls []string
+		seen := map[string]struct{}{}
+		// Fresh scontent with oh signature - primary, plus fallback for group media without oh= but with t39 jpg?stp=
+		reFresh := fbRe_scontentOh3
+		for _, raw := range reFresh.FindAllString(string(body), -1) {
+			u := unescapeFacebookURL(raw)
+			u = strings.ReplaceAll(u, "&amp;", "&")
+			u = strings.ReplaceAll(u, `\/`, "/")
+			// filter tiny/profile icons - for <code> has 4 but 1 is c256 s224 profile
+			if isTinyImageURL(u) {
+				continue
+			}
+			// dedup by filename (without query)
+			fn := imageFilename(u)
+			if _, ok := seen[fn]; ok {
+				continue
+			}
+			seen[fn] = struct{}{}
+			urls = append(urls, u)
+			if len(urls) >= 10 {
+				break
+			}
+		}
+		if len(urls) > 0 {
+			// Cluster by album for multi-image posts like <code> (3 gamba same album <id>) and Googlebot 160 images case
+			if len(urls) > 4 {
+				grp := map[string][]string{}
+				for _, u := range urls {
+					fn := imageFilename(u)
+					parts := strings.Split(fn, "_")
+					prefix := ""
+					if len(parts) >= 2 && len(parts[1]) >= 7 {
+						prefix = parts[1][:7]
+					}
+					// Broaden multi-image detection: any t39.30808-6 or t15 or s1080x1920, not just 749/750/751
+					// Fixes "Ade post yg Ade multiple gamba tapi detect satu" for Googlebot 160 urls case
+					if prefix != "" && (strings.Contains(u, "t39.30808") || strings.Contains(u, "t15.") || strings.Contains(u, "p1080") || strings.Contains(u, "s720x720") || strings.Contains(u, "s1080x")) {
+						grp[prefix] = append(grp[prefix], u)
+					}
+				}
+				var best []string
+				for _, g := range grp {
+					if len(g) > len(best) {
+						best = g
+					}
+				}
+				// Only use cluster if best group has >=2 (multi-image post like <code> 3 gamba)
+				// For single image posts like 3511 (<id>), best group size 1 -> keep single, don't return 10 feed images
+				if len(best) >= 2 && len(best) <= 10 {
+					urls = best
+				} else {
+					// Single image post or no cluster - check if Googlebot case with many images (160) but same post, keep up to 10 if anchored to ID section?
+					// For now keep first 1 to avoid feed pollution, but for Googlebot fallback with >50 urls, try keep more if post ID section has multiple
+					// Try anchored section extraction for multiple gamba
+					if sec := findImageSection(body, videoID); sec != nil && len(sec) > 1000 {
+						reImg := fbRe_scontentOh
+						m := reImg.FindAllString(string(sec), -1)
+						if len(m) >= 2 && len(m) <= 10 {
+							// Dedup anchored
+							seen2 := map[string]struct{}{}
+							anchored := []string{}
+							for _, raw := range m {
+								u := unescapeFacebookURL(raw)
+								u = strings.ReplaceAll(u, "&amp;", "&")
+								fn := u
+								if idx := strings.Index(fn, "?"); idx != -1 {
+									fn = fn[:idx]
+								}
+								if _, ok := seen2[fn]; ok {
+									continue
+								}
+								seen2[fn] = struct{}{}
+								anchored = append(anchored, u)
+								if len(anchored) >= 10 {
+									break
+								}
+							}
+							if len(anchored) >= 2 {
+								urls = anchored
+							} else {
+								urls = urls[:1]
+							}
+						} else {
+							urls = urls[:1]
+						}
+					} else {
+						urls = urls[:1]
+					}
+				}
+			}
+			if len(urls) == 1 {
+				data.ImageURL = urls[0]
+			} else {
+				data.ImageURLs = urls
+			}
+		} else {
+
+			// Fallback to og:image if no fresh scontent found but is image post (e.g. 9920 t15 image)
+			if ogImgURL != "" {
+				// Check if og:image has oh= or is valid t15/t39 larger image
+				if strings.Contains(ogImgURL, "oh=") || strings.Contains(ogImgURL, "t15.") || strings.Contains(ogImgURL, "t39.") {
+					data.ImageURL = strings.ReplaceAll(ogImgURL, "&amp;", "&")
+				}
+			}
+		}
+	}
+}
+
+func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
+	data := &VideoData{}
+
+	// FIX share/p/<code>/ -> real numeric ID <id> extraction for caption anchoring
+	// share/p codes are 10-char alphanumeric, not numeric, but body contains permalink with real ID
+	// Without this, anchored search for <code> finds nothing, falls back to full body longest (fiber 516 chars) -> wrong caption
+	effectiveID := videoID
+	isNumeric := func(s string) bool {
+		for _, c := range s {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+		return len(s) > 0
+	}
+	absInt := func(a int) int {
+		if a < 0 {
+			return -a
+		}
+		return a
+	}
+	if len(videoID) == 10 || (len(videoID) >= 8 && len(videoID) <= 11 && !isNumeric(videoID)) {
+		// Try extract story_id or permalink numeric ID near <code>
+		// Pattern in Googlebot body: "story_id":"<id>" near share_url param
+		reStory := fbRe_storyID
+		if m := reStory.FindSubmatch(body); len(m) >= 2 {
+			candidate := string(m[1])
+			// Ensure candidate appears near the share code to avoid feed contamination
+			// Check if both IDs are within 2k of each other in body
+			idxShare := bytes.Index(body, []byte(videoID))
+			idxReal := bytes.Index(body, []byte(candidate))
+			if idxShare != -1 && idxReal != -1 && absInt(idxShare-idxReal) < 5000 {
+				effectiveID = candidate
+			} else if idxShare == -1 {
+				// share code not in body but story_id exists, likely real ID for this page
+				// Use it if title matches <page> etc? For now use first story_id if page is share/p
+				// Only if permalink pattern exists nearby
+				if bytes.Contains(body, []byte("/permalink/")) {
+					effectiveID = candidate
+				}
+			}
+		}
+		// Fallback: permalink/(\d+)/
+		if effectiveID == videoID {
+			rePerm := fbRe_permalink2
+			if m := rePerm.FindSubmatch(body); len(m) >= 2 {
+				effectiveID = string(m[1])
+			}
+		}
+	}
+
+	// DETECT IMAGE vs VIDEO first - per user request "test sekali tuk image kalu x detect image kirenye ko Salah lagi"
+	// For group posts like <id> <page> and <id> <page>:
+	// - section = findVideoSection for post ID - if section has m4/hd_src, it's VIDEO, if no m4 in section but og:image t15/t39 present, it's IMAGE
+	// This fixes "Masalahnye post tu Ade gamba takde video" - post has image, no video, but we gave video from feed (wrong)
+	// Also fixes story vs post: story video 10s 140K is not post, post is image
+
+	// First find section belonging to this post ID (critical for group posts to avoid feed videos)
+	sectionEarly := findVideoSection(body, effectiveID)
+	if sectionEarly == nil {
+		sectionEarly = findVideoSection(body, videoID)
+	}
+	// Group permalink posts can carry a numeric post ID that differs from the
+	// numeric video ID, and the HTML only anchors dash_mpd_debug.mpd?v= on the
+	// video ID. Both lookups above then miss and a later full-body scan grabs
+	// the first progressive URL from an unrelated feed video. Resolve the post's
+	// own video and re-anchor on it so section + caption stay on the right post.
+	if sectionEarly == nil {
+		if rsec, rvid := resolvePostVideoSection(body, effectiveID); rsec != nil {
+			sectionEarly, effectiveID = rsec, rvid
+		} else if effectiveID != videoID {
+			if rsec, rvid := resolvePostVideoSection(body, videoID); rsec != nil {
+				sectionEarly, effectiveID = rsec, rvid
+			}
+		}
+	}
+	// Also try with effectiveID for image section
+	// Check for video indicators IN SECTION (not full body which has feed videos)
+	var hasM4InSection bool
+	var hasHdSdInSection bool
+	if sectionEarly != nil && len(sectionEarly) > 0 {
+		sSec := string(sectionEarly)
+		reM4Sec := fbRe_m4
+		reM4EscSec := fbRe_m42
+		hasM4InSection = len(reM4Sec.FindAllString(sSec, -1))+len(reM4EscSec.FindAllString(sSec, -1)) > 0
+		hasHdSdInSection = strings.Contains(sSec, "\"hd_src\"") || strings.Contains(sSec, "\"sd_src\"")
+	}
+
+	isImagePost := false
+	isVideoPost := false
+
+	// Check for video indicators in full body as fallback for non-group posts
+	reM4Check := fbRe_m4
+	reM4EscCheck := fbRe_m42
+	reHdCheck := fbRe_hdSrc
+	reSdCheck := fbRe_sdSrc
+	reOgVideoCheck := fbRe_ogVideo
+	sBody := string(body)
+	hasM4Full := len(reM4Check.FindAllString(sBody, -1))+len(reM4EscCheck.FindAllString(sBody, -1)) > 0
+	hasHdSdFull := reHdCheck.MatchString(sBody) || reSdCheck.MatchString(sBody)
+	hasOgVideoFull := reOgVideoCheck.MatchString(sBody)
+
+	// For group posts: use section check, not full body (full body has feed videos causing wrong detection)
+	if len(videoID) >= 15 {
+		// Group post ID - rely on section, not full body
+		if hasM4InSection || hasHdSdInSection {
+			isVideoPost = true
+		} else {
+			// FIX for group video posts where post ID != video ID e.g. groups/<id>/permalink/<id>
+			// dash_mpd_debug v=ID not found because video inside has different ID <id>, progressive 30 m4 36 in body
+			// If section not found (nil) and full body has m4/progressive, treat as video (Googlebot fallback case)
+			if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
+				isVideoPost = true
+			} else {
+				// No video in section = image post (per user "Ade gamba takde video")
+				isVideoPost = false
+			}
+		}
+	} else {
+		// Non-group or reel: use full body
+		if hasM4Full || hasHdSdFull || hasOgVideoFull {
+			isVideoPost = true
+		}
+	}
+
+	// Check for image indicators - og:image t15 (photo posts) or t39 (video thumbnails but also image posts)
+	reOgImgCheck := fbRe_ogImage
+	var ogImgURL string
+	if m := reOgImgCheck.FindSubmatch(body); len(m) >= 2 {
+		ogImgURL = string(m[1])
+	}
+	// If has og:image and no video in SECTION, it's image post
+	if ogImgURL != "" {
+		if !strings.Contains(ogImgURL, "s74x74") && !strings.Contains(ogImgURL, "s120x120") && !strings.Contains(ogImgURL, "s168x128") && !strings.Contains(ogImgURL, "p74x74") {
+			// For group posts: if section has no video, it's image even if full body has video (feed)
+			// FIX: but if full body has m4/progressive and section is nil (post ID != video ID e.g. <id> has m4 36 progressive 30), treat as video not image
+			if len(videoID) >= 15 {
+				if !hasM4InSection && !hasHdSdInSection {
+					// If section nil and full body has video (Googlebot fallback), don't mark as image
+					if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
+						// keep as video, not image
+					} else {
+						isImagePost = true
+						isVideoPost = false
+					}
+				}
+			} else {
+				if !isVideoPost {
+					isImagePost = true
+				}
+			}
+		}
+	}
+	// For fbhit body 3.9M (facebookexternalhit UA) og:image is often empty but section has no m4/hd_src
+	// Still treat as image post if section is empty (no video) for group posts with len>=15
+	// Fixes <code> 3 gamba: fbhit 3.9M og:image empty but section m4=0 hd_src=false -> isImagePost should be true
+	// FIX group video post <id> has m4 36 progressive 30 but section nil (post ID != video ID) -> video not image
+	if len(videoID) >= 15 && !hasM4InSection && !hasHdSdInSection && !isVideoPost && !isImagePost {
+		if (sectionEarly == nil || len(sectionEarly) == 0) && (hasM4Full || strings.Contains(sBody, "progressive_url")) {
+			// video, skip image marking
+		} else {
+			reFreshCheck := fbRe_scontentOh2
+			if reFreshCheck.MatchString(string(body)) {
+				isImagePost = true
+			}
+		}
+	}
+
+	// Final: if marked as video, ensure not also marked as image
+	if isVideoPost {
+		isImagePost = false
+	}
+
+	// find the section belonging to the requested video
+	// NEVER fallback to full body when section not found - this prevents photo posts like share/p
+	// returning random video from feed (<page> bug). All video pages have dash_mpd_debug marker,
+	// so section==nil means it's a photo/album post or blocked page - return image or error.
+	section := sectionEarly
+	if section == nil {
+		section = []byte{}
+	}
+
+	if match := hdURLPattern.FindSubmatch(section); len(match) >= 2 {
+		data.HDURL = unescapeFacebookURL(string(match[1]))
+	}
+	if match := sdURLPattern.FindSubmatch(section); len(match) >= 2 {
+		data.SDURL = unescapeFacebookURL(string(match[1]))
+	}
+
+	// findVideoSection anchors on dash_mpd_debug.mpd?v=VIDEO_ID and bounds
+	// the block by the following "id":"VIDEO_ID" marker. On some page
+	// variants that marker lands BEFORE the progressive_url's trailing
+	// failure_reason/metadata (which carries the HD/SD quality), so the
+	// URL regexes above cannot match inside the truncated slice and we
+	// end up with no URLs even though the page clearly has them. Retry
+	// on the full body (single-video posts/reels) so the extraction does
+	// not falsely fail. Caption extraction already runs against body.
+	if data.HDURL == "" && data.SDURL == "" {
+		// Don't fallback to full body if we already determined it's feed/photo (section empty)
+		if len(section) == 0 {
+			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. <code> <id> 488x358 22s 641KB)
+			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
+			// For group posts like <id>, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
+			// So for group videos with section nil and isVideoPost true, prefer progressive first
+			if isVideoPost && len(videoID) >= 10 {
+				if tryProgressiveVideo(data, body, videoID) {
+					return data, nil
+				}
+			}
+			reMP4 := fbRe_m4Mp42
+			bodyStr := string(body)
+			// Also try unescaped version by replacing \/ -> / for regex matching
+			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
+			for _, src := range []string{bodyStr, bodyUnesc} {
+				for _, raw := range reMP4.FindAllString(src, -1) {
+					u := unescapeFacebookURL(raw)
+					u = strings.ReplaceAll(u, "&amp;", "&")
+					u = strings.ReplaceAll(u, `\/`, "/")
+					// Prefer m367/m366 as HD, m412 as SD
+					assignVideoQuality(data, u)
+					if data.HDURL != "" || data.SDURL != "" {
+						// If we detected this is image post (9920), don't return video from feed - return image instead
+						if isImagePost && !isVideoPost {
+							// Skip video, go to image extraction
+							data.HDURL = ""
+							data.SDURL = ""
+							break
+						}
+						return data, nil
+					}
+				}
+			}
+			// Second try: any /m4xx mp4 without requiring scontent (for 50617 len scontent=0 case)
+			reMP4Any := fbRe_m4Mp43
+			for _, src := range []string{bodyStr, bodyUnesc} {
+				for _, raw := range reMP4Any.FindAllString(src, -1) {
+					u := unescapeFacebookURL(raw)
+					u = strings.ReplaceAll(u, "&amp;", "&")
+					u = strings.ReplaceAll(u, `\/`, "/")
+					assignVideoQuality(data, u)
+					if data.HDURL != "" || data.SDURL != "" {
+						if isImagePost && !isVideoPost {
+							data.HDURL = ""
+							data.SDURL = ""
+							break
+						}
+						return data, nil
+					}
+				}
+			}
+			// Progressive fallback for group videos like <id> where m4 matches are feed videos that 403
+			// parseProgressiveURLsAndCaptionFromBody extracts videoDeliveryResponseResult.progressive_urls[] HD/SD
+			if isVideoPost {
+				if tryProgressiveVideo(data, body, videoID) {
+					return data, nil
+				}
+			}
+			// Third try: scontent without https prefix (relative or protocol-relative)
+			reScontentM4 := fbRe_m4Mp44
+			for _, raw := range reScontentM4.FindAllString(bodyUnesc, -1) {
+				u := raw
+				if !strings.HasPrefix(u, "http") {
+					u = "https://" + strings.TrimLeft(u, "/")
+				}
+				u = unescapeFacebookURL(u)
+				u = strings.ReplaceAll(u, "&amp;", "&")
+				if data.SDURL == "" {
+					data.SDURL = u
+					if isImagePost && !isVideoPost {
+						data.SDURL = ""
+						break
+					}
+					return data, nil
+				}
+			}
+			if data.HDURL != "" || data.SDURL != "" {
+				// found direct mp4, skip image extraction
+			} else {
+				// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
+				// Tested on share/p/<code>: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
+				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
+				// FIX for photo/?fbid=<id>&set=gm.<id> group media: scontent URL has t39.30808-6/...jpg?stp= not oh=, need broaden
+				// If detected as image post, try to extract fresh scontent oh= images
+				if isImagePost {
+					extractImages(data, body, isImagePost, ogImgURL, videoID)
+				}
+
+			}
+		} else {
+			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.HDURL = unescapeFacebookURL(string(match[1]))
+			}
+			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
+				data.SDURL = unescapeFacebookURL(string(match[1]))
+			}
+			// REEL FALLBACKS REMOVED per user request: og:video (sve_sd 482KB flagged), browser_native_*, playable_url
+			// For non-reel (watch?v=, group video permalink) we keep progressive_url HD/SD only - main method
+		}
+	}
+	// title can be anywhere in the page
+	if match := titlePattern.FindSubmatch(body); len(match) >= 2 {
+		data.Title = unescapeUnicode(string(match[1]))
+	}
+	// HTML <title> tag often has fuller caption than og:title for m reels - prefer it if longer
+	if match := htmlTitlePattern.FindSubmatch(body); len(match) >= 2 {
+
+		t := unescapeUnicode(string(match[1]))
+		t = html.UnescapeString(t)
+		t = strings.TrimSpace(t)
+		// Remove zero-width unicode characters (LRM, RLM, ZWSP, etc.) that FB injects
+		t = strings.Map(func(r rune) rune {
+			switch r {
+			case 0x200E, 0x200F, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF:
+				return -1
+			}
+			return r
+		}, t)
+		t = strings.TrimSpace(t)
+		// Remove trailing "| Facebook" suffix
+		if idx := strings.LastIndex(t, " | Facebook"); idx != -1 {
+			t = t[:idx]
+		}
+		// Strip trailing page name like " | <page> - DS" or " | <page>" if it looks like metadata
+		if idx := strings.LastIndex(t, " | "); idx != -1 {
+			suffix := t[idx+3:]
+			if len(suffix) < 50 && !strings.Contains(suffix, "#") && suffix != "" {
+				t = t[:idx]
+			}
+		}
+		t = strings.TrimSpace(t)
+		// Skip generic "Facebook" title
+		if len(t) > len(data.Title) && !isGenericFBTitle(t) {
+			data.Title = t
+		}
+	}
+
+	if resolveCaption(data, body, section, videoID, effectiveID) {
+		return data, nil
+	}
 
 	// For photo posts we already have ImageURL/ImageURLs, return even if no video URLs
 	if data.ImageURL != "" || len(data.ImageURLs) > 0 {
 		return data, nil
 	}
 	if data.HDURL == "" && data.SDURL == "" {
-		// Debug for 18znZbiVx6 groups permalink no video case - log body stats
-		// User method m.facebook.com/.../videos/...?idorvanity=...&_rdr with yt-dlp --cookies-from-browser works for 1781503120/videos/7474538999333403
+		// Debug for <code> groups permalink no video case - log body stats
+		// User method m.facebook.com/.../videos/...?idorvanity=...&_rdr with yt-dlp --cookies-from-browser works for <id>/videos/<id>
 		// This body len=50617 scontent=0 oh=1 m4=1 had m412 but no scontent string due to escaped &amp; or different domain
 		s := string(body)
-		sc := len(regexp.MustCompile(`scontent`).FindAllStringIndex(s, -1))
-		oh := len(regexp.MustCompile(`oh=`).FindAllStringIndex(s, -1))
+		sc := len(fbRe_scontent.FindAllStringIndex(s, -1))
+		oh := len(fbRe_scontentOh4.FindAllStringIndex(s, -1))
 		// Count m4 mp4 more strictly, not SVG path m410.52
-		m4 := len(regexp.MustCompile(`m4[0-9][^"']*\.mp4`).FindAllStringIndex(s, -1))
+		m4 := len(fbRe_m4Mp45.FindAllStringIndex(s, -1))
 		// Try more permissive mp4 without scontent requirement for this case - handle escaped \/
 		if m4 > 0 {
 			// Handle both https:// and https:\/\/
-			reMP4b := regexp.MustCompile(`https?:\\?/\\?/[^"' ]*?/m4[0-9][^"' ]*\.mp4[^"' ]*`)
+			reMP4b := fbRe_m4Mp46
 			for _, raw := range reMP4b.FindAllString(s, -1) {
 				u := unescapeFacebookURL(raw)
 				u = strings.ReplaceAll(u, "&amp;", "&")
 				u = strings.ReplaceAll(u, `\/`, "/")
-				if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
-					if data.HDURL == "" {
-						data.HDURL = u
-					}
-				} else {
-					if data.SDURL == "" {
-						data.SDURL = u
-					}
-				}
+				assignVideoQuality(data, u)
 				if data.HDURL != "" || data.SDURL != "" {
 					return data, nil
 				}
@@ -1611,7 +1534,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		// Detection image vs video dulu - try image scontent oh= as fallback before error
 		// For story/photo that Ade gamba, return image instead of failing with 3CD8E238
 		if sc > 0 && oh > 0 {
-			reFresh := regexp.MustCompile(`https://[^"' \s]*scontent[^"' \s]*oh=[^"' \s]+`)
+			reFresh := fbRe_scontentOh
 			urls := reFresh.FindAllString(s, -1)
 			if len(urls) > 0 {
 				// Fresh scontent with oh
@@ -1628,7 +1551,7 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 		if strings.Contains(low, "story") && (strings.Contains(low, "not available") || strings.Contains(low, "expired") || strings.Contains(low, "unavailable") || strings.Contains(low, "content isn't") || strings.Contains(low, "isn't available")) {
 			return nil, fmt.Errorf("facebook story may have expired or is not accessible (len=%d id=%s) - story not available", len(body), videoID)
 		}
-		// For story.php with no media at all (sc=0 m4=0), treat as expired - most reliable for 1407342004542486 case len 50434
+		// For story.php with no media at all (sc=0 m4=0), treat as expired - most reliable for <id> case len 50434
 		if sc == 0 && m4 == 0 {
 			// Try if body still has story_fbid marker or just short len
 			if strings.Contains(s, "story_fbid") || strings.Contains(s, "story.php") || len(body) < 60000 {
@@ -1663,10 +1586,10 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 		window := body[start:absIdx]
 		// Prioritize savable_description (original caption) over generic message.text (sharer's comment)
 		// ytdl: savable_description.text is original, comet_sections.message.story.message.text is also original
-		// Generic message.text can be sharer's comment when sharing via share/v/ (e.g. "When she's into plastic crack" for 2849405465418099)
-		// For private group share/v/1HfKCkk2V1/ -> 284940..., we have 34 occurrences of ID with different nearby sharer comments (When she's..., Illie..., When you want...), causing random caption.
+		// Generic message.text can be sharer's comment when sharing via share/v/ (e.g. "<caption>" for <id>)
+		// For private group share/v/<code>/ -> 284940..., we have 34 occurrences of ID with different nearby sharer comments (When she's..., <caption>, When you want...), causing random caption.
 		// Fix: try savable_description first, then comet_sections specific, then generic message as last resort, and prioritize original over sharer's comment.
-		savRe := regexp.MustCompile(`"savable_description":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+		savRe := fbRe_savableDesc
 		if mm := savRe.FindAllSubmatch(window, -1); len(mm) > 0 {
 			for i := len(mm) - 1; i >= 0; i-- {
 				m := mm[i]
@@ -1701,10 +1624,10 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 			}
 		}
 		// Then try comet_sections specific (original) - REMOVED for private group share/v fix
-		// For 284940... savable_description not found, comet_sections contains sharer's comments like TBH THO AY..., Big W..., 2016 #2016...
+		// For 284940... savable_description not found, comet_sections contains sharer's comments like <page> <caption>, <page>..., 2016 #2016...
 		// These are NOT original, they are share comments. So we skip comet_sections and return empty if no savable found.
-		// For private group share/v like 1HfKCkk2V1 -> 2849405465418099, we have 34 occurrences of ID with nearby sharer comments
-		// "When she's into plastic crack", "Illie...", "When you want to get paid", "Big W..." - these are NOT original caption,
+		// For private group share/v like <code> -> <id>, we have 34 occurrences of ID with nearby sharer comments
+		// "<caption>", "<caption>", "<caption>", "<page>..." - these are NOT original caption,
 		// they are other people's comments when they shared same video to different groups.
 		// Original caption for 284940... is empty (Only members can see...) - user said "Takde" is okay.
 		// So we do NOT fallback to comet_sections/messagePattern here, to avoid picking sharer's comment as caption.
@@ -1712,9 +1635,9 @@ func findCaptionAnchoredToID(body []byte, videoID string) string {
 		offset = absIdx + len(idMarker)
 	}
 	// No savable_description original found in any window anchored to ID - return empty, not generic feed caption
-	// This fixes 284940... random caption bug: 9 different captions for same file 1356377 bytes
+	// This fixes 284940... random caption bug: 9 different captions for same file <id> bytes
 	// comet_sections and generic messagePattern removed to prevent picking sharer's comment as caption for private group shares
-	// For private group share/v like 1HfKCkk2V1, original has no public caption (Only members...), so return empty (header only) as user said Takde is okay
+	// For private group share/v like <code>, original has no public caption (Only members...), so return empty (header only) as user said Takde is okay
 	return ""
 }
 
@@ -1962,8 +1885,8 @@ func resolvePostVideoSection(body []byte, postID string) ([]byte, string) {
 	if postID == "" {
 		return nil, ""
 	}
-	reAttach := regexp.MustCompile(`"__typename"\s*:\s*"Video"\s*,\s*"id"\s*:\s*"(\d{6,})"`)
-	reAnchor := regexp.MustCompile(`dash_mpd_debug\.mpd\?v=(\d{6,})`)
+	reAttach := fbRe_videoNode
+	reAnchor := fbRe_dashMpd
 	anchors := reAnchor.FindAllSubmatchIndex(body, -1)
 
 	// tier 1: attachment video ID right after a post ID occurrence
@@ -2541,17 +2464,17 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 	// 1) Try data-sjs ScheduledServerJS JSON -> creation_story.comet_sections.message.story.message.text
 	// Pattern same as ytdl: re.findall(r'data-sjs>({.*?ScheduledServerJS.*?})</script>', webpage)
 	// We look for message text near videoID
-	// FIX for private group share/v/1HfKCkk2V1/ -> 2849405465418099: 10 different captions for same file 1356377 bytes
+	// FIX for private group share/v/<code>/ -> <id>: 10 different captions for same file <id> bytes
 	// Original has no public caption (Only members...), but data-sjs contains 34 occurrences of ID with nearby sharer comments
-	// TBH THO AY..., Big W..., 2016 #2016..., When she's..., #greentreepython... etc are sharer's comments, not original
+	// <page> <caption>, <page>..., 2016 #2016..., When she's..., #<page>python... etc are sharer's comments, not original
 	// If private group placeholder found, return empty to avoid picking sharer's comment as caption - user said Takde is okay
 	if strings.Contains(strings.ToLower(body), "only members can see") {
-		// For share/v/1HfKCkk2V1/ private group 459562825549584, original has no caption, user said Takde is okay
-		// Avoid picking sharer's comments like TBH THO AY..., When she's..., #greentreepython... etc from data-sjs
+		// For share/v/<code>/ private group <id>, original has no caption, user said Takde is okay
+		// Avoid picking sharer's comments like <page> <caption>, When she's..., #<page>python... etc from data-sjs
 		return ""
 	}
 	// Prioritize savable_description first (original)
-	savFirstRe := regexp.MustCompile(`"savable_description":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	savFirstRe := fbRe_savableDesc
 	if mm := savFirstRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
 		t := unescapeUnicode(string(mm[1]))
 		t = html.UnescapeString(t)
@@ -2566,11 +2489,11 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 	}
 	// If private group placeholder and no savable original, return empty to avoid picking sharer's comment as caption
 	if strings.Contains(strings.ToLower(body), "only members can see") {
-		// For share/v/1HfKCkk2V1/ private group 459562825549584, original has no caption, user said Takde is okay
-		// Avoid picking sharer's comments like TBH THO AY..., When she's..., etc from data-sjs
+		// For share/v/<code>/ private group <id>, original has no caption, user said Takde is okay
+		// Avoid picking sharer's comments like <page> <caption>, When she's..., etc from data-sjs
 		return ""
 	}
-	sjsRe := regexp.MustCompile(`data-sjs>(\{.*?ScheduledServerJS.*?\})</script>`)
+	sjsRe := fbRe_dataSjs
 	matches := sjsRe.FindAllStringSubmatch(body, -1)
 	for _, m := range matches {
 		if len(m) < 2 {
@@ -2580,10 +2503,10 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 		// quick check if this chunk contains our videoID (for faster filter, but don't skip if not - caption may be in nearby chunk)
 		// ytdl: creation_story.comet_sections.message.story.message.text
 		// For reels, best is to parse comet_sections.message.story.message.text directly
-		// Pattern from dump: "comet_sections":{"message":{"__typename":...,"story":{"message":{"text":"Peak era Kacang"
-		// Allow short captions like "Peak era Kacang" (15 chars) - ytdl allows any length
+		// Pattern from dump: "comet_sections":{"message":{"__typename":...,"story":{"message":{"text":"<page> <page>"
+		// Allow short captions like "<page> <page>" (15 chars) - ytdl allows any length
 		// Use proper escaped-string regex like messagePattern to handle \ud83d\udc55 \u0040 escapes (👕 @)
-		csCometRe := regexp.MustCompile(`"comet_sections":\s*\{\s*"message":\s*\{[^}]*"story":\s*\{\s*"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+		csCometRe := fbRe_cometMsg
 		if cm := csCometRe.FindAllStringSubmatch(chunk, -1); len(cm) > 0 {
 			best := ""
 			for _, c := range cm {
@@ -2604,7 +2527,7 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 				if t == "" {
 					continue
 				}
-				// Prefer longer but accept short like Peak era Kacang
+				// Prefer longer but accept short like <page> <page>
 				if len(t) > len(best) {
 					best = t
 				}
@@ -2628,7 +2551,7 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 	}
 
 	// 3) Try savable_description - ytdl also checks savable_description.text
-	savRe := regexp.MustCompile(`"savable_description":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	savRe := fbRe_savableDesc
 	if mm := savRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
 		t := unescapeUnicode(string(mm[1]))
 		t = html.UnescapeString(t)
@@ -2689,7 +2612,7 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 		return "", "", ""
 	}
 	// YTDL fetches https://www.facebook.com/watch/?v=ID (not reel) for videoDelivery data
-	// It saves pages as 1629543978304761_https_-_www.facebook.com_watch_v=1629543978304761__rdr.dump
+	// It saves pages as a page dump filename
 	watchURL := "https://www.facebook.com/watch/?v=" + videoID
 	resp, err := ctx.Fetch(http.MethodGet, watchURL, &networking.RequestParams{
 		Headers: map[string]string{
@@ -2727,11 +2650,11 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 }
 
 func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL, sdURL, title string) {
-	// HD-ONLY spec but fallback to SD when HD not available (e.g. 2122477312020350 only SD m412)
+	// HD-ONLY spec but fallback to SD when HD not available (e.g. <id> only SD m412)
 	// Extract HD first, then SD as fallback to avoid BD929D77
-	// Quality distance can be 820-1236 chars (1052595284124556 SD 820, HD 1236) so need window >1000
+	// Quality distance can be 820-1236 chars (<id> SD 820, HD 1236) so need window >1000
 	// Go RE2 max repeat is 1000, so {0,2000} invalid -> use {0,1000}{0,1000} = 2000
-	combinedReHD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(hd)"`)
+	combinedReHD := fbRe_progURL
 	matchesHD := combinedReHD.FindAllSubmatch(body, -1)
 	for _, m := range matchesHD {
 		if len(m) < 3 {
@@ -2743,8 +2666,8 @@ func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL,
 			break // HD-ONLY: take first HD
 		}
 	}
-	// SD fallback for reels like 2122477312020350 that only have SD m412 (Googlebot 2640968 prog 2 m367 0 m4 2 SD only) and 1052595284124556 (HD 1236, SD 820 distance)
-	combinedReSD := regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(sd)"`)
+	// SD fallback for reels like <id> that only have SD m412 (Googlebot <id> prog 2 m367 0 m4 2 SD only) and <id> (HD 1236, SD 820 distance)
+	combinedReSD := fbRe_progURL2
 	matchesSD := combinedReSD.FindAllSubmatch(body, -1)
 	for _, m := range matchesSD {
 		if len(m) < 3 {
@@ -2764,14 +2687,14 @@ func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL,
 func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 	// Reuse comet_sections.message.story.message.text parsing from tryFetchReelCaptionViaGraphQL
 	// This is called from progressive parsing path too to get caption
-	sjsRe := regexp.MustCompile(`data-sjs>(\{.*?ScheduledServerJS.*?\})</script>`)
+	sjsRe := fbRe_dataSjs
 	matches := sjsRe.FindAllSubmatch(body, -1)
 	for _, m := range matches {
 		if len(m) < 2 {
 			continue
 		}
 		chunk := m[1]
-		csCometRe := regexp.MustCompile(`"comet_sections":\s*\{\s*"message":\s*\{[^}]*"story":\s*\{\s*"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+		csCometRe := fbRe_cometMsg
 		if cm := csCometRe.FindAllSubmatch(chunk, -1); len(cm) > 0 {
 			best := ""
 			for _, c := range cm {
@@ -2801,10 +2724,10 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 			}
 		}
 	}
-	// Fallback to <title> for group permalink posts like 1932193070782736 (freememe) where savable/comet 0
-	// Title example: "免費迷因 | Free Memes | #譯 隆重介紹：義大利蜘蛛人" -> caption "#譯 隆重介紹：義大利蜘蛛人"
-	// Also for 1SCLuTCw93 which has no savable/comet, use title last part after |
-	titleRe := regexp.MustCompile(`<title[^>]*>(.*?)</title>`)
+	// Fallback to <title> for group permalink posts like <id> (<code>) where savable/comet 0
+	// Title example: "<page> | <page> | #譯 隆重介紹：義大利<page>" -> caption "#譯 隆重介紹：義大利<page>"
+	// Also for <code> which has no savable/comet, use title last part after |
+	titleRe := fbRe_htmlTitle
 	if mm := titleRe.FindSubmatch(body); len(mm) >= 2 {
 		rawTitle := string(mm[1])
 		rawTitle = html.UnescapeString(rawTitle)
@@ -2824,8 +2747,8 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 			candidate = cleanFacebookCaption(candidate)
 			// Filter out if candidate is just group name or too short and not hashtag?
 			if candidate != "" && len(candidate) >= 3 {
-				// Avoid returning just "Free Memes" etc if it's group name, but allow if contains # or non-ASCII (Chinese) etc
-				// For 1932193070782736, candidate is "#譯 隆重介紹：義大利蜘蛛人" which contains # and Chinese, valid
+				// Avoid returning just "<page>" etc if it's group name, but allow if contains # or non-ASCII (Chinese) etc
+				// For <id>, candidate is "#譯 隆重介紹：義大利<page>" which contains # and Chinese, valid
 				return candidate
 			}
 		}
