@@ -382,8 +382,12 @@ func extractPostSection(s, code string) string {
 	return s[start:]
 }
 
+var (
+	reCaptionText = regexp.MustCompile(`"caption":\{"text":"((?:[^"\\]|\\.)*)"`)
+)
+
 func extractCaption(s string) string {
-	re := regexp.MustCompile(`"caption":\{"text":"((?:[^"\\]|\\.)*)"`)
+	re := reCaptionText
 	m := re.FindStringSubmatch(s)
 	if len(m) < 2 {
 		return ""

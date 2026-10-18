@@ -23,7 +23,6 @@ import (
 	"github.com/govdbot/govd/internal/util"
 
 	"github.com/bytedance/sonic"
-	"github.com/titanous/json5"
 )
 
 const (
@@ -133,39 +132,6 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 	}
 
 	return media, nil
-}
-
-func ParseEmbedGQL(body []byte) (*Media, error) {
-	match := embedPattern.FindSubmatch(body)
-	if len(match) < 2 {
-		return nil, fmt.Errorf("gql json not found")
-	}
-	jsonData := match[1]
-
-	var data map[string]any
-	if err := json5.Unmarshal(jsonData, &data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
-	}
-	igCtx := util.TraverseJSON(data, "contextJSON")
-	if igCtx == nil {
-		return nil, fmt.Errorf("contextJSON not found")
-	}
-	var ctxJSON ContextJSON
-	switch v := igCtx.(type) {
-	case string:
-		if err := json5.Unmarshal([]byte(v), &ctxJSON); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal contextJSON: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("unexpected type for contextJSON: %T", v)
-	}
-	if ctxJSON.GqlData == nil {
-		return nil, fmt.Errorf("gql_data not found")
-	}
-	if ctxJSON.GqlData.ShortcodeMedia == nil {
-		return nil, fmt.Errorf("shortcode_media not found")
-	}
-	return ctxJSON.GqlData.ShortcodeMedia, nil
 }
 
 func IGramBodyFromURL(contentURL string) (io.Reader, error) {
@@ -281,82 +247,6 @@ func ParseIGramResponse(body []byte) (*IGramResponse, error) {
 	return &IGramResponse{
 		Items: []*IGramMedia{&media},
 	}, nil
-}
-
-func GetCDNURL(contentURL string) (string, error) {
-	parsedURL, err := url.Parse(contentURL)
-	if err != nil {
-		return "", fmt.Errorf("can't parse igram URL: %w", err)
-	}
-	queryParams, err := url.ParseQuery(parsedURL.RawQuery)
-	if err != nil {
-		return "", fmt.Errorf("can't unescape igram URL: %w", err)
-	}
-	cdnURL := queryParams.Get("uri")
-	return cdnURL, nil
-}
-
-func GetGQLData(ctx *models.ExtractorContext) (*GraphQLData, error) {
-	graphHeaders, body, err := BuildGQLData()
-	if err != nil {
-		return nil, fmt.Errorf("failed to build GQL data: %w", err)
-	}
-	formData := url.Values{}
-	for key, value := range body {
-		formData.Set(key, value)
-	}
-	formData.Set("fb_api_caller_class", "RelayModern")
-	formData.Set("fb_api_req_friendly_name", polarisAction)
-	variables := map[string]any{
-		"shortcode":               ctx.ContentID,
-		"fetch_tagged_user_count": nil,
-		"hoisted_comment_id":      nil,
-		"hoisted_reply_id":        nil,
-	}
-	variablesJSON, err := sonic.ConfigFastest.Marshal(variables)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal variables: %w", err)
-	}
-	formData.Set("variables", string(variablesJSON))
-	formData.Set("server_timestamps", "true")
-	formData.Set("doc_id", "8845758582119845") // idk what this is
-
-	for key, value := range webHeaders {
-		graphHeaders[key] = value
-	}
-	resp, err := ctx.Fetch(
-		http.MethodPost,
-		graphQLEndpoint,
-		&networking.RequestParams{
-			Headers: graphHeaders,
-			Body:    strings.NewReader(formData.Encode()),
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	logger.WriteFile("iggql_api_response", resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("invalid response code: %s", resp.Status)
-	}
-	var response GraphQLResponse
-	decoder := sonic.ConfigFastest.NewDecoder(resp.Body)
-	if err := decoder.Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-	if response.Data == nil {
-		return nil, fmt.Errorf("data is nil")
-	}
-	if response.Status != "ok" {
-		return nil, fmt.Errorf("status is not ok: %s", response.Status)
-	}
-	if response.Data.ShortcodeMedia == nil {
-		return nil, fmt.Errorf("shortcode_media is nil")
-	}
-	return response.Data, nil
 }
 
 func BuildGQLData() (map[string]string, map[string]string, error) {

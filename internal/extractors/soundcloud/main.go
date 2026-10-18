@@ -42,6 +42,8 @@ var ShortExtractor = &models.Extractor{
 	},
 }
 
+var reMP3Prefix = regexp.MustCompile(`^mp3`)
+
 var Extractor = &models.Extractor{
 	ID:          "soundcloud",
 	DisplayName: "SoundCloud",
@@ -107,7 +109,7 @@ func GetTrackMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 
 	var formatObj *Transcoding
 	for _, fmt := range manifest.Media.Transcodings {
-		if regexp.MustCompile(`^mp3`).MatchString(fmt.Preset) && fmt.Format.Protocol == "progressive" {
+		if reMP3Prefix.MatchString(fmt.Preset) && fmt.Format.Protocol == "progressive" {
 			formatObj = fmt
 			break
 		}
