@@ -253,7 +253,7 @@ func enhanceMultipleImages(ctx *models.ExtractorContext, data *VideoData, body [
 		}
 		mbasicURL = toMBasicURL(mbasicURL)
 		if mbasicURL != contentURL {
-			if respM, errM := ctx.Fetch(http.MethodGet, mbasicURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "fbMBasicUA"}}); errM == nil {
+			if respM, errM := ctx.Fetch(http.MethodGet, mbasicURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": fbMBasicUA}}); errM == nil {
 				if respM.StatusCode == 200 {
 					if bM, errR := io.ReadAll(respM.Body); errR == nil {
 						if dM, errP := parseVideoFromBody(bM, ctx.ContentID); errP == nil {
@@ -314,7 +314,7 @@ func enhanceMultipleImages(ctx *models.ExtractorContext, data *VideoData, body [
 										if len(parts) >= 2 && len(parts[1]) >= 7 {
 											prefix = parts[1][:7]
 										}
-										if prefix != "" && strings.Contains(u, "t39.30808-6/749") {
+										if prefix != "" && (strings.Contains(u, "t39.30808") || strings.Contains(u, "t15.") || strings.Contains(u, "s1080x")) {
 											grp[prefix] = append(grp[prefix], u)
 										}
 									}
@@ -469,7 +469,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 			url,
 			&networking.RequestParams{
 				Headers: map[string]string{
-					"User-Agent":      "fbMBasicUA",
+					"User-Agent":      fbMBasicUA,
 					"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 					"Accept-Language": "en-US,en;q=0.5",
 				},
@@ -830,7 +830,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 						mbasicImgURL = mbasicImgURL[:idx]
 					}
 					mbasicImgURL = toMBasicURL(mbasicImgURL)
-					if respM, errM := ctx.Fetch(http.MethodGet, mbasicImgURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": "fbMBasicUA"}}); errM == nil {
+					if respM, errM := ctx.Fetch(http.MethodGet, mbasicImgURL, &networking.RequestParams{Headers: map[string]string{"User-Agent": fbMBasicUA}}); errM == nil {
 						if respM.StatusCode == 200 {
 							if bM, errR := io.ReadAll(respM.Body); errR == nil {
 								if dM, errP := parseVideoFromBody(bM, ctx.ContentID); errP == nil {
@@ -2473,9 +2473,10 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 		// Avoid picking sharer's comments like <page> <caption>, When she's..., #<page>python... etc from data-sjs
 		return ""
 	}
-	// Prioritize savable_description first (original)
-	savFirstRe := fbRe_savableDesc
-	if mm := savFirstRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
+	// 1) Prefer the author's own text (savable_description) over anything found
+	// by scanning feed chunks. A bare "Facebook" or an "Only members can see"
+	// placeholder is not a caption, so it is rejected here and in step 3 below.
+	if mm := fbRe_savableDesc.FindSubmatch(bodyBytes); len(mm) >= 2 {
 		t := unescapeUnicode(string(mm[1]))
 		t = html.UnescapeString(t)
 		t = strings.TrimSpace(t)
@@ -2486,12 +2487,6 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 				return t
 			}
 		}
-	}
-	// If private group placeholder and no savable original, return empty to avoid picking sharer's comment as caption
-	if strings.Contains(strings.ToLower(body), "only members can see") {
-		// For share/v/<code>/ private group <id>, original has no caption, user said Takde is okay
-		// Avoid picking sharer's comments like <page> <caption>, When she's..., etc from data-sjs
-		return ""
 	}
 	sjsRe := fbRe_dataSjs
 	matches := sjsRe.FindAllStringSubmatch(body, -1)
@@ -2548,18 +2543,6 @@ func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string)
 	anchored := findCaptionAnchoredToID(bodyBytes, videoID)
 	if anchored != "" && len(anchored) >= 3 {
 		return anchored
-	}
-
-	// 3) Try savable_description - ytdl also checks savable_description.text
-	savRe := fbRe_savableDesc
-	if mm := savRe.FindSubmatch(bodyBytes); len(mm) >= 2 {
-		t := unescapeUnicode(string(mm[1]))
-		t = html.UnescapeString(t)
-		t = strings.TrimSpace(t)
-		t = cleanFacebookCaption(t)
-		if t != "" {
-			return t
-		}
 	}
 
 	// No caption genuinely anchored to this video -> return empty (post has no
