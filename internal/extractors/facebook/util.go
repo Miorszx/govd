@@ -352,6 +352,134 @@ func assignVideoQuality(data *VideoData, u string) {
 	}
 }
 
+// extractReelMedia resolves a reel/short share into a single HD-first video.
+// Split out of GetVideoData: this branch is self-contained (it only needs the
+// context and the lowercased URL) and previously made the dispatcher 540 lines
+// long, which is how the mbasic User-Agent bug went unnoticed.
+func extractReelMedia(ctx *models.ExtractorContext, urlLower string) (*VideoData, error) {
+	// HD-ONLY: progressive_urls HD direct (ytdl videoDeliveryResponseResult.progressive_urls)
+	// 1 fetch watch/?v=ID -> scontent m367 HD muxed 720p (<caption> 1.1MB for barrow)
+	// Fallback to SD when HD not available (e.g. <id> only SD m412) to avoid BD929D77
+	if ctx.ContentID == "" {
+		return nil, fmt.Errorf("reel without content_id")
+	}
+	effectiveReelID := ctx.ContentID
+	isPrivateShareV := false
+	// For share/r/ and share/v/ short codes like <code> (10-char alnum), extract real numeric reel ID
+	// share/r/<code> -> reel/<id> via /reel/(\d+) or "video_id":"(\d+)" in Googlebot body
+	if len(ctx.ContentID) == 10 && (strings.Contains(urlLower, "/share/r/") || strings.Contains(urlLower, "/share/v/")) {
+		if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{
+			Headers: map[string]string{
+				"User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
+			},
+		}); err == nil && resp.StatusCode == 200 {
+			if bShare, err := io.ReadAll(resp.Body); err == nil && len(bShare) > 1000 {
+				// Detect private group share/v like <code> -> <id> group <id>
+				// Body contains "Only members can see who's in the group and what they post." placeholder
+				// For private group, original has no public caption, user said Takde is okay
+				// Avoid picking sharer's comments like <page> <caption>, <page>..., #<page>python..., etc (11 random captions for same file <id>)
+				if bytes.Contains(bytes.ToLower(bShare), []byte("only members can see")) {
+					isPrivateShareV = true
+				}
+				if m := fbRe_reelID.FindSubmatch(bShare); len(m) >= 2 {
+					effectiveReelID = string(m[1])
+				} else if m := fbRe_videoID.FindSubmatch(bShare); len(m) >= 2 {
+					effectiveReelID = string(m[1])
+				} else if m := fbRe_videoID2.FindSubmatch(bShare); len(m) >= 2 {
+					effectiveReelID = string(m[1])
+				} else if m := fbRe_permalink.FindSubmatch(bShare); len(m) >= 2 {
+					// For group permalink like groups/<code>/permalink/<id>/ via share/v/<code>/
+					effectiveReelID = string(m[1])
+				} else if m := fbRe_postID.FindSubmatch(bShare); len(m) >= 2 {
+					effectiveReelID = string(m[1])
+				}
+			}
+			resp.Body.Close()
+		}
+	}
+	hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, effectiveReelID)
+	if hd == "" && sd == "" {
+		return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
+	}
+	// Prefer HD, fallback SD for <id> case (Googlebot <id> prog 2 m367 0 m4 2 SD only) and <code> -> <id>
+	useURL := hd
+	if useURL == "" {
+		useURL = sd
+	}
+	// For private group share/v like <code> -> <id>, original has no public caption
+	// Return empty caption to avoid random sharer comments (11 captions for same file <id> MD5 <hash>)
+	if isPrivateShareV {
+		title = ""
+	}
+	data := &VideoData{HDURL: useURL, Title: title}
+	// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
+	// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
+	// For private group share/v, skip GraphQL caption fetch to avoid picking sharer's comment
+	if data.Title == "" && !isPrivateShareV {
+		if capTitle := tryFetchReelCaptionViaGraphQL(ctx, effectiveReelID); capTitle != "" {
+			data.Title = capTitle
+		}
+	}
+	return data, nil
+}
+
+// findLiveM4URL scans a fetched page for m412/mp4 URLs and returns the
+// first one that answers HEAD 200. Feed videos are skipped when the post
+// section holds no video, which is what stopped image posts from being
+// served as a feed video. Extracted from GetVideoData to keep the
+// dispatcher readable.
+func findLiveM4URL(ctx *models.ExtractorContext, b []byte) string {
+	bodyStr := string(b)
+	bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
+	reAllM4 := fbRe_m4Mp4
+	var validM4URL string
+	for _, src := range []string{bodyStr, bodyUnesc} {
+		for _, raw := range reAllM4.FindAllString(src, -1) {
+			u := unescapeFacebookURL(raw)
+			u = strings.ReplaceAll(u, "&amp;", "&")
+			u = strings.ReplaceAll(u, `\/`, "/")
+			// Check if this URL is from feed or post - for group posts, check if section has video
+			// If section has no video (image post), skip m4 from feed - fixes "Ade gamba takde video"
+			// For YG Ade video via ytdl posts like <id>, section may have video even when cookies flagged give 47K thumbnail only
+			// Need to check section for video indicators before returning feed video
+			isFeedVideo := false
+			if len(ctx.ContentID) >= 10 {
+				// For group posts, check if this m4 is near post ID in body
+				// If post ID occ has no m4 nearby (40k window), this m4 is feed, not post
+				// So skip it for image posts
+				if sec := findVideoSection(b, ctx.ContentID); sec != nil {
+					sSec := string(sec)
+					if len(reAllM4.FindAllString(sSec, -1)) == 0 && !strings.Contains(sSec, "\"hd_src\"") && !strings.Contains(sSec, "\"sd_src\"") {
+						// No video in section = image post, this m4 is feed video, skip
+						isFeedVideo = true
+					}
+				} else {
+					// No section found - could be image post or flagged - check og:image
+					// For YG Ade gamba posts like 9920, 3511 - no section, but og:image t15/t39 present -> image, skip feed m4
+					// For YG Ade video via ytdl posts like 351241..., no section due to flagged 50K, but ytdl no-cookie gives dash -> video
+					// So for no-section case, don't skip based on section alone, let mbasic try image then fallback to fbhit no-cookie video
+				}
+			}
+			if isFeedVideo {
+				continue
+			}
+			// HEAD check
+			if resp, err := ctx.HTTPClient.FetchWithContext(ctx.Context, "HEAD", u, &networking.RequestParams{}); err == nil {
+				if resp.StatusCode == 200 {
+					validM4URL = u
+					resp.Body.Close()
+					break
+				}
+				resp.Body.Close()
+			}
+		}
+		if validM4URL != "" {
+			break
+		}
+	}
+	return validM4URL
+}
+
 func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// Detection image vs video dulu - user request pakai ID + URL
 	// isReel = HD-ONLY direct 1-fetch, no fallback (reel/share r/v only, NOT share/p photo)
@@ -383,70 +511,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 	// REEL: PURE GO - HD-ONLY direct 1-fetch pure Go, no SD fallback, no fallback chains (spec memory)
 	// yt-dlp removed per user request
 	if isReel {
-		// HD-ONLY: progressive_urls HD direct (ytdl videoDeliveryResponseResult.progressive_urls)
-		// 1 fetch watch/?v=ID -> scontent m367 HD muxed 720p (<caption> 1.1MB for barrow)
-		// Fallback to SD when HD not available (e.g. <id> only SD m412) to avoid BD929D77
-		if ctx.ContentID == "" {
-			return nil, fmt.Errorf("reel without content_id")
-		}
-		effectiveReelID := ctx.ContentID
-		isPrivateShareV := false
-		// For share/r/ and share/v/ short codes like <code> (10-char alnum), extract real numeric reel ID
-		// share/r/<code> -> reel/<id> via /reel/(\d+) or "video_id":"(\d+)" in Googlebot body
-		if len(ctx.ContentID) == 10 && (strings.Contains(urlLower, "/share/r/") || strings.Contains(urlLower, "/share/v/")) {
-			if resp, err := ctx.Fetch(http.MethodGet, ctx.ContentURL, &networking.RequestParams{
-				Headers: map[string]string{
-					"User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
-				},
-			}); err == nil && resp.StatusCode == 200 {
-				if bShare, err := io.ReadAll(resp.Body); err == nil && len(bShare) > 1000 {
-					// Detect private group share/v like <code> -> <id> group <id>
-					// Body contains "Only members can see who's in the group and what they post." placeholder
-					// For private group, original has no public caption, user said Takde is okay
-					// Avoid picking sharer's comments like <page> <caption>, <page>..., #<page>python..., etc (11 random captions for same file <id>)
-					if bytes.Contains(bytes.ToLower(bShare), []byte("only members can see")) {
-						isPrivateShareV = true
-					}
-					if m := fbRe_reelID.FindSubmatch(bShare); len(m) >= 2 {
-						effectiveReelID = string(m[1])
-					} else if m := fbRe_videoID.FindSubmatch(bShare); len(m) >= 2 {
-						effectiveReelID = string(m[1])
-					} else if m := fbRe_videoID2.FindSubmatch(bShare); len(m) >= 2 {
-						effectiveReelID = string(m[1])
-					} else if m := fbRe_permalink.FindSubmatch(bShare); len(m) >= 2 {
-						// For group permalink like groups/<code>/permalink/<id>/ via share/v/<code>/
-						effectiveReelID = string(m[1])
-					} else if m := fbRe_postID.FindSubmatch(bShare); len(m) >= 2 {
-						effectiveReelID = string(m[1])
-					}
-				}
-				resp.Body.Close()
-			}
-		}
-		hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, effectiveReelID)
-		if hd == "" && sd == "" {
-			return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
-		}
-		// Prefer HD, fallback SD for <id> case (Googlebot <id> prog 2 m367 0 m4 2 SD only) and <code> -> <id>
-		useURL := hd
-		if useURL == "" {
-			useURL = sd
-		}
-		// For private group share/v like <code> -> <id>, original has no public caption
-		// Return empty caption to avoid random sharer comments (11 captions for same file <id> MD5 <hash>)
-		if isPrivateShareV {
-			title = ""
-		}
-		data := &VideoData{HDURL: useURL, Title: title}
-		// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
-		// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
-		// For private group share/v, skip GraphQL caption fetch to avoid picking sharer's comment
-		if data.Title == "" && !isPrivateShareV {
-			if capTitle := tryFetchReelCaptionViaGraphQL(ctx, effectiveReelID); capTitle != "" {
-				data.Title = capTitle
-			}
-		}
-		return data, nil
+		return extractReelMedia(ctx, urlLower)
 	}
 
 	// PHOTO POST / SHARE / PERMALINK: direct mbasic - single fetch
@@ -582,56 +647,7 @@ func GetVideoData(ctx *models.ExtractorContext) (*VideoData, error) {
 		// Try iPhone UA first (134K scontent 10)
 		b, err := fetchBody(tryURL)
 		if err == nil {
-			// First try to find valid m412 URL directly via HEAD check from body - more robust than parseVideoFromBody first pick (which may be 403)
-			// For groups <id>, body has 1 m412 but may be 403, try all m412 URLs in body
-			bodyStr := string(b)
-			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
-			reAllM4 := fbRe_m4Mp4
-			var validM4URL string
-			for _, src := range []string{bodyStr, bodyUnesc} {
-				for _, raw := range reAllM4.FindAllString(src, -1) {
-					u := unescapeFacebookURL(raw)
-					u = strings.ReplaceAll(u, "&amp;", "&")
-					u = strings.ReplaceAll(u, `\/`, "/")
-					// Check if this URL is from feed or post - for group posts, check if section has video
-					// If section has no video (image post), skip m4 from feed - fixes "Ade gamba takde video"
-					// For YG Ade video via ytdl posts like <id>, section may have video even when cookies flagged give 47K thumbnail only
-					// Need to check section for video indicators before returning feed video
-					isFeedVideo := false
-					if len(ctx.ContentID) >= 10 {
-						// For group posts, check if this m4 is near post ID in body
-						// If post ID occ has no m4 nearby (40k window), this m4 is feed, not post
-						// So skip it for image posts
-						if sec := findVideoSection(b, ctx.ContentID); sec != nil {
-							sSec := string(sec)
-							if len(reAllM4.FindAllString(sSec, -1)) == 0 && !strings.Contains(sSec, "\"hd_src\"") && !strings.Contains(sSec, "\"sd_src\"") {
-								// No video in section = image post, this m4 is feed video, skip
-								isFeedVideo = true
-							}
-						} else {
-							// No section found - could be image post or flagged - check og:image
-							// For YG Ade gamba posts like 9920, 3511 - no section, but og:image t15/t39 present -> image, skip feed m4
-							// For YG Ade video via ytdl posts like 351241..., no section due to flagged 50K, but ytdl no-cookie gives dash -> video
-							// So for no-section case, don't skip based on section alone, let mbasic try image then fallback to fbhit no-cookie video
-						}
-					}
-					if isFeedVideo {
-						continue
-					}
-					// HEAD check
-					if resp, err := ctx.HTTPClient.FetchWithContext(ctx.Context, "HEAD", u, &networking.RequestParams{}); err == nil {
-						if resp.StatusCode == 200 {
-							validM4URL = u
-							resp.Body.Close()
-							break
-						}
-						resp.Body.Close()
-					}
-				}
-				if validM4URL != "" {
-					break
-				}
-			}
+			validM4URL := findLiveM4URL(ctx, b)
 			if validM4URL != "" {
 				// Build data with valid m412 URL + caption from parseVideoFromBody (fixes video ja tanpa caption bug)
 				d := &VideoData{SDURL: validM4URL}

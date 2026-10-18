@@ -63,6 +63,69 @@ var Extractor = &models.Extractor{
 
 // MediaFromAPI implements improved method:
 // - title + selftext + thumbnails + crosspost + fallback + dash/hls + gallery
+// buildGalleryItems converts Reddit's ordered gallery_media items into
+// media items. media.NewItem() already appends to media.Items, so an item
+// that ends up with no usable format is trimmed back out. The second return
+// value reports whether the post was already served by this branch. Lifted
+// out of MediaFromAPI, which had grown to ~250 lines.
+func buildGalleryItems(
+	ctx *models.ExtractorContext,
+	media *models.Media,
+	data *PostData,
+) (*models.Media, bool) {
+	for _, gItem := range data.GalleryData.Items {
+		metaID := gItem.MediaID
+		if meta, ok := data.MediaMetadata[metaID]; ok {
+			item := media.NewItem()
+			switch meta.Type {
+			case "Image":
+				item.AddFormats(&models.MediaFormat{
+					FormatID: "photo",
+					Type:     database.MediaTypePhoto,
+					URL:      []string{util.UnescapeURL(meta.Media.URL)},
+				})
+			case "AnimatedImage", "RedditVideo":
+				if meta.Media.MP4 != "" {
+					item.AddFormats(&models.MediaFormat{
+						FormatID:   "video",
+						Type:       database.MediaTypeVideo,
+						VideoCodec: database.MediaCodecAvc,
+						AudioCodec: database.MediaCodecAac,
+						URL:        []string{util.UnescapeURL(meta.Media.MP4)},
+					})
+				}
+				if meta.Media.HLSURL != "" {
+					fmts, _ := GetHLSFormatsFromURL(ctx, meta.Media.HLSURL, 0)
+					item.AddFormats(fmts...)
+				}
+				if meta.Media.DashURL != "" {
+					fmts, _ := GetDASHFormatsFromURL(ctx, meta.Media.DashURL, 0)
+					item.AddFormats(fmts...)
+				}
+				if len(item.Formats) == 0 && meta.Media.URL != "" {
+					item.AddFormats(&models.MediaFormat{
+						FormatID: "photo",
+						Type:     database.MediaTypePhoto,
+						URL:      []string{util.UnescapeURL(meta.Media.URL)},
+					})
+				}
+			}
+			if len(item.Formats) > 0 {
+				// media.NewItem() already appended this item to
+				// media.Items, so appending again would duplicate it.
+				// If the format list is empty the item is useless; drop
+				// it again instead of letting a blank entry through.
+				continue
+			}
+			media.Items = media.Items[:len(media.Items)-1]
+		}
+	}
+	if len(media.Items) > 0 {
+		return media, true
+	}
+	return media, false
+}
+
 func MediaFromAPI(ctx *models.ExtractorContext) (*models.Media, error) {
 	host := ctx.MatchGroups["host"]
 	slug := ctx.MatchGroups["slug"]
@@ -96,58 +159,8 @@ func MediaFromAPI(ctx *models.ExtractorContext) (*models.Media, error) {
 	}
 	media.SetCaption(caption)
 
-	// Gallery handling - style media_metadata RedditVideo + Image
-	if len(data.GalleryData.Items) > 0 {
-		for _, gItem := range data.GalleryData.Items {
-			metaID := gItem.MediaID
-			if meta, ok := data.MediaMetadata[metaID]; ok {
-				item := media.NewItem()
-				switch meta.Type {
-				case "Image":
-					item.AddFormats(&models.MediaFormat{
-						FormatID: "photo",
-						Type:     database.MediaTypePhoto,
-						URL:      []string{util.UnescapeURL(meta.Media.URL)},
-					})
-				case "AnimatedImage", "RedditVideo":
-					if meta.Media.MP4 != "" {
-						item.AddFormats(&models.MediaFormat{
-							FormatID:   "video",
-							Type:       database.MediaTypeVideo,
-							VideoCodec: database.MediaCodecAvc,
-							AudioCodec: database.MediaCodecAac,
-							URL:        []string{util.UnescapeURL(meta.Media.MP4)},
-						})
-					}
-					if meta.Media.HLSURL != "" {
-						fmts, _ := GetHLSFormatsFromURL(ctx, meta.Media.HLSURL, 0)
-						item.AddFormats(fmts...)
-					}
-					if meta.Media.DashURL != "" {
-						fmts, _ := GetDASHFormatsFromURL(ctx, meta.Media.DashURL, 0)
-						item.AddFormats(fmts...)
-					}
-					if len(item.Formats) == 0 && meta.Media.URL != "" {
-						item.AddFormats(&models.MediaFormat{
-							FormatID: "photo",
-							Type:     database.MediaTypePhoto,
-							URL:      []string{util.UnescapeURL(meta.Media.URL)},
-						})
-					}
-				}
-				if len(item.Formats) > 0 {
-					// media.NewItem() already appended this item to
-					// media.Items, so appending again would duplicate it.
-					// If the format list is empty the item is useless; drop
-					// it again instead of letting a blank entry through.
-					continue
-				}
-				media.Items = media.Items[:len(media.Items)-1]
-			}
-		}
-		if len(media.Items) > 0 {
-			return media, nil
-		}
+	if m, done := buildGalleryItems(ctx, media, data); done {
+		return m, nil
 	}
 
 	// Fallback unordered media_metadata (playlist from media_metadata)
@@ -204,8 +217,15 @@ func MediaFromAPI(ctx *models.ExtractorContext) (*models.Media, error) {
 					URL:        []string{util.UnescapeURL(obj.Media.MP4)},
 				})
 			}
-			if item != nil && len(item.Formats) > 0 {
-				media.Items = append(media.Items, item)
+			// media.NewItem() already appended the item to media.Items when
+			// it is called inside the switch above, so appending here as
+			// well would insert every gallery image twice.
+			if item == nil {
+				continue
+			}
+			if len(item.Formats) == 0 {
+				// Nothing usable was attached; drop the empty entry again.
+				media.Items = media.Items[:len(media.Items)-1]
 			}
 		}
 		if len(media.Items) > 0 {
