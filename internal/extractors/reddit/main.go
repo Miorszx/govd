@@ -136,8 +136,13 @@ func MediaFromAPI(ctx *models.ExtractorContext) (*models.Media, error) {
 					}
 				}
 				if len(item.Formats) > 0 {
-					media.Items = append(media.Items, item)
+					// media.NewItem() already appended this item to
+					// media.Items, so appending again would duplicate it.
+					// If the format list is empty the item is useless; drop
+					// it again instead of letting a blank entry through.
+					continue
 				}
+				media.Items = media.Items[:len(media.Items)-1]
 			}
 		}
 		if len(media.Items) > 0 {
@@ -147,7 +152,7 @@ func MediaFromAPI(ctx *models.ExtractorContext) (*models.Media, error) {
 
 	// Fallback unordered media_metadata (playlist from media_metadata)
 	if len(data.MediaMetadata) > 0 {
-		var galleryItems []*models.MediaItem
+		countBefore := len(media.Items)
 		for _, obj := range data.MediaMetadata {
 			if obj.Type == "RedditVideo" {
 				item := media.NewItem()
@@ -168,13 +173,13 @@ func MediaFromAPI(ctx *models.ExtractorContext) (*models.Media, error) {
 						URL:        []string{util.UnescapeURL(obj.Media.MP4)},
 					})
 				}
-				if len(item.Formats) > 0 {
-					galleryItems = append(galleryItems, item)
+				if len(item.Formats) == 0 {
+					// NewItem() already appended; drop the empty entry.
+					media.Items = media.Items[:len(media.Items)-1]
 				}
 			}
 		}
-		if len(galleryItems) > 0 {
-			media.Items = append(media.Items, galleryItems...)
+		if len(media.Items) > countBefore {
 			return media, nil
 		}
 
@@ -212,14 +217,17 @@ func MediaFromAPI(ctx *models.ExtractorContext) (*models.Media, error) {
 		// Single photo / gif / video preview
 		if data.Preview != nil && len(data.Preview.Images) > 0 {
 			image := data.Preview.Images[0]
+			// A premium-gated or expired VideoPreview must not kill the post:
+			// the still image below is still perfectly usable. Previously any
+			// HLS failure returned nil,err and the whole post failed even
+			// though a valid photo was present.
 			if data.Preview.VideoPreview != nil {
-				item := media.NewItem()
 				formats, err := GetHLSFormats(ctx, data.Preview.VideoPreview.FallbackURL, data.Preview.VideoPreview.Duration)
-				if err != nil {
-					return nil, err
+				if err == nil && len(formats) > 0 {
+					item := media.NewItem()
+					item.AddFormats(formats...)
+					return media, nil
 				}
-				item.AddFormats(formats...)
-				return media, nil
 			}
 			if image.Variants.MP4 != nil {
 				item := media.NewItem()
