@@ -1180,6 +1180,124 @@ func extractImages(data *VideoData, body []byte, isImagePost bool, ogImgURL, vid
 	}
 }
 
+// recoverMediaFromBody is the fallback ladder for a page whose section
+// yielded no HD/SD URL: direct mp4/m4 URLs, progressive URLs for group
+// videos, then the image extractor. It reports whether usable media was
+// produced. Lifted verbatim out of parseVideoFromBody - the only change is
+// that the `return data, nil` exits became `return true` so the caller can
+// re-issue the same return, keeping the decision flow identical.
+func recoverMediaFromBody(
+	data *VideoData,
+	body []byte,
+	section []byte,
+	videoID string,
+	isImagePost bool,
+	isVideoPost bool,
+	ogImgURL string,
+) bool {
+	// Don't fallback to full body if we already determined it's feed/photo (section empty)
+	if len(section) == 0 {
+		// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. <code> <id> 488x358 22s 641KB)
+		// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
+		// For group posts like <id>, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
+		// So for group videos with section nil and isVideoPost true, prefer progressive first
+		if isVideoPost && len(videoID) >= 10 {
+			if tryProgressiveVideo(data, body, videoID) {
+				return true
+			}
+		}
+		reMP4 := fbRe_m4Mp42
+		bodyStr := string(body)
+		// Also try unescaped version by replacing \/ -> / for regex matching
+		bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
+		for _, src := range []string{bodyStr, bodyUnesc} {
+			for _, raw := range reMP4.FindAllString(src, -1) {
+				u := unescapeFacebookURL(raw)
+				u = strings.ReplaceAll(u, "&amp;", "&")
+				u = strings.ReplaceAll(u, `\/`, "/")
+				// Prefer m367/m366 as HD, m412 as SD
+				assignVideoQuality(data, u)
+				if data.HDURL != "" || data.SDURL != "" {
+					// If we detected this is image post (9920), don't return video from feed - return image instead
+					if isImagePost && !isVideoPost {
+						// Skip video, go to image extraction
+						data.HDURL = ""
+						data.SDURL = ""
+						break
+					}
+					return true
+				}
+			}
+		}
+		// Second try: any /m4xx mp4 without requiring scontent (for 50617 len scontent=0 case)
+		reMP4Any := fbRe_m4Mp43
+		for _, src := range []string{bodyStr, bodyUnesc} {
+			for _, raw := range reMP4Any.FindAllString(src, -1) {
+				u := unescapeFacebookURL(raw)
+				u = strings.ReplaceAll(u, "&amp;", "&")
+				u = strings.ReplaceAll(u, `\/`, "/")
+				assignVideoQuality(data, u)
+				if data.HDURL != "" || data.SDURL != "" {
+					if isImagePost && !isVideoPost {
+						data.HDURL = ""
+						data.SDURL = ""
+						break
+					}
+					return true
+				}
+			}
+		}
+		// Progressive fallback for group videos like <id> where m4 matches are feed videos that 403
+		// parseProgressiveURLsAndCaptionFromBody extracts videoDeliveryResponseResult.progressive_urls[] HD/SD
+		if isVideoPost {
+			if tryProgressiveVideo(data, body, videoID) {
+				return true
+			}
+		}
+		// Third try: scontent without https prefix (relative or protocol-relative)
+		reScontentM4 := fbRe_m4Mp44
+		for _, raw := range reScontentM4.FindAllString(bodyUnesc, -1) {
+			u := raw
+			if !strings.HasPrefix(u, "http") {
+				u = "https://" + strings.TrimLeft(u, "/")
+			}
+			u = unescapeFacebookURL(u)
+			u = strings.ReplaceAll(u, "&amp;", "&")
+			if data.SDURL == "" {
+				data.SDURL = u
+				if isImagePost && !isVideoPost {
+					data.SDURL = ""
+					break
+				}
+				return true
+			}
+		}
+		if data.HDURL != "" || data.SDURL != "" {
+			// found direct mp4, skip image extraction
+		} else {
+			// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
+			// Tested on share/p/<code>: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
+			// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
+			// FIX for photo/?fbid=<id>&set=gm.<id> group media: scontent URL has t39.30808-6/...jpg?stp= not oh=, need broaden
+			// If detected as image post, try to extract fresh scontent oh= images
+			if isImagePost {
+				extractImages(data, body, isImagePost, ogImgURL, videoID)
+			}
+
+		}
+	} else {
+		if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
+			data.HDURL = unescapeFacebookURL(string(match[1]))
+		}
+		if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
+			data.SDURL = unescapeFacebookURL(string(match[1]))
+		}
+		// REEL FALLBACKS REMOVED per user request: og:video (sve_sd 482KB flagged), browser_native_*, playable_url
+		// For non-reel (watch?v=, group video permalink) we keep progressive_url HD/SD only - main method
+	}
+	return false
+}
+
 func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	data := &VideoData{}
 
@@ -1378,105 +1496,8 @@ func parseVideoFromBody(body []byte, videoID string) (*VideoData, error) {
 	// on the full body (single-video posts/reels) so the extraction does
 	// not falsely fail. Caption extraction already runs against body.
 	if data.HDURL == "" && data.SDURL == "" {
-		// Don't fallback to full body if we already determined it's feed/photo (section empty)
-		if len(section) == 0 {
-			// GROUP VIDEO PERMALINK can have direct scontent m412/m367/m366 mp4 in HTML (e.g. <code> <id> 488x358 22s 641KB)
-			// Try extract direct scontent mp4 before image fallback - fixes "bagi gamba" for group video share
-			// For group posts like <id>, m4 matches are feed videos (29 matches) that 403, while progressive_url is main video 441KB 200 OK
-			// So for group videos with section nil and isVideoPost true, prefer progressive first
-			if isVideoPost && len(videoID) >= 10 {
-				if tryProgressiveVideo(data, body, videoID) {
-					return data, nil
-				}
-			}
-			reMP4 := fbRe_m4Mp42
-			bodyStr := string(body)
-			// Also try unescaped version by replacing \/ -> / for regex matching
-			bodyUnesc := strings.ReplaceAll(bodyStr, `\/`, "/")
-			for _, src := range []string{bodyStr, bodyUnesc} {
-				for _, raw := range reMP4.FindAllString(src, -1) {
-					u := unescapeFacebookURL(raw)
-					u = strings.ReplaceAll(u, "&amp;", "&")
-					u = strings.ReplaceAll(u, `\/`, "/")
-					// Prefer m367/m366 as HD, m412 as SD
-					assignVideoQuality(data, u)
-					if data.HDURL != "" || data.SDURL != "" {
-						// If we detected this is image post (9920), don't return video from feed - return image instead
-						if isImagePost && !isVideoPost {
-							// Skip video, go to image extraction
-							data.HDURL = ""
-							data.SDURL = ""
-							break
-						}
-						return data, nil
-					}
-				}
-			}
-			// Second try: any /m4xx mp4 without requiring scontent (for 50617 len scontent=0 case)
-			reMP4Any := fbRe_m4Mp43
-			for _, src := range []string{bodyStr, bodyUnesc} {
-				for _, raw := range reMP4Any.FindAllString(src, -1) {
-					u := unescapeFacebookURL(raw)
-					u = strings.ReplaceAll(u, "&amp;", "&")
-					u = strings.ReplaceAll(u, `\/`, "/")
-					assignVideoQuality(data, u)
-					if data.HDURL != "" || data.SDURL != "" {
-						if isImagePost && !isVideoPost {
-							data.HDURL = ""
-							data.SDURL = ""
-							break
-						}
-						return data, nil
-					}
-				}
-			}
-			// Progressive fallback for group videos like <id> where m4 matches are feed videos that 403
-			// parseProgressiveURLsAndCaptionFromBody extracts videoDeliveryResponseResult.progressive_urls[] HD/SD
-			if isVideoPost {
-				if tryProgressiveVideo(data, body, videoID) {
-					return data, nil
-				}
-			}
-			// Third try: scontent without https prefix (relative or protocol-relative)
-			reScontentM4 := fbRe_m4Mp44
-			for _, raw := range reScontentM4.FindAllString(bodyUnesc, -1) {
-				u := raw
-				if !strings.HasPrefix(u, "http") {
-					u = "https://" + strings.TrimLeft(u, "/")
-				}
-				u = unescapeFacebookURL(u)
-				u = strings.ReplaceAll(u, "&amp;", "&")
-				if data.SDURL == "" {
-					data.SDURL = u
-					if isImagePost && !isVideoPost {
-						data.SDURL = ""
-						break
-					}
-					return data, nil
-				}
-			}
-			if data.HDURL != "" || data.SDURL != "" {
-				// found direct mp4, skip image extraction
-			} else {
-				// IMAGE METHOD V2: mbasic iPhone -> fresh scontent oh= only, no fallback (per user request)
-				// Tested on share/p/<code>: mbasic/share/p iPhone -> og:url groups/.../posts/... -> mbasic/groups/... iPhone = 222KB 11 scontent oh= fresh, dl 200 OK
-				// Old fallbacks (graph src/source, og:image p600, scontent upgrade p1080) caused 403 Bad Hash
-				// FIX for photo/?fbid=<id>&set=gm.<id> group media: scontent URL has t39.30808-6/...jpg?stp= not oh=, need broaden
-				// If detected as image post, try to extract fresh scontent oh= images
-				if isImagePost {
-					extractImages(data, body, isImagePost, ogImgURL, videoID)
-				}
-
-			}
-		} else {
-			if match := hdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.HDURL = unescapeFacebookURL(string(match[1]))
-			}
-			if match := sdURLPattern.FindSubmatch(body); len(match) >= 2 {
-				data.SDURL = unescapeFacebookURL(string(match[1]))
-			}
-			// REEL FALLBACKS REMOVED per user request: og:video (sve_sd 482KB flagged), browser_native_*, playable_url
-			// For non-reel (watch?v=, group video permalink) we keep progressive_url HD/SD only - main method
+		if recoverMediaFromBody(data, body, section, videoID, isImagePost, isVideoPost, ogImgURL) {
+			return data, nil
 		}
 	}
 	// title can be anywhere in the page
