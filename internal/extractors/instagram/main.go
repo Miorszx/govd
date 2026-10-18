@@ -2,7 +2,6 @@ package instagram
 
 import (
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"regexp"
@@ -111,48 +110,6 @@ func GetIGramStory(ctx *models.ExtractorContext) (*models.Media, error) {
 	}
 
 	return media, nil
-}
-
-func GetPostFromIGram(ctx *models.ExtractorContext) (*IGramResponse, error) {
-	contentURL := "https://www.instagram.com/p/" + ctx.ContentID + "/"
-	apiURL := fmt.Sprintf("https://%s/api/convert", igramHostname)
-	payload, err := IGramBodyFromURL(contentURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build signed payload: %w", err)
-	}
-
-	headers := map[string]string{
-		"Content-Type": "application/json",
-	}
-	maps.Copy(headers, igramHeaders)
-
-	resp, err := ctx.Fetch(
-		http.MethodPost,
-		apiURL,
-		&networking.RequestParams{
-			Body:    payload,
-			Headers: headers,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	logger.WriteFile("ig_3party_response", resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get response: %s", resp.Status)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-	response, err := ParseIGramResponse(body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-	return response, nil
 }
 
 func GetStoryFromIGram(ctx *models.ExtractorContext) (*IGramStoryResponse, error) {

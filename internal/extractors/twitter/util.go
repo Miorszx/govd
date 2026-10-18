@@ -14,6 +14,8 @@ import (
 	"github.com/bytedance/sonic"
 )
 
+var reTcoURL = regexp.MustCompile(`https?://t\.co/\S+`)
+
 const authToken = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 
 var resolutionRegex = regexp.MustCompile(`(\d+)x(\d+)`)
@@ -98,7 +100,7 @@ func SanitizeCaption(caption string) string {
 	if caption == "" {
 		return ""
 	}
-	regex := regexp.MustCompile(`https?://t\.co/\S+`)
+	regex := reTcoURL
 	return strings.TrimSpace(regex.ReplaceAllString(caption, ""))
 }
 

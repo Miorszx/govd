@@ -1,21 +1,7 @@
 package instagram
 
-type GraphQLResponse struct {
-	Data   *GraphQLData `json:"data"`
-	Status string       `json:"status"`
-}
-
 type GraphQLData struct {
 	ShortcodeMedia *Media `json:"xdt_shortcode_media"`
-}
-
-type ContextJSON struct {
-	Context *Context `json:"context"`
-	GqlData *GqlData `json:"gql_data"`
-}
-
-type GqlData struct {
-	ShortcodeMedia *Media `json:"shortcode_media"`
 }
 
 type EdgeMediaToCaption struct {
@@ -65,11 +51,6 @@ type Media struct {
 	VideoURL              string                 `json:"video_url"`
 	Caption              string                 `json:"caption"`
 	VideoViewCount        int                    `json:"video_view_count"`
-}
-
-type Posts struct {
-	Src    string `json:"src"`
-	Srcset string `json:"srcset"`
 }
 
 type Context struct {

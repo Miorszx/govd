@@ -12,6 +12,8 @@ import (
 	"github.com/govdbot/govd/internal/util"
 )
 
+var rePostPath = regexp.MustCompile(`\\/post\\/([a-zA-Z0-9_-]+)`)
+
 var Extractor = &models.Extractor{
 	ID:          "threads",
 	DisplayName: "Threads",
@@ -54,7 +56,7 @@ func resolveShareURL(ctx *models.ExtractorContext, shareID string) error {
 	}
 	ctx.Debugf("share response: %.200s", string(body))
 	// JSON: for (;;);{"redirect":"https:\/\/www.threads.com\/\u0040user\/post\/POST_ID?..."}
-	re := regexp.MustCompile(`\\/post\\/([a-zA-Z0-9_-]+)`)
+	re := rePostPath
 	m := re.FindSubmatch(body)
 	if len(m) < 2 {
 		return fmt.Errorf("no redirect found in share response: %.100s", string(body))

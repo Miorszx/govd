@@ -16,6 +16,15 @@ import (
 	"github.com/govdbot/govd/internal/util"
 )
 
+// Package-level regexes for the mbasic share fallback path. Declared once at
+// init instead of being recompiled on every request.
+var (
+	reOGURL         = regexp.MustCompile(`property="og:url" content="([^"]+)"`)
+	reOGDescription = regexp.MustCompile(`<meta\s+property="og:description" content="([^"]*)"`)
+	reOGTitle       = regexp.MustCompile(`<meta\s+property="og:title" content="([^"]*)"`)
+	reFreshScontent = regexp.MustCompile(`https://[^"'\s]*scontent[^"'\s]*oh=[^"'\s]+`)
+)
+
 var facebookHost = []string{"facebook"}
 
 var ShareExtractor = &models.Extractor{
@@ -315,9 +324,10 @@ func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
 	}
 	body = bestBody
 
-	// Step 1b: if share/p gives og:url group post, fetch that group permalink with mbasic iPhone for fresh images
-	// This is the working method: share/p/<code> -> groups/280707.../posts/351067... -> mbasic/groups/... 222KB 11 scontent oh=
-	if m := regexp.MustCompile(`property="og:url" content="([^"]+)"`).FindSubmatch(body); len(m) == 2 {
+	// Step 1b: if the share link yields an og:url group post, refetch that
+	// permalink via mbasic with the iPhone UA. The permalink body carries many
+	// more fresh image URLs than the share body, so prefer it when larger.
+	if m := reOGURL.FindSubmatch(body); len(m) == 2 {
 		ogURL := string(m[1])
 		// convert to mbasic
 		mbasicOG := strings.Replace(ogURL, "https://www.facebook.com", "https://mbasic.facebook.com", 1)
@@ -325,12 +335,13 @@ func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
 		if !strings.Contains(mbasicOG, "mbasic.facebook.com") {
 			mbasicOG = "https://mbasic.facebook.com" + strings.TrimPrefix(ogURL, "https://www.facebook.com")
 		}
-		if b2, _, err := fetch(mbasicOG); err == nil && len(b2) > len(body) {
-			body = b2
-			finalURL = mbasicOG
-		} else if b2, _, err := fetch(mbasicOG); err == nil && len(b2) > 1000 {
-			// even if smaller than share body, if share body has only 46KB and no scontent, use permalink body (222KB)
-			if len(b2) > 20000 {
+		// Fetch once: the old code issued the same request twice (once in the
+		// if and again in the else-if), doubling latency on this path.
+		if b2, _, err := fetch(mbasicOG); err == nil {
+			if len(b2) > len(body) {
+				body = b2
+				finalURL = mbasicOG
+			} else if len(b2) > 20000 {
 				body = b2
 			}
 		}
@@ -338,17 +349,17 @@ func tryMbasicShareAlbum(ctx *models.ExtractorContext) (*models.Media, error) {
 
 	// Extract caption from og:description or title
 	var caption string
-	if m := regexp.MustCompile(`<meta\s+property="og:description" content="([^"]*)"`).FindSubmatch(body); len(m) >= 2 {
+	if m := reOGDescription.FindSubmatch(body); len(m) >= 2 {
 		caption = html.UnescapeString(string(m[1]))
 	}
 	if caption == "" {
-		if m := regexp.MustCompile(`<meta\s+property="og:title" content="([^"]*)"`).FindSubmatch(body); len(m) >= 2 {
+		if m := reOGTitle.FindSubmatch(body); len(m) >= 2 {
 			caption = html.UnescapeString(string(m[1]))
 		}
 	}
 
 	// Fresh scontent oh= only, no og:image, no upgrade
-	reFresh := regexp.MustCompile(`https://[^"'\s]*scontent[^"'\s]*oh=[^"'\s]+`)
+	reFresh := reFreshScontent
 	var allUrls []string
 	seen := map[string]bool{}
 	for _, raw := range reFresh.FindAllString(string(body), -1) {
