@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/govdbot/govd/internal/database"
-	"github.com/govdbot/govd/internal/logger"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/networking"
 	"github.com/govdbot/govd/internal/util"
@@ -428,7 +427,7 @@ func GetWebpageMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 		Caption         *struct {
 			Text string `json:"text"`
 		} `json:"caption"`
-		VideoVersions   []struct {
+		VideoVersions []struct {
 			URL    string `json:"url"`
 			Type   int    `json:"type"`
 			Width  int    `json:"width"`
@@ -446,11 +445,15 @@ func GetWebpageMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 			OriginalWidth  int `json:"original_width"`
 			OriginalHeight int `json:"original_height"`
 			VideoVersions []struct {
-				URL string `json:"url"`
+				URL    string `json:"url"`
+				Width  int    `json:"width"`
+				Height int    `json:"height"`
 			} `json:"video_versions"`
 			ImageVersions2 struct {
 				Candidates []struct {
-					URL string `json:"url"`
+					URL    string `json:"url"`
+					Width  int    `json:"width"`
+					Height int    `json:"height"`
 				} `json:"candidates"`
 			} `json:"image_versions2"`
 		} `json:"carousel_media"`
@@ -458,17 +461,6 @@ func GetWebpageMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 	if err := json.Unmarshal(item, &node); err != nil {
 		return nil, fmt.Errorf("failed to parse media item: %w", err)
 	}
-
-	// DEBUG (temporary): log what the web_info endpoint actually returned
-	// for this shortcode so we can see why a reel is sent as a photo.
-	logger.L.Infow("IG WEBPAGE DEBUG",
-		"shortcode", ctx.ContentID,
-		"typename", node.Typename,
-		"is_video", node.IsVideo,
-		"video_versions_len", len(node.VideoVersions),
-		"image_candidates_len", len(node.ImageVersions2.Candidates),
-		"carousel_len", len(node.CarouselMedia),
-	)
 
 	var caption string
 	if node.Caption != nil {
@@ -486,14 +478,30 @@ func GetWebpageMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 			if len(child.VideoVersions) > 0 {
 				childMedia.Typename = "XDTGraphVideo"
 				childMedia.IsVideo = true
-				childMedia.VideoURL = child.VideoVersions[0].URL
+				// Pick the widest version instead of blindly taking [0]:
+				// web_info lists versions in no guaranteed quality order, so
+				// [0] was often a sub-HD rendition of a slide.
+				best := child.VideoVersions[0]
+				for _, v := range child.VideoVersions {
+					if v.Width > best.Width {
+						best = v
+					}
+				}
+				childMedia.VideoURL = best.URL
 				// web_info exposes original_width/height, not a dimensions object
 				if child.OriginalWidth > 0 || child.OriginalHeight > 0 {
 					childMedia.Dimensions = &Dimensions{Width: int32(child.OriginalWidth), Height: int32(child.OriginalHeight)}
 				}
 			} else if len(child.ImageVersions2.Candidates) > 0 {
 				childMedia.Typename = "XDTGraphImage"
-				childMedia.DisplayURL = child.ImageVersions2.Candidates[0].URL
+				// Same reason as above: widest candidate, not candidates[0].
+				pbest := child.ImageVersions2.Candidates[0]
+				for _, c := range child.ImageVersions2.Candidates {
+					if c.Width > pbest.Width {
+						pbest = c
+					}
+				}
+				childMedia.DisplayURL = pbest.URL
 			} else {
 				continue
 			}
@@ -523,6 +531,14 @@ func GetWebpageMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 		if len(node.ImageVersions2.Candidates) > 0 {
 			thumb = node.ImageVersions2.Candidates[0].URL
 		}
+		// Widest rendition, not video_versions[0]: web_info does not order
+		// versions by quality, so [0] could be a 360p copy of a 1080p reel.
+		bestV := node.VideoVersions[0]
+		for _, v := range node.VideoVersions {
+			if v.Width > bestV.Width {
+				bestV = v
+			}
+		}
 		// The web_info endpoint does not include a `dimensions` object for
 		// reels/videos; it exposes original_width/original_height instead.
 		// Build Dimensions so ParseGQLMedia does not dereference a nil pointer.
@@ -533,7 +549,7 @@ func GetWebpageMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 		media := &Media{
 			Typename:   "XDTGraphVideo",
 			IsVideo:    true,
-			VideoURL:   node.VideoVersions[0].URL,
+			VideoURL:   bestV.URL,
 			DisplayURL: thumb,
 			Caption:    caption,
 			ID:         ctx.ContentID,
@@ -545,7 +561,14 @@ func GetWebpageMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 
 	// Single photo.
 	if len(node.ImageVersions2.Candidates) > 0 {
-		praw := node.ImageVersions2.Candidates[0].URL
+		// Widest candidate, not candidates[0] (see note above).
+		pbest := node.ImageVersions2.Candidates[0]
+		for _, c := range node.ImageVersions2.Candidates {
+			if c.Width > pbest.Width {
+				pbest = c
+			}
+		}
+		praw := pbest.URL
 		media := &Media{
 			Typename:   "XDTGraphImage",
 			IsVideo:    false,
