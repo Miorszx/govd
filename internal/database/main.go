@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/govdbot/govd/internal/config"
 	"github.com/govdbot/govd/internal/logger"
@@ -24,7 +25,31 @@ func Init() {
 func getConnectionPool() *pgxpool.Pool {
 	ctx := context.Background()
 	dsn := getDSN()
-	pool, err := pgxpool.New(ctx, dsn)
+
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		logger.L.Fatalf("failed to parse database config: %v", err)
+	}
+
+	// The bot runs CONCURRENT_UPDATES goroutines and each one may touch the
+	// database while handling an update. pgxpool defaults MaxConns to
+	// max(4, NumCPU), which on a small VPS leaves most of those goroutines
+	// queued behind a handful of connections. Size the pool to the worker
+	// count, bounded so the server's max_connections is never exhausted.
+	poolSize := int32(config.Env.ConcurrentUpdates) + 4
+	if poolSize < 10 {
+		poolSize = 10
+	}
+	if poolSize > 50 {
+		poolSize = 50
+	}
+	cfg.MaxConns = poolSize
+	cfg.MinConns = 2
+	// Don't let a saturated pool hang a handler forever.
+	cfg.MaxConnLifetime = time.Hour
+	cfg.MaxConnIdleTime = 30 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		logger.L.Fatalf("failed to connect to database: %v", err)
 	}

@@ -20,10 +20,11 @@ upsert_settings AS (
     INSERT INTO settings (chat_id, language, captions, silent, nsfw, media_album_limit, delete_links)
     VALUES ($1, $3, $4, $5, $6, $7, $8)
     ON CONFLICT (chat_id) DO UPDATE SET
-        language = CASE 
-            WHEN settings.language = 'XX' THEN EXCLUDED.language 
-            ELSE settings.language 
+        language = CASE
+            WHEN settings.language = 'XX' THEN EXCLUDED.language
+            ELSE settings.language
         END
+    WHERE settings.language = 'XX'
     RETURNING chat_id, nsfw, media_album_limit, captions, silent, language, created_at, updated_at, disabled_extractors, delete_links
 ),
 final_chat AS (
@@ -33,6 +34,10 @@ final_chat AS (
 ),
 final_settings AS (
     SELECT chat_id, nsfw, media_album_limit, captions, silent, language, created_at, updated_at, disabled_extractors, delete_links FROM upsert_settings
+    UNION ALL
+    SELECT chat_id, nsfw, media_album_limit, captions, silent, language, created_at, updated_at, disabled_extractors, delete_links FROM settings
+    WHERE chat_id = $1
+      AND NOT EXISTS (SELECT 1 FROM upsert_settings)
 )
 SELECT 
     c.chat_id,
@@ -71,6 +76,11 @@ type GetOrCreateChatRow struct {
 	DeleteLinks        bool
 }
 
+// The settings upsert is guarded by a WHERE clause so a chat that already has
+// its row keeps it untouched. Without the guard every single message rewrote
+// the settings row (PostgreSQL writes a new row version for DO UPDATE even
+// when the assigned value is identical), which bloated the table with dead
+// tuples and made the hottest path in the bot a write.
 func (q *Queries) GetOrCreateChat(ctx context.Context, arg GetOrCreateChatParams) (GetOrCreateChatRow, error) {
 	row := q.db.QueryRow(ctx, getOrCreateChat,
 		arg.ChatID,

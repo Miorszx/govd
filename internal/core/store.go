@@ -54,9 +54,46 @@ func StoreMedia(
 	}
 
 	// On conflict (upsert), old items are deleted so new caption/file_id takes effect.
+	// The delete must succeed: if it silently failed, the inserts below would
+	// append a second set of items to the same media row and every later send
+	// would deliver the post twice. Abort the transaction instead.
+	if err := storeItems(ctx, qtx, mediaID, media, fileIDs, fileSizes, formats); err != nil {
+		return err
+	}
+
+	logger.L.Debugf("stored media %s with %d items", media.ContentID, len(media.Items))
+
+	return tx.Commit(ctx)
+}
+
+// itemStore is the subset of the generated query set that writing media items
+// needs. Keeping it narrow lets the delete-before-insert contract be tested
+// without a live PostgreSQL server.
+type itemStore interface {
+	DeleteMediaItemsByMediaID(ctx context.Context, mediaID int64) error
+	CreateMediaItem(ctx context.Context, mediaID int64) (int64, error)
+	CreateMediaFormat(ctx context.Context, arg database.CreateMediaFormatParams) error
+}
+
+// storeItems replaces the item rows of an existing media row. The delete runs
+// first and its error is fatal: appending to a row whose old items survived
+// would double every item and make the bot send the post twice on every later
+// hit.
+func storeItems(
+	ctx context.Context,
+	qtx itemStore,
+	mediaID int64,
+	media *models.Media,
+	fileIDs []string,
+	fileSizes []int64,
+	formats []*models.DownloadedFormat,
+) error {
+	if len(media.Items) == 0 {
+		return nil
+	}
+
 	if err := qtx.DeleteMediaItemsByMediaID(ctx, mediaID); err != nil {
-		// log but don't fail - next insert will still work if items already gone
-		logger.L.Warnf("failed to delete old media items %d: %v", mediaID, err)
+		return fmt.Errorf("delete old media items %d: %w", mediaID, err)
 	}
 
 	for i := range media.Items {
@@ -116,9 +153,7 @@ func StoreMedia(
 		}
 	}
 
-	logger.L.Debugf("stored media %s with %d items", media.ContentID, len(media.Items))
-
-	return tx.Commit(ctx)
+	return nil
 }
 
 func collectMessageData(messages []gotgbot.Message) ([]string, []int64) {
