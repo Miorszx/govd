@@ -129,6 +129,12 @@ var (
 	fbRe_progURL     = regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(hd)"`)
 	fbRe_progURL2    = regexp.MustCompile(`(?i)"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"[^}]{0,1000}[^}]{0,1000}"quality"\s*:\s*"(sd)"`)
 	fbRe_htmlTitle   = regexp.MustCompile(`<title[^>]*>(.*?)</title>`)
+	// fbRe_reelMp4 matches any progressive mp4 the mobile reel page embeds.
+	// The m4* family above keys on `m4<digit>` (the m412 SD renditions); reel
+	// pages instead carry m366/m367 HD renditions, so they need their own
+	// pattern. Callers match against the unescaped body, where Facebook's `\/`
+	// separators are already normalised to `/`.
+	fbRe_reelMp4 = regexp.MustCompile(`https?://[^"'\s\\]+\.mp4[^"'\s\\]*`)
 )
 
 // fetchBodyFBHit fetches u with the facebookexternalhit user-agent, which
@@ -397,7 +403,7 @@ func extractReelMedia(ctx *models.ExtractorContext, urlLower string) (*VideoData
 			resp.Body.Close()
 		}
 	}
-	hd, sd, title := tryFetchHDFromProgressiveURLs(ctx, effectiveReelID)
+	hd, sd, title := resolveReelMediaURLs(ctx, effectiveReelID)
 	if hd == "" && sd == "" {
 		return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
 	}
@@ -2667,6 +2673,119 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	return parseProgressiveURLsAndCaptionFromBody(body, videoID)
+}
+
+// resolveReelMediaURLs runs the reel media ladder: the www progressive_url
+// path first, then the mbasic fallback when that finds no HD rendition.
+//
+// Keeping the ladder in its own function makes the ordering testable. A fair
+// number of reels refuse to render their www page - the desktop view answers
+// HTTP 400 with a 1.5 KB error document and no player data - while mbasic
+// still serves the complete video node with a downloadable m367 rendition.
+// Losing this fallback silently turns playable reels into "no hd
+// progressive_url found" failures, so a test pins the order.
+func resolveReelMediaURLs(
+	ctx *models.ExtractorContext,
+	reelID string,
+) (hd, sd, title string) {
+	hd, sd, title = tryFetchHDFromProgressiveURLs(ctx, reelID)
+	if hd == "" {
+		hd = tryFetchHDReelFromMBasic(ctx, reelID)
+	}
+	return hd, sd, title
+}
+
+// tryFetchHDReelFromMBasic is the fallback for reels whose www page will not
+// render. The desktop view of some reels answers HTTP 400 (a 1.5 KB error
+// document, no player data at all) while mbasic serves the complete video
+// node with a working m367/m366 rendition. Fetching mbasic costs one request
+// and is only attempted after the progressive_url path found nothing.
+//
+// The iPhone user-agent matters here: desktop and Googlebot user-agents get
+// the error document from mbasic too, and the m367 URLs only appear when the
+// request carries the session cookies the extractor already holds.
+func tryFetchHDReelFromMBasic(
+	ctx *models.ExtractorContext,
+	videoID string,
+) string {
+	if videoID == "" {
+		return ""
+	}
+	resp, err := ctx.Fetch(
+		http.MethodGet,
+		"https://mbasic.facebook.com/reel/"+videoID,
+		&networking.RequestParams{
+			Headers: map[string]string{
+				"User-Agent":      fbMBasicUA,
+				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Accept-Language": "en-US,en;q=0.9",
+			},
+		},
+	)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return ""
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil || len(body) == 0 {
+		return ""
+	}
+
+	// Facebook escapes forward slashes inside its JSON payloads, so match
+	// against the unescaped copy as well.
+	bodyUnesc := strings.ReplaceAll(string(body), `\/`, "/")
+	var firstNonHD string
+	for _, raw := range fbRe_reelMp4.FindAllString(bodyUnesc, -1) {
+		u := unescapeFacebookURL(raw)
+		u = strings.ReplaceAll(u, "&amp;", "&")
+		u = strings.ReplaceAll(u, `\/`, "/")
+		if !strings.HasPrefix(u, "http") {
+			continue
+		}
+		// Some reels ship several m367 candidates and only one of them is
+		// downloadable; the dead ones answer 403 with a plain-text body.
+		if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
+			if isDownloadableMediaURL(ctx, u) {
+				return u
+			}
+			continue
+		}
+		if firstNonHD == "" && isDownloadableMediaURL(ctx, u) {
+			firstNonHD = u
+		}
+	}
+	// No HD rendition in the node: keep the reel playable rather than dropping
+	// it, the caller only uses this URL when nothing HD was found.
+	return firstNonHD
+}
+
+// isDownloadableMediaURL reports whether u answers with a real video body.
+// A ranged GET is used instead of HEAD because the CDN answers some HEAD
+// requests with a bare 403 even when the same URL serves fine on GET.
+func isDownloadableMediaURL(ctx *models.ExtractorContext, u string) bool {
+	resp, err := ctx.Fetch(
+		http.MethodGet,
+		u,
+		&networking.RequestParams{
+			Headers: map[string]string{
+				"User-Agent": videoFetchHeaders["User-Agent"],
+				"Accept":     "*/*",
+				"Range":      "bytes=0-1023",
+			},
+		},
+	)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return false
+	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	return strings.Contains(ct, "video")
 }
 
 func parseProgressiveURLsAndCaptionFromBody(body []byte, videoID string) (hdURL, sdURL, title string) {
