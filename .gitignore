@@ -26,3 +26,9 @@ CLAUDE.md
 .env.bak*
 *.backup
 fix_cdn.sh
+
+# build artifacts (never commit compiled binaries)
+govd_new_bin
+govd
+*.bak
+*.bak[0-9]*
