@@ -2690,26 +2690,33 @@ func resolveReelMediaURLs(
 ) (hd, sd, title string) {
 	hd, sd, title = tryFetchHDFromProgressiveURLs(ctx, reelID)
 	if hd == "" {
-		hd = tryFetchHDReelFromMBasic(ctx, reelID)
+		var mbasicCaption string
+		hd, mbasicCaption = mbasicReelNode(ctx, reelID)
+		// The www page refused to render, so it never supplied a caption
+		// either. Take the one printed on the mbasic document we just paid
+		// for instead of firing a separate GraphQL request for it.
+		if title == "" {
+			title = mbasicCaption
+		}
 	}
 	return hd, sd, title
 }
 
-// tryFetchHDReelFromMBasic is the fallback for reels whose www page will not
-// render. The desktop view of some reels answers HTTP 400 (a 1.5 KB error
-// document, no player data at all) while mbasic serves the complete video
-// node with a working m367/m366 rendition. Fetching mbasic costs one request
-// and is only attempted after the progressive_url path found nothing.
+// mbasicReelNode fetches the mbasic view of a reel once and returns both the
+// downloadable rendition and the post caption. They come from the same
+// document, so splitting them into two helpers would pay for the request
+// twice for no reason.
 //
-// The iPhone user-agent matters here: desktop and Googlebot user-agents get
-// the error document from mbasic too, and the m367 URLs only appear when the
-// request carries the session cookies the extractor already holds.
-func tryFetchHDReelFromMBasic(
+// The caption lives in the og:description meta tag of that page. It is not
+// available anywhere else when the desktop view refuses to render: the www
+// page answers HTTP 400 with a 1.5 KB error document that carries no player
+// data and no post text at all.
+func mbasicReelNode(
 	ctx *models.ExtractorContext,
 	videoID string,
-) string {
+) (mediaURL, caption string) {
 	if videoID == "" {
-		return ""
+		return "", ""
 	}
 	resp, err := ctx.Fetch(
 		http.MethodGet,
@@ -2726,18 +2733,36 @@ func tryFetchHDReelFromMBasic(
 		if resp != nil {
 			resp.Body.Close()
 		}
-		return ""
+		return "", ""
 	}
 	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil || len(body) == 0 {
-		return ""
+		return "", ""
 	}
 
 	// Facebook escapes forward slashes inside its JSON payloads, so match
 	// against the unescaped copy as well.
 	bodyUnesc := strings.ReplaceAll(string(body), `\/`, "/")
 	var firstNonHD string
+	mediaURL = scanMBasicMedia(ctx, bodyUnesc, &firstNonHD)
+	if mediaURL == "" {
+		// No HD rendition in the node: keep the reel playable rather than
+		// dropping it, the caller only uses this URL when nothing HD was found.
+		mediaURL = firstNonHD
+	}
+	caption = mbasicCaptionFromBody(body)
+	return mediaURL, caption
+}
+
+// scanMBasicMedia walks the mp4 candidates of an mbasic reel document and
+// returns the first downloadable HD rendition. firstNonHD collects the first
+// downloadable SD candidate for callers that have nothing better.
+func scanMBasicMedia(
+	ctx *models.ExtractorContext,
+	bodyUnesc string,
+	firstNonHD *string,
+) string {
 	for _, raw := range fbRe_reelMp4.FindAllString(bodyUnesc, -1) {
 		u := unescapeFacebookURL(raw)
 		u = strings.ReplaceAll(u, "&amp;", "&")
@@ -2753,13 +2778,37 @@ func tryFetchHDReelFromMBasic(
 			}
 			continue
 		}
-		if firstNonHD == "" && isDownloadableMediaURL(ctx, u) {
-			firstNonHD = u
+		if *firstNonHD == "" && isDownloadableMediaURL(ctx, u) {
+			*firstNonHD = u
 		}
 	}
-	// No HD rendition in the node: keep the reel playable rather than dropping
-	// it, the caller only uses this URL when nothing HD was found.
-	return firstNonHD
+	return ""
+}
+
+// mbasicCaptionFromBody pulls the reel caption out of an mbasic document.
+// The value carries numeric HTML entities for non-Latin scripts, so it is
+// unescaped before use. A "Only members can see" placeholder is a privacy
+// wall, not a caption, and is rejected.
+func mbasicCaptionFromBody(body []byte) string {
+	c := extractOGCaption(body)
+	if c == "" {
+		return ""
+	}
+	low := strings.ToLower(c)
+	if strings.HasPrefix(low, "only members") || strings.HasPrefix(low, "log in") {
+		return ""
+	}
+	return cleanFacebookCaption(c)
+}
+
+// tryFetchHDReelFromMBasic reports only the rendition found by mbasicReelNode.
+// Callers that also want the caption call mbasicReelNode directly.
+func tryFetchHDReelFromMBasic(
+	ctx *models.ExtractorContext,
+	videoID string,
+) string {
+	u, _ := mbasicReelNode(ctx, videoID)
+	return u
 }
 
 // isDownloadableMediaURL reports whether u answers with a real video body.
