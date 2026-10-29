@@ -100,8 +100,12 @@ func ParsePostMedia(ctx *models.ExtractorContext, body []byte) (*models.Media, e
 
 		// A Threads text post (media_type 19) often carries no media of its
 		// own: the picture/video lives on the post it quotes or reposts,
-		// exposed under text_post_app_info.share_info. Borrow the caption and
-		// media from there so share links to quote posts resolve.
+		// exposed under text_post_app_info.share_info. Borrow the media from
+		// there so share links to quote posts resolve.
+		//
+		// The caption stays the sharer's own: the borrowed post belongs to a
+		// different author, so its caption is only a fallback when the sharing
+		// post has nothing to say.
 		if len(media.Items) == 0 {
 			if shared := firstSharedPost(node); shared != nil {
 				if shared.Caption != nil {
@@ -109,6 +113,9 @@ func ParsePostMedia(ctx *models.ExtractorContext, body []byte) (*models.Media, e
 				}
 				appendNodeMedia(media, shared)
 				if len(media.Items) > 0 {
+					if node.Caption != nil {
+						media.Caption = node.Caption.Text
+					}
 					return media, nil
 				}
 			}

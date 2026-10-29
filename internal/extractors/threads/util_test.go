@@ -263,8 +263,8 @@ func TestQuotedTextPostBorrowsMedia(t *testing.T) {
 	if f.Type != database.MediaTypeVideo || f.URL[0] != quotedPostVid {
 		t.Fatalf("expected quoted video %q, got %+v", quotedPostVid, f)
 	}
-	if media.Caption != "quoted caption" {
-		t.Fatalf("expected quoted caption, got %q", media.Caption)
+	if media.Caption != "quote wrapper" {
+		t.Fatalf("expected the sharing post caption, got %q", media.Caption)
 	}
 }
 
@@ -343,8 +343,8 @@ func TestLinkedInlineMediaBorrowsMedia(t *testing.T) {
 	if len(f.ThumbnailURL) == 0 || f.ThumbnailURL[0] != postPosterURL {
 		t.Fatalf("expected inline poster %q, got %v", postPosterURL, f.ThumbnailURL)
 	}
-	if media.Caption != "inline caption" {
-		t.Fatalf("expected inline caption, got %q", media.Caption)
+	if media.Caption != "link wrapper" {
+		t.Fatalf("expected the sharing post caption, got %q", media.Caption)
 	}
 }
 
@@ -395,5 +395,71 @@ func TestShareInfoBeatsLinkedInlineMedia(t *testing.T) {
 	}
 	if len(media.Items) != 1 || media.Items[0].Formats[0].URL[0] != quotedPostVid {
 		t.Fatalf("expected quoted post to win, got %+v", media.Items)
+	}
+}
+
+// A share link to a quote/repost text post must caption the media with the
+// sharer's own words. The quoted post's caption belongs to a different author
+// and must only be borrowed when the sharing post has no caption at all.
+func TestQuotedTextPostKeepsRootCaption(t *testing.T) {
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"sharer words"},` +
+		`"image_versions2":{"candidates":[]},"video_versions":null,"carousel_media":null,` +
+		`"text_post_app_info":{"share_info":{"quoted_attachment_post":{` +
+		`"code":"` + quotedPostCode + `","media_type":2,` +
+		`"caption":{"text":"other author words"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + quotedPostVid + `"}],"carousel_media":null` +
+		`}}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if len(media.Items) != 1 {
+		t.Fatalf("expected 1 item from quoted post, got %d", len(media.Items))
+	}
+	if media.Caption != "sharer words" {
+		t.Fatalf("expected the sharing post caption %q, got %q", "sharer words", media.Caption)
+	}
+}
+
+// When the sharing post carries no caption of its own, the quoted post's
+// caption is still borrowed so the media is never left uncaptioned.
+func TestQuotedTextPostFallsBackToSharedCaption(t *testing.T) {
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"image_versions2":{"candidates":[]},"video_versions":null,"carousel_media":null,` +
+		`"text_post_app_info":{"share_info":{"quoted_attachment_post":{` +
+		`"code":"` + quotedPostCode + `","media_type":2,` +
+		`"caption":{"text":"other author words"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + quotedPostVid + `"}],"carousel_media":null` +
+		`}}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if media.Caption != "other author words" {
+		t.Fatalf("expected fallback caption %q, got %q", "other author words", media.Caption)
+	}
+}
+
+// Same rule for a pasted link rendered as an inline media card: the sharer's
+// own caption wins, the card's caption is only a fallback.
+func TestLinkedInlineMediaKeepsRootCaption(t *testing.T) {
+	root := `"code":"` + testPostCode + `","media_type":19,` +
+		`"caption":{"text":"sharer words"},` +
+		`"image_versions2":{"candidates":[]},"video_versions":null,"carousel_media":null,` +
+		`"text_post_app_info":{"share_info":null,` +
+		`"linked_inline_media":{` +
+		`"code":"` + inlinePostCode + `","media_type":2,` +
+		`"caption":{"text":"card words"},` +
+		`"image_versions2":{"candidates":[{"width":640,"height":360,"url":"` + postPosterURL + `"}]},` +
+		`"video_versions":[{"type":103,"url":"` + inlineVid + `"}],"carousel_media":null}}`
+	media, err := ParsePostMedia(newTestContext(testPostCode), jsonPage(root))
+	if err != nil {
+		t.Fatalf("ParsePostMedia error: %v", err)
+	}
+	if media.Caption != "sharer words" {
+		t.Fatalf("expected the sharing post caption %q, got %q", "sharer words", media.Caption)
 	}
 }
