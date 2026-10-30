@@ -13,6 +13,7 @@ import (
 	"github.com/govdbot/govd/internal/database"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/networking"
+	"github.com/govdbot/govd/internal/plugins"
 	"github.com/govdbot/govd/internal/util"
 )
 
@@ -129,6 +130,96 @@ const (
 	sdBitrateHint int64 = 1_500_000
 )
 
+// buildDASHFormat turns the DASH tracks recorded on VideoData into the formats
+// the item will deliver. It returns nil when the reel carried no DASH
+// rendition, letting the progressive ladder run unchanged.
+//
+// Two formats are added to the item: the video-only rendition and the audio
+// rendition. core's downloadItem picks the video one, and the transcode plugin
+// attached to it pulls the audio format through the same DownloadFunc the
+// merge plugin uses. The video format declares AudioCodec so core's
+// mergeFormats leaves it alone - that helper would attach MergeAudio, which
+// stream-copies and therefore cannot convert an AV1 track.
+//
+// The size is an estimate from the manifest bandwidth, deliberately padded:
+// the H.264 output is larger than the AV1 source it is re-encoded from, and a
+// format that probes small but encodes large would hit the Telegram limit only
+// after the encode has already been paid for.
+func buildDASHFormat(
+	ctx *models.ExtractorContext,
+	data *VideoData,
+	safeLimit int64,
+) []*models.MediaFormat {
+	if data.DASHURL == "" || data.DASHHeight <= 0 {
+		return nil
+	}
+
+	estimated := estimateDASHOutputSize(data)
+	if estimated > 0 && estimated > safeLimit {
+		ctx.Infof(
+			"facebook dash: skipping %dx%d rendition, estimated output %dB exceeds safe limit %dB",
+			data.DASHWidth, data.DASHHeight, estimated, safeLimit,
+		)
+		return nil
+	}
+
+	ctx.Infof(
+		"facebook dash: selected %dx%d rendition (estimated output %dB)",
+		data.DASHWidth, data.DASHHeight, estimated,
+	)
+
+	video := &models.MediaFormat{
+		FormatID: "dash",
+		Type:     database.MediaTypeVideo,
+		// The delivered file is H.264 + AAC after the transcode plugin runs,
+		// regardless of the AV1/VP9 codec the DASH source uses. Declaring the
+		// audio codec here also keeps core's mergeFormats from attaching the
+		// stream-copy merge plugin to this format.
+		VideoCodec: database.MediaCodecAvc,
+		AudioCodec: database.MediaCodecAac,
+		URL:        []string{data.DASHURL},
+		Width:      data.DASHWidth,
+		Height:     data.DASHHeight,
+		Duration:   data.DASHDuration,
+		FileSize:   estimated,
+		Plugins:    []*models.Plugin{plugins.TranscodeH264},
+		// The CDN refuses the signed DASH URL without the session cookies the
+		// page was fetched with (403), so they travel with the format.
+		DownloadSettings: &models.DownloadSettings{
+			Cookies: ctx.HTTPClient.Cookies,
+		},
+	}
+
+	formats := []*models.MediaFormat{video}
+
+	if data.DASHAudioURL != "" {
+		formats = append(formats, &models.MediaFormat{
+			FormatID:   "dash_audio",
+			Type:       database.MediaTypeAudio,
+			AudioCodec: database.MediaCodecAac,
+			URL:        []string{data.DASHAudioURL},
+			Duration:   data.DASHDuration,
+			DownloadSettings: &models.DownloadSettings{
+				Cookies: ctx.HTTPClient.Cookies,
+			},
+		})
+	}
+
+	return formats
+}
+
+// estimateDASHOutputSize projects the size of the re-encoded file. The source
+// bitrate comes from the manifest; H.264 at crf 23 lands roughly three times
+// the AV1 bitrate on this kind of content, so the source is multiplied out
+// rather than trusted as-is.
+func estimateDASHOutputSize(data *VideoData) int64 {
+	const h264Overshoot = 3
+	if data.DASHSourceSize <= 0 {
+		return 0
+	}
+	return data.DASHSourceSize * h264Overshoot
+}
+
 func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, error) {
 	media := ctx.NewMedia()
 	if data.Title != "" {
@@ -157,6 +248,18 @@ func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, e
 	)
 
 	var formats []*models.MediaFormat
+
+	// DASH carries the only true-HD rendition Facebook publishes for reels:
+	// the progressive ladder stops at 720x1280, anything taller is video-only
+	// AV1/VP9. That track is re-encoded to H.264 by the plugin, so the format
+	// declares the codecs of the file that is actually delivered. When it is
+	// available it is the single format for this item - no progressive
+	// fallback is kept, matching the HD-only behaviour of the rest of the
+	// extractor.
+	if dashFormats := buildDASHFormat(ctx, data, safeLimit); len(dashFormats) > 0 {
+		item.AddFormats(dashFormats...)
+		return media, nil
+	}
 
 	// Prefer HD only if it fits safely; otherwise fall back to SD to avoid
 	// FD4902CC (413) on near-limit files like 52.3 MiB that probe just under 50 MiB.

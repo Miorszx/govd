@@ -403,7 +403,8 @@ func extractReelMedia(ctx *models.ExtractorContext, urlLower string) (*VideoData
 			resp.Body.Close()
 		}
 	}
-	hd, sd, title := resolveReelMediaURLs(ctx, effectiveReelID)
+	m := resolveReelMedia(ctx, effectiveReelID)
+	hd, sd, title := m.HD, m.SD, m.Title
 	if hd == "" && sd == "" {
 		return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
 	}
@@ -418,6 +419,18 @@ func extractReelMedia(ctx *models.ExtractorContext, urlLower string) (*VideoData
 		title = ""
 	}
 	data := &VideoData{HDURL: useURL, Title: title}
+	// The DASH manifest, when present, carries a rendition above what the
+	// muxed progressive URL offers. Facebook never serves that resolution as
+	// H.264, so the extractor records it and the transcode plugin converts it
+	// later; the progressive URL stays as the fallback if anything fails.
+	if m.DASH != nil && m.DASH.VideoURL != "" && m.DASH.Height > 0 {
+		data.DASHURL = m.DASH.VideoURL
+		data.DASHAudioURL = m.DASH.AudioURL
+		data.DASHWidth = m.DASH.Width
+		data.DASHHeight = m.DASH.Height
+		data.DASHSourceSize = m.DASH.VideoSize
+		data.DASHDuration = m.DASH.Duration
+	}
 	// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
 	// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
 	// For private group share/v, skip GraphQL caption fetch to avoid picking sharer's comment
@@ -2628,51 +2641,73 @@ func tryFetchReelCaptionFromWWW(ctx *models.ExtractorContext, videoID string) st
 	return ""
 }
 
+// reelMedia is the outcome of the reel resolution ladder. DASH is nil when the
+// page carried no manifest, in which case only the progressive renditions are
+// available.
+type reelMedia struct {
+	HD    string
+	SD    string
+	Title string
+	DASH  *dashTracks
+}
+
 // tryFetchHDFromProgressiveURLs copies yt-dlp's videoDeliveryResponseResult.progressive_urls parsing
 // YTDL: traverse_obj(video, ('videoDeliveryResponseFragment','videoDeliveryResponseResult','progressive_urls',...,'progressive_url'))
 // Dump shows: "progressive_urls":[{"progressive_url":"https://scontent-.../m367/...","metadata":{"quality":"hd"} ...}]
 // This is hd/sd progressive muxed (video+audio) - best quality, same as browser_native_hd_url
 // Pure Go via ctx.Fetch with desktop UA + cookies (like ytdl's _download_webpage)
 func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string) (hdURL, sdURL, title string) {
+	m := fetchReelMedia(ctx, videoID)
+	return m.HD, m.SD, m.Title
+}
+
+// fetchReelMedia performs the www fetch and parses every rendition it carries:
+// the muxed progressive URLs plus the DASH manifest when the page embeds one.
+func fetchReelMedia(ctx *models.ExtractorContext, videoID string) *reelMedia {
 	if videoID == "" {
-		return "", "", ""
+		return &reelMedia{}
 	}
 	// YTDL fetches https://www.facebook.com/watch/?v=ID (not reel) for videoDelivery data
 	// It saves pages as a page dump filename
 	watchURL := "https://www.facebook.com/watch/?v=" + videoID
-	resp, err := ctx.Fetch(http.MethodGet, watchURL, &networking.RequestParams{
-		Headers: map[string]string{
-			"User-Agent":      webHeaders["User-Agent"],
-			"Accept":          webHeaders["Accept"],
-			"Accept-Language": webHeaders["Accept-Language"],
-		},
-	})
+	headers := map[string]string{
+		"User-Agent":      webHeaders["User-Agent"],
+		"Accept":          webHeaders["Accept"],
+		"Accept-Language": webHeaders["Accept-Language"],
+	}
+	resp, err := ctx.Fetch(http.MethodGet, watchURL, &networking.RequestParams{Headers: headers})
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {
 			resp.Body.Close()
 		}
 		// Fallback to reel URL
 		reelURL := "https://www.facebook.com/reel/" + videoID + "/"
-		resp2, err2 := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{
-			Headers: map[string]string{
-				"User-Agent":      webHeaders["User-Agent"],
-				"Accept":          webHeaders["Accept"],
-				"Accept-Language": webHeaders["Accept-Language"],
-			},
-		})
+		resp2, err2 := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{Headers: headers})
 		if err2 != nil || resp2.StatusCode != 200 {
 			if resp2 != nil {
 				resp2.Body.Close()
 			}
-			return "", "", ""
+			return &reelMedia{}
 		}
 		body2, _ := io.ReadAll(resp2.Body)
 		resp2.Body.Close()
-		return parseProgressiveURLsAndCaptionFromBody(body2, videoID)
+		return reelMediaFromBody(body2, videoID)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	return parseProgressiveURLsAndCaptionFromBody(body, videoID)
+	return reelMediaFromBody(body, videoID)
+}
+
+// reelMediaFromBody parses one Facebook document into the rendition set the
+// ladder can use.
+func reelMediaFromBody(body []byte, videoID string) *reelMedia {
+	hd, sd, title := parseProgressiveURLsAndCaptionFromBody(body, videoID)
+	return &reelMedia{
+		HD:    hd,
+		SD:    sd,
+		Title: title,
+		DASH:  parseDASHManifest(extractManifestXML(body)),
+	}
 }
 
 // resolveReelMediaURLs runs the reel media ladder: the www progressive_url
@@ -2688,18 +2723,31 @@ func resolveReelMediaURLs(
 	ctx *models.ExtractorContext,
 	reelID string,
 ) (hd, sd, title string) {
-	hd, sd, title = tryFetchHDFromProgressiveURLs(ctx, reelID)
-	if hd == "" {
+	m := resolveReelMedia(ctx, reelID)
+	return m.HD, m.SD, m.Title
+}
+
+// resolveReelMedia is resolveReelMediaURLs plus the DASH tracks the same
+// document carried. The progressive path stays authoritative for playback:
+// DASH is only consulted for a higher resolution than the muxed rendition
+// offers, and it never costs an extra request because the manifest ships
+// inside the page that was already fetched.
+func resolveReelMedia(
+	ctx *models.ExtractorContext,
+	reelID string,
+) *reelMedia {
+	m := fetchReelMedia(ctx, reelID)
+	if m.HD == "" {
 		var mbasicCaption string
-		hd, mbasicCaption = mbasicReelNode(ctx, reelID)
+		m.HD, mbasicCaption = mbasicReelNode(ctx, reelID)
 		// The www page refused to render, so it never supplied a caption
 		// either. Take the one printed on the mbasic document we just paid
 		// for instead of firing a separate GraphQL request for it.
-		if title == "" {
-			title = mbasicCaption
+		if m.Title == "" {
+			m.Title = mbasicCaption
 		}
 	}
-	return hd, sd, title
+	return m
 }
 
 // mbasicReelNode fetches the mbasic view of a reel once and returns both the
