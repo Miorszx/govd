@@ -37,9 +37,9 @@ func (f *fakeClient) Do(req *http.Request) (*http.Response, error) {
 // reelFixture is a server-rendered reel page shaped like the HTML Instagram
 // actually serves. It deliberately contains TWO media payloads:
 //
-//	1. a decoy "video_versions" belonging to a suggested reel (no code marker
-//	   of its own before it in this fixture), and
-//	2. the real payload, owned by "code":"SYNTH000001".
+//  1. a decoy "video_versions" belonging to a suggested reel (no code marker
+//     of its own before it in this fixture), and
+//  2. the real payload, owned by "code":"SYNTH000001".
 //
 // This is the regression guard for the bug measured on Db0lSiOkZln: the first
 // "video_versions" in a live page belonged to a suggested post, so taking

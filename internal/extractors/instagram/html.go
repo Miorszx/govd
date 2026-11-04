@@ -162,10 +162,15 @@ func ownerOf(markers []igCodeMarker, pos int) string {
 }
 
 // findOwnedBlocks returns every occurrence of key that belongs to shortcode.
-// This is the fix for a real bug: the first "video_versions" in the page
-// belongs to a *suggested* reel, so taking occurrence[0] downloaded somebody
-// else's video. Measured on Db0lSiOkZln — occurrence 0 had no code marker of
-// its own, occurrence 1 was the real one, occurrence 2 was DfPBnfNMCLu.
+//
+// Ownership is NOT simply "the last marker before pos". Measured on reel
+// DfUDeEHzDQn: with Instagram's default mobile UA the page renders ONE flat
+// item whose "video_versions" sits at offset 566447 while the item's
+// `"code":"DfUDeEHzDQn"` sits at 570343 -- the marker comes AFTER the media,
+// in the same JSON object. Backward-only ownership found no owner and the reel
+// was served as an image. So we accept a block when the nearest marker either
+// before OR after it (in document order) is the requested shortcode, and the
+// forward window must still be inside the same JSON object (no `}` crossing).
 func findOwnedBlocks(html, key, shortcode string) []string {
 	markers := findCodeMarkers(html)
 	var out []string
@@ -176,12 +181,69 @@ func findOwnedBlocks(html, key, shortcode string) []string {
 		}
 		pos := i + j
 		if raw, ok := extractJSONArray(html[pos:], key); ok {
-			if ownerOf(markers, pos) == shortcode {
+			if ownsBlockForward(html, markers, pos) == shortcode ||
+				ownerOf(markers, pos) == shortcode {
 				out = append(out, raw)
 			}
 		}
 		i = pos + len(key)
 	}
+}
+
+// ownsBlockForward returns the shortcode marker that follows pos, but only if
+// it is still inside the same JSON object. The scan from pos aborts the moment
+// the brace depth dips below zero — that is the enclosing object closing, and
+// any marker past that point belongs to a different item. Final depth alone is
+// not enough: `...}]},{` returns to zero after closing the previous item, which
+// would let a neighbouring item's marker claim this block.
+func ownsBlockForward(html string, markers []igCodeMarker, pos int) string {
+	start := -1
+	for i, m := range markers {
+		if m.pos > pos {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	end := markers[start].pos
+	if end-pos > 8192 {
+		return "" // too far to be the same item
+	}
+
+	depth := 0
+	inStr := false
+	esc := false
+	for i := pos; i < end; i++ {
+		c := html[i]
+		if inStr {
+			switch {
+			case esc:
+				esc = false
+			case c == '\\':
+				esc = true
+			case c == '"':
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+			if depth < 0 {
+				return "" // left the enclosing object
+			}
+		}
+	}
+	if inStr {
+		return "" // string never terminated — treat as malformed
+	}
+	return markers[start].code
 }
 
 // parseIGHTML pulls media out of the server-rendered page. shortcode is used to
