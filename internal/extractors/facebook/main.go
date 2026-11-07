@@ -155,23 +155,21 @@ func buildDASHFormat(
 	}
 
 	// Walk the manifest ladder from the tallest rendition down and take the
-	// first one whose projected H.264 output fits Telegram. The 1080p entry
-	// is what most short reels land on; long low-bitrate reels push past the
-	// limit and drop to the 720p entry of the same manifest. Falling back to
-	// the progressive rendition instead is not an option - it tops out at
-	// 360x640 for reels, which is how they used to arrive.
+	// first one whose manifest size already fits Telegram. A rendition that
+	// only fits after re-encoding is not taken: the encode costs minutes per
+	// reel, so the progressive URL is served instead.
 	rep, fits := pickVideoForBudget(data.DASH, safeLimit)
 	if !fits {
 		ctx.Infof(
-			"facebook dash: no rendition fits, estimated %dx%d output %dB exceeds safe limit %dB",
-			rep.Width, rep.Height, rep.Size*h264OvershootPct/100, safeLimit,
+			"facebook dash: no rendition fits %dB, falling back to progressive",
+			safeLimit,
 		)
 		return nil
 	}
 
 	ctx.Infof(
-		"facebook dash: selected %dx%d rendition (source %dB, projected %dB, ladder %d)",
-		rep.Width, rep.Height, rep.Size, rep.Size*h264OvershootPct/100, len(data.DASH.Videos),
+		"facebook dash: selected %dx%d rendition (source %dB, ladder %d)",
+		rep.Width, rep.Height, rep.Size, len(data.DASH.Videos),
 	)
 
 	video := &models.MediaFormat{

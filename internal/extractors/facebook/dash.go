@@ -189,34 +189,35 @@ func parseDASHManifest(manifestXML string) *dashTracks {
 	return tracks
 }
 
-// h264OvershootPct is how much larger the H.264 delivery is projected to be
-// than the AV1 DASH source, in percent (120 == 1.2x). It is only a projection:
-// the transcode plugin measures the encoded file and re-encodes down a crf
-// ladder when it overflows.
-//
-// Derived from the two encodes measured against real reels: 41,412,026 B out
-// of 35,558,430 B (1.16x) and 20,494,514 B out of 14,656,180 B (1.40x). It was
-// 300 for a long time, carried over from one low bitrate reel where the growth
-// really is extreme - applying that worst case to everything rejected 1080p
-// renditions that encoded to 41 MB and dropped them to the 360p progressive
-// fallback.
-const h264OvershootPct = 120
+// The budget is walked on the manifest size alone. Measuring four reels showed
+// the AV1 to H.264 growth swinging between 1.16x and 3.03x for the same nominal
+// bitrate, so there is no honest multiplier to apply: an overshoot constant
+// would either reject 1080p reels that encode to 41 MB or accept long reels
+// that balloon to 48 MB. Re-encoding to make a file fit costs minutes per reel,
+// so a rendition that is already too large is skipped in favour of the
+// progressive URL rather than squeezed.
 
-// pickVideoForBudget returns the tallest rendition whose projected delivery
-// size fits limit. When none fits, the shortest is returned with ok=false so
-// the caller can decide between squeezing it down and refusing the reel.
+// pickVideoForBudget returns the tallest rendition whose manifest size fits
+// limit. When none fits, the shortest is returned with ok=false and the caller
+// falls back to the progressive rendition instead of squeezing the DASH one.
 //
-// The projection only has to be good enough to order the ladder, because the
-// transcode plugin measures the real file after it encodes. Erring low is
-// therefore cheap: a rendition picked optimistically still lands under the
-// cap, just at a higher crf.
+// The comparison is on the manifest size, not on any projected H.264 output.
+// Measuring the real reels showed the AV1 to H.264 growth swinging from 1.16x
+// to 3.03x for the same nominal bitrate, so no multiplier can be honest: a
+// multiplier low enough to keep a well-behaved reel rejects the long ones, and
+// one high enough for the long ones throws away 1080p reels that encode to
+// 41 MB. The manifest size is the only number that means the same thing for
+// every reel, so it is the one the budget walks.
 func pickVideoForBudget(tracks *dashTracks, limit int64) (Representation, bool) {
 	if tracks == nil || len(tracks.Videos) == 0 {
 		return Representation{}, false
 	}
 
 	for _, rep := range tracks.Videos {
-		if limit <= 0 || rep.Size*h264OvershootPct/100 <= limit {
+		if rep.Size <= 0 {
+			continue
+		}
+		if limit <= 0 || rep.Size <= limit {
 			return rep, true
 		}
 	}

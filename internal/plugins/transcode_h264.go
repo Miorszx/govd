@@ -11,39 +11,35 @@ import (
 	"github.com/govdbot/govd/internal/util/libav"
 )
 
-// crfLadder is walked in order until the encoded file fits under the Telegram
-// limit. The first pass starts at 23 because that is where a 1080p AV1 reel
-// measures only 1.16x its source and usually lands far below the cap; the
-// later passes exist for long low-bitrate reels, where the same encode grows
-// the file toward 3x and needs real compression to come back under.
-var crfLadder = []int{23, 28, 32, 35}
+// transcodeCRF is the single quality setting used for the H.264 conversion.
+// It is 23 because that is the x264 default and measured close to the AV1
+// source on real reels; there is no ladder above it. A reel that does not fit
+// at this quality is not squeezed - the progressive rendition is served.
+const transcodeCRF = 23
 
 // TranscodeH264 turns a downloaded video-only rendition into an H.264 file with
 // the audio muxed in, then swaps it in as the format's file.
 //
-// Facebook publishes its 1080p reel renditions only as AV1 or VP9 inside the
-// DASH manifest; the muxed progressive file tops out at 360x640 for reels.
-// Copying the streams is therefore not an option - the video track has to be
-// re-encoded - and this plugin is what the extractor attaches to the DASH
-// format when it picks that rendition.
+// Facebook publishes its 1080p reel renditions only as AV1 inside the DASH
+// manifest, so the video track has to be re-encoded before Telegram will play
+// it. This plugin is attached to a DASH format only after the extractor has
+// confirmed the manifest size already fits under the limit - it is a format
+// conversion, not a size reduction. There is exactly one encode pass at
+// crf 23; if that somehow lands over the cap the reel is abandoned and the
+// progressive URL is served instead, because re-encoding down a ladder costs
+// minutes per reel and still delivers something worse.
 //
 // The audio is a second format in the same item, downloaded through the same
 // DownloadFunc the merge plugin uses, so the codec/size validation and the
 // file tracking stay identical to the rest of the pipeline. Audio is copied,
 // never re-encoded: only the video stream is decoded, which keeps the work to
-// one decode pass per attempt.
-//
-// The size check after each encode is what makes the budget honest. The
-// extractor's projection is a guess from the manifest bandwidth; the file on
-// disk is the measurement. When an attempt overflows, the next rung of the
-// ladder re-encodes from the same source instead of delivering a file Telegram
-// will reject.
+// one decode pass.
 var TranscodeH264 = &models.Plugin{
 	ID: "transcode_h264",
 	RunFunc: func(ctx *models.ExtractorContext, item *models.MediaItem, format *models.DownloadedFormat) error {
 		audioFormat := item.GetDefaultAudioFormat()
 		if audioFormat == nil {
-			// The video track is AV1/VP9 without an audio track to mux, so the
+			// The video track is AV1 without an audio track to mux, so the
 			// result would be a silent file Telegram cannot play. Fail loudly
 			// rather than deliver it.
 			return fmt.Errorf("no audio format found for the dash rendition")
@@ -61,70 +57,41 @@ var TranscodeH264 = &models.Plugin{
 			format.FilePath,
 			filepath.Ext(format.FilePath),
 		)
+		outputPath := basePath + "_h264.mp4"
+		ctx.FilesTracker.Add(outputPath)
 
-		// Leave a margin under the hard cap. Telegram rejects at the limit, not
-		// above it, and the multipart body adds a little on top of the file.
-		limit := util.TelegramBotAPIFileLimit() * 95 / 100
-
-		var outputPath string
-		var lastSize int64
-
-		for _, crf := range crfLadder {
-			outputPath = fmt.Sprintf("%s_crf%d.mp4", basePath, crf)
-			ctx.FilesTracker.Add(outputPath)
-
-			ctx.Infof("transcoding dash rendition to h264 (crf %d)", crf)
-			err = libav.TranscodeToH264(
-				format.FilePath,
-				downloadedAudio.FilePath,
-				outputPath,
-				crf,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to transcode to h264 at crf %d: %w", crf, err)
-			}
-
-			info, statErr := os.Stat(outputPath)
-			if statErr != nil {
-				return fmt.Errorf("failed to stat transcoded file: %w", statErr)
-			}
-			lastSize = info.Size()
-
-			if limit <= 0 || lastSize <= limit {
-				ctx.Infof(
-					"transcoded dash rendition: crf %d -> %d bytes (limit %d)",
-					crf, lastSize, limit,
-				)
-				break
-			}
-
-			// This rung overflowed; drop it before trying the next one so a
-			// failed attempt cannot be mistaken for the deliverable.
-			ctx.Infof(
-				"transcoded dash rendition at crf %d is %d bytes, over the %d limit",
-				crf, lastSize, limit,
-			)
-			if rmErr := os.Remove(outputPath); rmErr != nil {
-				ctx.Infof("could not remove oversized encode: %v", rmErr)
-			}
-			outputPath = ""
+		ctx.Infof("transcoding dash rendition to h264")
+		if err := libav.TranscodeToH264(
+			format.FilePath,
+			downloadedAudio.FilePath,
+			outputPath,
+			transcodeCRF,
+		); err != nil {
+			return fmt.Errorf("failed to transcode to h264: %w", err)
 		}
 
-		// Every rung overflowed. Returning an error lets core fall back to the
-		// progressive rendition the extractor already queued, which is worse
-		// but playable - far better than sending a file Telegram will bounce.
-		if outputPath == "" {
+		info, statErr := os.Stat(outputPath)
+		if statErr != nil {
+			return fmt.Errorf("failed to stat transcoded file: %w", statErr)
+		}
+		if info.Size() > util.TelegramBotAPIFileLimit()*95/100 {
+			// The pick was made on the manifest size and the encode still
+			// grew past the cap. Do not re-encode: returning the error makes
+			// core fall back to the progressive rendition, which is
+			// playable and costs no further minutes.
 			return fmt.Errorf(
-				"transcoded output still %d bytes after crf %d, over the %d limit",
-				lastSize, crfLadder[len(crfLadder)-1], limit,
+				"transcoded output is %d bytes, over the telegram limit",
+				info.Size(),
 			)
 		}
 
-		// The source track is AV1/VP9 and useless once the H.264 file exists;
+		// The source track is AV1 and useless once the H.264 file exists;
 		// leaving it behind doubles the disk cost of every reel.
 		if err := os.Remove(format.FilePath); err != nil {
 			ctx.Infof("could not remove dash source: %v", err)
 		}
+
+		ctx.Infof("transcoded dash rendition: %d bytes", info.Size())
 
 		format.FilePath = outputPath
 		return nil

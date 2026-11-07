@@ -161,16 +161,16 @@ func TestParseDASHManifestKeepsFullLadder(t *testing.T) {
 }
 
 // The budget walk must fall to the next rendition down rather than give up.
-// This is the whole point of keeping the ladder: a 1080p entry projecting over
-// the cap falls to the 720p entry of the same manifest instead of to the 360p
-// progressive fallback.
+// This is the whole point of keeping the ladder: a 1080p entry whose manifest
+// size is already past the cap falls to the 720p entry of the same manifest
+// instead of to the 360p progressive fallback.
 func TestPickVideoForBudgetWalksLadder(t *testing.T) {
 	tracks := &dashTracks{
 		Duration: 80,
 		Videos: []Representation{
-			// 45 MB projects to 54 MB at 1.2x, over the safe limit.
-			{Width: 1080, Height: 1920, URL: "v-1080", Size: 45 * 1024 * 1024},
-			// 20 MB projects to 24 MB, comfortably inside it.
+			// 60 MB is over the 49.8 MB safe limit on its own size.
+			{Width: 1080, Height: 1920, URL: "v-1080", Size: 60 * 1024 * 1024},
+			// 20 MB is comfortably inside it.
 			{Width: 720, Height: 1280, URL: "v-720", Size: 20 * 1024 * 1024},
 		},
 	}
@@ -192,9 +192,9 @@ func TestPickVideoForBudgetWalksLadder(t *testing.T) {
 	}
 }
 
-// A real 1080p reel that encodes to 41,412,026 B must survive the projection.
-// This is the case the old 3x constant threw away: it projected 106 MB and
-// dropped the reel to 360p while the actual encode fit with room to spare.
+// A real 1080p reel whose manifest size is 35,558,430 B must be kept. This is
+// the case the old 3x projection threw away: it invented 106 MB and dropped
+// the reel to 360p while the manifest size fit with room to spare.
 func TestPickVideoForBudgetKeepsRealMeasuredReel(t *testing.T) {
 	tracks := &dashTracks{
 		Duration: 80,
@@ -265,7 +265,7 @@ func TestBuildDASHFormatDropsWhenNothingFits(t *testing.T) {
 		DASH: &dashTracks{
 			Duration: 80,
 			Videos: []Representation{
-				{Width: 1080, Height: 1920, URL: "v-1080", Size: 40 * 1024 * 1024},
+				{Width: 1080, Height: 1920, URL: "v-1080", Size: 60 * 1024 * 1024},
 			},
 		},
 		DASHDuration: 80,
@@ -275,5 +275,33 @@ func TestBuildDASHFormatDropsWhenNothingFits(t *testing.T) {
 	safeLimit := int64(tgLimit * 95 / 100)
 	if formats := buildDASHFormat(ctx, data, safeLimit); formats != nil {
 		t.Fatalf("expected the oversized rendition to be dropped, got %d formats", len(formats))
+	}
+}
+
+// A rendition whose manifest size already fits must be taken as-is. No
+// projection is applied, so a 40 MB entry under the 49.8 MB safe limit is
+// delivered rather than dropped - measured reels between 35 MB and 48 MB
+// encode without any squeeze, and rejecting them was the old bug.
+func TestBuildDASHFormatTakesRenditionThatFits(t *testing.T) {
+	ctx := newTestExtractorContext(t)
+	data := &VideoData{
+		DASH: &dashTracks{
+			Duration: 80,
+			AudioURL: "https://cdn.example.test/a-main",
+			Videos: []Representation{
+				{Width: 1080, Height: 1920, URL: "v-1080", Size: 40 * 1024 * 1024},
+			},
+		},
+		DASHDuration: 80,
+	}
+
+	const tgLimit = 50 * 1024 * 1024
+	safeLimit := int64(tgLimit * 95 / 100)
+	formats := buildDASHFormat(ctx, data, safeLimit)
+	if len(formats) != 2 {
+		t.Fatalf("expected a video and an audio format, got %d", len(formats))
+	}
+	if formats[0].Height != 1920 {
+		t.Fatalf("expected the 1080p rendition delivered, got %d", formats[0].Height)
 	}
 }
