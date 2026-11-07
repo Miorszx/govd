@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"html"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -32,8 +33,20 @@ type dashManifest struct {
 	Periods                   []dashPeriod `xml:"Period"`
 }
 
-// dashTracks is the pair of single-file renditions the reel DASH manifest
-// exposes: one video-only stream and one audio-only stream. Facebook only
+// Representation is one video rendition of the DASH ladder. Facebook
+// publishes several heights (540, 720, 1080…) and the tallest is not always
+// the one Telegram will accept, so the whole ladder is kept and walked.
+type Representation struct {
+	Width     int32
+	Height    int32
+	URL       string
+	Codec     string
+	Bandwidth int64
+	Size      int64
+}
+
+// dashTracks is the rendition set the reel DASH manifest exposes: one
+// audio-only stream plus every video stream, tallest first. Facebook only
 // serves these as AV1/VP9, never H.264, so the caller has to re-encode.
 type dashTracks struct {
 	VideoURL   string
@@ -44,6 +57,11 @@ type dashTracks struct {
 	AudioCodec string
 	VideoSize  int64
 	Duration   int32
+
+	// Videos is the full video ladder, ordered by height descending. The
+	// single fields above mirror its peak entry for callers that only want
+	// the best rendition.
+	Videos []Representation
 }
 
 // extractManifestXML pulls the inline DASH manifest out of a Facebook page
@@ -136,12 +154,23 @@ func parseDASHManifest(manifestXML string) *dashTracks {
 					}
 					continue
 				}
+
+				size := estimateTrackSize(rep.Bandwidth, tracks.Duration)
+				tracks.Videos = append(tracks.Videos, Representation{
+					Width:     rep.Width,
+					Height:    rep.Height,
+					URL:       url,
+					Codec:     codec,
+					Bandwidth: rep.Bandwidth,
+					Size:      size,
+				})
+
 				if tracks.VideoURL == "" || rep.Height > tracks.Height {
 					tracks.VideoURL = url
 					tracks.VideoCodec = codec
 					tracks.Width = rep.Width
 					tracks.Height = rep.Height
-					tracks.VideoSize = estimateTrackSize(rep.Bandwidth, tracks.Duration)
+					tracks.VideoSize = size
 				}
 			}
 		}
@@ -150,7 +179,36 @@ func parseDASHManifest(manifestXML string) *dashTracks {
 	if tracks.VideoURL == "" {
 		return nil
 	}
+
+	// Tallest first, so "the best rendition that fits Telegram" is a walk
+	// down the slice instead of a max over it.
+	sort.SliceStable(tracks.Videos, func(i, j int) bool {
+		return tracks.Videos[i].Height > tracks.Videos[j].Height
+	})
+
 	return tracks
+}
+
+// pickVideoForBudget returns the tallest rendition whose projected delivery
+// size fits limit. When none fits, the shortest is returned with ok=false so
+// the caller can decide between squeezing it down and refusing the reel.
+//
+// The projection is deliberately pessimistic. A re-encode to H.264 grows the
+// AV1 source, and the growth depends on content: measured 1.16x, 1.28x, 1.47x
+// and 2.98x across four real reels. Sitting at the top of that range keeps a
+// low-bitrate reel from being encoded into a file Telegram then rejects.
+func pickVideoForBudget(tracks *dashTracks, limit int64) (Representation, bool) {
+	if tracks == nil || len(tracks.Videos) == 0 {
+		return Representation{}, false
+	}
+	const h264Overshoot = 3
+
+	for _, rep := range tracks.Videos {
+		if limit <= 0 || rep.Size*h264Overshoot <= limit {
+			return rep, true
+		}
+	}
+	return tracks.Videos[len(tracks.Videos)-1], false
 }
 
 // codecFromDASHAttr maps a DASH codecs attribute (RFC 6381) onto the internal

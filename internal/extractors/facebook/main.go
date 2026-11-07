@@ -150,22 +150,28 @@ func buildDASHFormat(
 	data *VideoData,
 	safeLimit int64,
 ) []*models.MediaFormat {
-	if data.DASHURL == "" || data.DASHHeight <= 0 {
+	if data.DASH == nil || len(data.DASH.Videos) == 0 {
 		return nil
 	}
 
-	estimated := estimateDASHOutputSize(data)
-	if estimated > 0 && estimated > safeLimit {
+	// Walk the manifest ladder from the tallest rendition down and take the
+	// first one whose projected H.264 output fits Telegram. The 1080p entry
+	// is what most short reels land on; long low-bitrate reels push past the
+	// limit and drop to the 720p entry of the same manifest. Falling back to
+	// the progressive rendition instead is not an option - it tops out at
+	// 360x640 for reels, which is how they used to arrive.
+	rep, fits := pickVideoForBudget(data.DASH, safeLimit)
+	if !fits {
 		ctx.Infof(
-			"facebook dash: skipping %dx%d rendition, estimated output %dB exceeds safe limit %dB",
-			data.DASHWidth, data.DASHHeight, estimated, safeLimit,
+			"facebook dash: no rendition fits, estimated %dx%d output %dB exceeds safe limit %dB",
+			rep.Width, rep.Height, rep.Size*3, safeLimit,
 		)
 		return nil
 	}
 
 	ctx.Infof(
-		"facebook dash: selected %dx%d rendition (estimated output %dB)",
-		data.DASHWidth, data.DASHHeight, estimated,
+		"facebook dash: selected %dx%d rendition (source %dB, projected %dB, ladder %d)",
+		rep.Width, rep.Height, rep.Size, rep.Size*3, len(data.DASH.Videos),
 	)
 
 	video := &models.MediaFormat{
@@ -177,11 +183,11 @@ func buildDASHFormat(
 		// stream-copy merge plugin to this format.
 		VideoCodec: database.MediaCodecAvc,
 		AudioCodec: database.MediaCodecAac,
-		URL:        []string{data.DASHURL},
-		Width:      data.DASHWidth,
-		Height:     data.DASHHeight,
+		URL:        []string{rep.URL},
+		Width:      rep.Width,
+		Height:     rep.Height,
 		Duration:   data.DASHDuration,
-		FileSize:   estimated,
+		FileSize:   rep.Size,
 		Plugins:    []*models.Plugin{plugins.TranscodeH264},
 		// The CDN refuses the signed DASH URL without the session cookies the
 		// page was fetched with (403), so they travel with the format.
@@ -192,12 +198,12 @@ func buildDASHFormat(
 
 	formats := []*models.MediaFormat{video}
 
-	if data.DASHAudioURL != "" {
+	if data.DASH.AudioURL != "" {
 		formats = append(formats, &models.MediaFormat{
 			FormatID:   "dash_audio",
 			Type:       database.MediaTypeAudio,
 			AudioCodec: database.MediaCodecAac,
-			URL:        []string{data.DASHAudioURL},
+			URL:        []string{data.DASH.AudioURL},
 			Duration:   data.DASHDuration,
 			DownloadSettings: &models.DownloadSettings{
 				Cookies: ctx.HTTPClient.Cookies,
@@ -206,18 +212,6 @@ func buildDASHFormat(
 	}
 
 	return formats
-}
-
-// estimateDASHOutputSize projects the size of the re-encoded file. The source
-// bitrate comes from the manifest; H.264 at crf 23 lands roughly three times
-// the AV1 bitrate on this kind of content, so the source is multiplied out
-// rather than trusted as-is.
-func estimateDASHOutputSize(data *VideoData) int64 {
-	const h264Overshoot = 3
-	if data.DASHSourceSize <= 0 {
-		return 0
-	}
-	return data.DASHSourceSize * h264Overshoot
 }
 
 func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, error) {

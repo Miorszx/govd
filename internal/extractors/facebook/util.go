@@ -419,16 +419,13 @@ func extractReelMedia(ctx *models.ExtractorContext, urlLower string) (*VideoData
 		title = ""
 	}
 	data := &VideoData{HDURL: useURL, Title: title}
-	// The DASH manifest, when present, carries a rendition above what the
-	// muxed progressive URL offers. Facebook never serves that resolution as
-	// H.264, so the extractor records it and the transcode plugin converts it
-	// later; the progressive URL stays as the fallback if anything fails.
-	if m.DASH != nil && m.DASH.VideoURL != "" && m.DASH.Height > 0 {
-		data.DASHURL = m.DASH.VideoURL
-		data.DASHAudioURL = m.DASH.AudioURL
-		data.DASHWidth = m.DASH.Width
-		data.DASHHeight = m.DASH.Height
-		data.DASHSourceSize = m.DASH.VideoSize
+	// The DASH manifest, when present, carries a ladder of renditions above
+	// what the muxed progressive URL offers. Facebook never serves any of them
+	// as H.264, so the extractor records the whole ladder and the budget pick
+	// happens later; the progressive URL stays as the fallback if anything
+	// fails.
+	if m.DASH != nil && len(m.DASH.Videos) > 0 {
+		data.DASH = m.DASH
 		data.DASHDuration = m.DASH.Duration
 	}
 	// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)

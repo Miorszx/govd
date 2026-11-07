@@ -29,8 +29,10 @@ func newTestExtractorContext(t *testing.T) *models.ExtractorContext {
 	}
 }
 
-// synthetic DASH tracks mirroring what a reel manifest yields: 1080p video-only
-// plus a separate audio rendition.
+// syntheticDASHTracks mirrors a real reel manifest: a 1080p video-only entry
+// and a separate audio rendition. Sizes are the ones measured on reel
+// 1084425931240979 (3.56 Mbps, 80 s) so the budget arithmetic in the tests is
+// anchored to a real file, not a guess.
 func syntheticDASHTracks() *dashTracks {
 	return &dashTracks{
 		VideoURL:   "https://cdn.example.test/v-1080",
@@ -39,8 +41,11 @@ func syntheticDASHTracks() *dashTracks {
 		Height:     1920,
 		VideoCodec: "av1",
 		AudioCodec: "aac",
-		VideoSize:  5_089_536,
-		Duration:   59,
+		VideoSize:  35_558_430,
+		Duration:   80,
+		Videos: []Representation{
+			{Width: 1080, Height: 1920, URL: "https://cdn.example.test/v-1080", Codec: "av1", Size: 35_558_430},
+		},
 	}
 }
 
@@ -50,14 +55,7 @@ func syntheticDASHTracks() *dashTracks {
 // audio format the transcode plugin has nothing to mux.
 func TestBuildDASHFormatEmitsVideoAndAudio(t *testing.T) {
 	ctx := newTestExtractorContext(t)
-	data := &VideoData{
-		DASHURL:        "https://cdn.example.test/v-1080",
-		DASHAudioURL:   "https://cdn.example.test/a-main",
-		DASHWidth:      1080,
-		DASHHeight:     1920,
-		DASHSourceSize: 5_089_536,
-		DASHDuration:   59,
-	}
+	data := &VideoData{DASH: syntheticDASHTracks(), DASHDuration: 80}
 
 	formats := buildDASHFormat(ctx, data, 1900*1024*1024)
 	if len(formats) != 2 {
@@ -120,20 +118,103 @@ func TestParseDASHManifestDecodesXMLEntities(t *testing.T) {
 	}
 }
 
+// The whole ladder has to survive parsing. Pinning only the tallest entry is
+// what forced long low-bitrate reels down to the 360p progressive URL: the
+// 1080p entry overflows the Telegram cap while the 720p entry of the same
+// manifest fits.
+func TestParseDASHManifestKeepsFullLadder(t *testing.T) {
+	const manifest = `<?xml version="1.0"?>
+<MPD mediaPresentationDuration="PT80S">
+  <Period>
+    <AdaptationSet contentType="video">
+      <Representation id="v720" bandwidth="800000" codecs="av01.0.05M.08" width="720" height="1280">
+        <BaseURL>https://cdn.example.test/v-720</BaseURL>
+      </Representation>
+      <Representation id="v1080" bandwidth="3400000" codecs="av01.0.08M.08" width="1080" height="1920">
+        <BaseURL>https://cdn.example.test/v-1080</BaseURL>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio">
+      <Representation id="a1" bandwidth="44000" codecs="mp4a.40.2">
+        <BaseURL>https://cdn.example.test/a-main</BaseURL>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>`
+
+	tracks := parseDASHManifest(manifest)
+	if tracks == nil {
+		t.Fatal("expected the manifest to parse")
+	}
+	if len(tracks.Videos) != 2 {
+		t.Fatalf("expected both video renditions, got %d", len(tracks.Videos))
+	}
+	if tracks.Videos[0].Height != 1920 {
+		t.Fatalf("expected the ladder tallest-first, got %d first", tracks.Videos[0].Height)
+	}
+	if tracks.Videos[1].Height != 1280 {
+		t.Fatalf("expected the 720p entry second, got %d", tracks.Videos[1].Height)
+	}
+	if tracks.VideoURL != "https://cdn.example.test/v-1080" {
+		t.Fatalf("expected the peak rendition mirrored, got %q", tracks.VideoURL)
+	}
+}
+
+// The budget walk must fall to the next rendition down rather than give up.
+// This is the whole point of keeping the ladder: 1080p projected at 3x blows
+// the cap, 720p projected at 3x does not.
+func TestPickVideoForBudgetWalksLadder(t *testing.T) {
+	tracks := &dashTracks{
+		Duration: 80,
+		Videos: []Representation{
+			{Width: 1080, Height: 1920, URL: "v-1080", Size: 35_558_430},
+			{Width: 720, Height: 1280, URL: "v-720", Size: 8_000_000},
+		},
+	}
+
+	const safeLimit = 49_807_360
+
+	rep, ok := pickVideoForBudget(tracks, safeLimit)
+	if !ok {
+		t.Fatalf("expected a rendition to fit, got none")
+	}
+	if rep.Height != 1280 {
+		t.Fatalf("expected the walk to land on 720p, got %d", rep.Height)
+	}
+
+	// Widen the budget and the same ladder must land on 1080p again.
+	rep, ok = pickVideoForBudget(tracks, 1900*1024*1024)
+	if !ok || rep.Height != 1920 {
+		t.Fatalf("expected 1080p under a wide budget, got %dx%d ok=%v", rep.Width, rep.Height, ok)
+	}
+}
+
+// Nothing fitting must be reported so the caller can fall back, and the
+// shortest rendition is returned for the error message.
+func TestPickVideoForBudgetReportsOverflow(t *testing.T) {
+	tracks := &dashTracks{
+		Duration: 80,
+		Videos: []Representation{
+			{Width: 1080, Height: 1920, Size: 40 * 1024 * 1024},
+		},
+	}
+
+	rep, ok := pickVideoForBudget(tracks, 49_807_360)
+	if ok {
+		t.Fatal("expected the oversized rendition to be rejected")
+	}
+	if rep.Height != 1920 {
+		t.Fatalf("expected the shortest rendition returned, got %d", rep.Height)
+	}
+}
+
 // The CDN rejects the signed DASH URLs without the session cookies the page was
 // fetched with, so both formats have to carry them.
 func TestBuildDASHFormatCarriesCookies(t *testing.T) {
 	ctx := newTestExtractorContext(t)
 	ctx.HTTPClient.Cookies = []*http.Cookie{{Name: "session", Value: "synthetic"}}
 
-	data := &VideoData{
-		DASHURL:        "https://cdn.example.test/v-1080",
-		DASHAudioURL:   "https://cdn.example.test/a-main",
-		DASHWidth:      1080,
-		DASHHeight:     1920,
-		DASHSourceSize: 5_089_536,
-		DASHDuration:   59,
-	}
+	data := &VideoData{DASH: syntheticDASHTracks(), DASHDuration: 80}
 
 	formats := buildDASHFormat(ctx, data, 1900*1024*1024)
 	if len(formats) != 2 {
@@ -156,47 +237,23 @@ func TestBuildDASHFormatSkipsWhenNoManifest(t *testing.T) {
 	}
 }
 
-// The estimate pads the AV1 source because the H.264 output is larger. A
-// rendition that would blow past the safe limit must be dropped so the caller
-// falls back to progressive instead of paying for an encode it cannot send.
-func TestBuildDASHFormatDropsOversizedRendition(t *testing.T) {
+// A ladder where no rendition fits must yield nothing, so the caller falls
+// back to progressive rather than paying for an encode it cannot send.
+func TestBuildDASHFormatDropsWhenNothingFits(t *testing.T) {
 	ctx := newTestExtractorContext(t)
 	data := &VideoData{
-		DASHURL:        "https://cdn.example.test/v-1080",
-		DASHAudioURL:   "https://cdn.example.test/a-main",
-		DASHWidth:      1080,
-		DASHHeight:     1920,
-		DASHSourceSize: 40 * 1024 * 1024,
-		DASHDuration:   59,
+		DASH: &dashTracks{
+			Duration: 80,
+			Videos: []Representation{
+				{Width: 1080, Height: 1920, URL: "v-1080", Size: 40 * 1024 * 1024},
+			},
+		},
+		DASHDuration: 80,
 	}
 
 	const tgLimit = 50 * 1024 * 1024
 	safeLimit := int64(tgLimit * 95 / 100)
 	if formats := buildDASHFormat(ctx, data, safeLimit); formats != nil {
 		t.Fatalf("expected the oversized rendition to be dropped, got %d formats", len(formats))
-	}
-}
-
-// The size estimate must overshoot the source, otherwise a rendition that
-// encodes past the Telegram cap would be accepted here and only fail after the
-// encode finished.
-func TestEstimateDASHOutputSizePadsSource(t *testing.T) {
-	const source = 5_089_536
-	got := estimateDASHOutputSize(&VideoData{DASHSourceSize: source})
-	if got <= source {
-		t.Fatalf("expected the estimate %d to exceed the source %d", got, source)
-	}
-	// A real 1080p AV1 reel of this size encodes to roughly 15 MB, so the
-	// estimate has to land in that neighbourhood rather than be wildly high.
-	if got < 12_000_000 || got > 20_000_000 {
-		t.Fatalf("expected an estimate near the measured output, got %d", got)
-	}
-}
-
-// With no bandwidth data the estimate is unknown, and an unknown size must not
-// block the rendition: the progressive ladder is the worse outcome.
-func TestEstimateDASHOutputSizeUnknown(t *testing.T) {
-	if got := estimateDASHOutputSize(&VideoData{}); got != 0 {
-		t.Fatalf("expected an unknown estimate to be zero, got %d", got)
 	}
 }
