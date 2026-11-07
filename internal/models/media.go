@@ -115,7 +115,11 @@ func (f *MediaFormat) GetInfo() (FileExtension, FileType) {
 		// write header"). The extension decides the muxer, so it has to be mp4.
 		return FileExtensionMP4, FileTypeVideo
 	case videoCodec == database.MediaCodecAv1 && audioCodec == database.MediaCodecAac:
-		return FileExtensionMP4, FileTypeDocument
+		// AV1 + AAC in an MP4 container is a stream Telegram plays. It must be
+		// classified as a video, not a document: mergeFormats fills AudioCodec
+		// in after the file has already been downloaded and named, so this
+		// branch is what GetInputMedia sees when it decides how to send.
+		return FileExtensionMP4, FileTypeVideo
 	case videoCodec == database.MediaCodecHevc && audioCodec == "":
 		return FileExtensionMP4, FileTypeDocument
 	case videoCodec == database.MediaCodecWebp && audioCodec == "":
