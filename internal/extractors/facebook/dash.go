@@ -50,7 +50,26 @@ type dashTracks struct {
 // body. The manifest is embedded as a JSON string field, so the value is
 // escaped and cannot be matched with a plain regex capture.
 func extractManifestXML(body []byte) string {
-	const key = `"manifest_xml":"`
+	// Facebook names this field `dash_manifest_xml_string` inside
+	// videoDeliveryLegacyFields. Older page shapes used `manifest_xml`, and
+	// the graphql relay payload uses `dash_manifest`. Try every key we have
+	// seen rather than pinning one -- a single mismatched key silently costs
+	// the whole DASH ladder and drops playback to the 360p progressive URL.
+	for _, key := range []string{
+		`"dash_manifest_xml_string":"`,
+		`"manifest_xml":"`,
+		`"dash_manifest":"`,
+	} {
+		if xml := extractJSONStringAfter(body, key); xml != "" {
+			return xml
+		}
+	}
+	return ""
+}
+
+// extractJSONStringAfter returns the unescaped JSON string literal that
+// follows key in body, or "" when key is absent or the literal is unterminated.
+func extractJSONStringAfter(body []byte, key string) string {
 	s := string(body)
 	idx := strings.Index(s, key)
 	if idx < 0 {
