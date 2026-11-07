@@ -189,22 +189,34 @@ func parseDASHManifest(manifestXML string) *dashTracks {
 	return tracks
 }
 
+// h264OvershootPct is how much larger the H.264 delivery is projected to be
+// than the AV1 DASH source, in percent (120 == 1.2x). It is only a projection:
+// the transcode plugin measures the encoded file and re-encodes down a crf
+// ladder when it overflows.
+//
+// Derived from the two encodes measured against real reels: 41,412,026 B out
+// of 35,558,430 B (1.16x) and 20,494,514 B out of 14,656,180 B (1.40x). It was
+// 300 for a long time, carried over from one low bitrate reel where the growth
+// really is extreme - applying that worst case to everything rejected 1080p
+// renditions that encoded to 41 MB and dropped them to the 360p progressive
+// fallback.
+const h264OvershootPct = 120
+
 // pickVideoForBudget returns the tallest rendition whose projected delivery
 // size fits limit. When none fits, the shortest is returned with ok=false so
 // the caller can decide between squeezing it down and refusing the reel.
 //
-// The projection is deliberately pessimistic. A re-encode to H.264 grows the
-// AV1 source, and the growth depends on content: measured 1.16x, 1.28x, 1.47x
-// and 2.98x across four real reels. Sitting at the top of that range keeps a
-// low-bitrate reel from being encoded into a file Telegram then rejects.
+// The projection only has to be good enough to order the ladder, because the
+// transcode plugin measures the real file after it encodes. Erring low is
+// therefore cheap: a rendition picked optimistically still lands under the
+// cap, just at a higher crf.
 func pickVideoForBudget(tracks *dashTracks, limit int64) (Representation, bool) {
 	if tracks == nil || len(tracks.Videos) == 0 {
 		return Representation{}, false
 	}
-	const h264Overshoot = 3
 
 	for _, rep := range tracks.Videos {
-		if limit <= 0 || rep.Size*h264Overshoot <= limit {
+		if limit <= 0 || rep.Size*h264OvershootPct/100 <= limit {
 			return rep, true
 		}
 	}

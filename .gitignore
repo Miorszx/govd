@@ -32,3 +32,4 @@ govd_new_bin
 govd
 *.bak
 *.bak[0-9]*
+.bot.env

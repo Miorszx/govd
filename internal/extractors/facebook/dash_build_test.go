@@ -161,14 +161,17 @@ func TestParseDASHManifestKeepsFullLadder(t *testing.T) {
 }
 
 // The budget walk must fall to the next rendition down rather than give up.
-// This is the whole point of keeping the ladder: 1080p projected at 3x blows
-// the cap, 720p projected at 3x does not.
+// This is the whole point of keeping the ladder: a 1080p entry projecting over
+// the cap falls to the 720p entry of the same manifest instead of to the 360p
+// progressive fallback.
 func TestPickVideoForBudgetWalksLadder(t *testing.T) {
 	tracks := &dashTracks{
 		Duration: 80,
 		Videos: []Representation{
-			{Width: 1080, Height: 1920, URL: "v-1080", Size: 35_558_430},
-			{Width: 720, Height: 1280, URL: "v-720", Size: 8_000_000},
+			// 45 MB projects to 54 MB at 1.2x, over the safe limit.
+			{Width: 1080, Height: 1920, URL: "v-1080", Size: 45 * 1024 * 1024},
+			// 20 MB projects to 24 MB, comfortably inside it.
+			{Width: 720, Height: 1280, URL: "v-720", Size: 20 * 1024 * 1024},
 		},
 	}
 
@@ -189,13 +192,30 @@ func TestPickVideoForBudgetWalksLadder(t *testing.T) {
 	}
 }
 
+// A real 1080p reel that encodes to 41,412,026 B must survive the projection.
+// This is the case the old 3x constant threw away: it projected 106 MB and
+// dropped the reel to 360p while the actual encode fit with room to spare.
+func TestPickVideoForBudgetKeepsRealMeasuredReel(t *testing.T) {
+	tracks := &dashTracks{
+		Duration: 80,
+		Videos: []Representation{
+			{Width: 1080, Height: 1920, URL: "v-1080", Size: 35_558_430},
+		},
+	}
+
+	rep, ok := pickVideoForBudget(tracks, 49_807_360)
+	if !ok || rep.Height != 1920 {
+		t.Fatalf("expected the measured reel to keep 1080p, got %dx%d ok=%v", rep.Width, rep.Height, ok)
+	}
+}
+
 // Nothing fitting must be reported so the caller can fall back, and the
 // shortest rendition is returned for the error message.
 func TestPickVideoForBudgetReportsOverflow(t *testing.T) {
 	tracks := &dashTracks{
 		Duration: 80,
 		Videos: []Representation{
-			{Width: 1080, Height: 1920, Size: 40 * 1024 * 1024},
+			{Width: 1080, Height: 1920, Size: 48 * 1024 * 1024},
 		},
 	}
 

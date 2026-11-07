@@ -164,14 +164,14 @@ func buildDASHFormat(
 	if !fits {
 		ctx.Infof(
 			"facebook dash: no rendition fits, estimated %dx%d output %dB exceeds safe limit %dB",
-			rep.Width, rep.Height, rep.Size*3, safeLimit,
+			rep.Width, rep.Height, rep.Size*h264OvershootPct/100, safeLimit,
 		)
 		return nil
 	}
 
 	ctx.Infof(
 		"facebook dash: selected %dx%d rendition (source %dB, projected %dB, ladder %d)",
-		rep.Width, rep.Height, rep.Size, rep.Size*3, len(data.DASH.Videos),
+		rep.Width, rep.Height, rep.Size, rep.Size*h264OvershootPct/100, len(data.DASH.Videos),
 	)
 
 	video := &models.MediaFormat{
