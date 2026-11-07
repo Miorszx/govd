@@ -13,7 +13,6 @@ import (
 	"github.com/govdbot/govd/internal/database"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/networking"
-	"github.com/govdbot/govd/internal/plugins"
 	"github.com/govdbot/govd/internal/util"
 )
 
@@ -175,18 +174,16 @@ func buildDASHFormat(
 	video := &models.MediaFormat{
 		FormatID: "dash",
 		Type:     database.MediaTypeVideo,
-		// The delivered file is H.264 + AAC after the transcode plugin runs,
-		// regardless of the AV1/VP9 codec the DASH source uses. Declaring the
-		// audio codec here also keeps core's mergeFormats from attaching the
-		// stream-copy merge plugin to this format.
-		VideoCodec: database.MediaCodecAvc,
-		AudioCodec: database.MediaCodecAac,
+		// The rendition is delivered exactly as Facebook serves it. The
+		// AudioCodec field is left empty on purpose: core's mergeFormats
+		// then attaches MergeAudio, which stream-copies the video track and
+		// the audio track together. Nothing is re-encoded at any point.
+		VideoCodec: database.MediaCodecAv1,
 		URL:        []string{rep.URL},
 		Width:      rep.Width,
 		Height:     rep.Height,
 		Duration:   data.DASHDuration,
 		FileSize:   rep.Size,
-		Plugins:    []*models.Plugin{plugins.TranscodeH264},
 		// The CDN refuses the signed DASH URL without the session cookies the
 		// page was fetched with (403), so they travel with the format.
 		DownloadSettings: &models.DownloadSettings{

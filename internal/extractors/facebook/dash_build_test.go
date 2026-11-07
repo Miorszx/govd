@@ -50,9 +50,9 @@ func syntheticDASHTracks() *dashTracks {
 }
 
 // buildDASHFormat must return the video rendition plus the audio rendition, and
-// the video format must carry the transcode plugin. Without the plugin the
-// AV1 track would be sent to Telegram untouched and fail to play; without the
-// audio format the transcode plugin has nothing to mux.
+// the video format must carry no plugin at all. Nothing is re-encoded: the
+// AudioCodec field is empty so core's mergeFormats attaches the stream-copy
+// MergeAudio plugin, which muxes the two tracks without touching the video.
 func TestBuildDASHFormatEmitsVideoAndAudio(t *testing.T) {
 	ctx := newTestExtractorContext(t)
 	data := &VideoData{DASH: syntheticDASHTracks(), DASHDuration: 80}
@@ -66,17 +66,14 @@ func TestBuildDASHFormatEmitsVideoAndAudio(t *testing.T) {
 	if video.FormatID != "dash" {
 		t.Fatalf("expected the video format first, got %q", video.FormatID)
 	}
-	if video.VideoCodec != database.MediaCodecAvc {
-		t.Fatalf("expected the delivered codec to be avc, got %q", video.VideoCodec)
+	if video.VideoCodec != database.MediaCodecAv1 {
+		t.Fatalf("expected the source codec passed through as av1, got %q", video.VideoCodec)
 	}
-	if video.AudioCodec != database.MediaCodecAac {
-		t.Fatalf("expected the audio codec to be declared, got %q", video.AudioCodec)
+	if video.AudioCodec != "" {
+		t.Fatalf("expected no audio codec declared so MergeAudio attaches, got %q", video.AudioCodec)
 	}
-	if len(video.Plugins) != 1 || video.Plugins[0] == nil {
-		t.Fatalf("expected the transcode plugin on the video format, got %d", len(video.Plugins))
-	}
-	if video.Plugins[0].ID != "transcode_h264" {
-		t.Fatalf("expected the transcode plugin, got %q", video.Plugins[0].ID)
+	if len(video.Plugins) != 0 {
+		t.Fatalf("expected no plugin on the video format, got %d", len(video.Plugins))
 	}
 
 	audio := formats[1]
