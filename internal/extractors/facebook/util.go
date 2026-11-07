@@ -2661,6 +2661,26 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 	return m.HD, m.SD, m.Title
 }
 
+// anonFetch issues the same request through a copy of the extractor client with
+// the cookie jar stripped. Facebook serves a stripped page (HTTP 400) to a
+// session whose login cookies have expired, but serves the full anonymous page
+// — DASH manifest included — to the same transport without those cookies. The
+// transport is preserved so impersonation and proxy settings still apply.
+func anonFetch(
+	ctx *models.ExtractorContext,
+	url string,
+	headers map[string]string,
+) (*http.Response, error) {
+	if ctx.HTTPClient == nil {
+		return nil, fmt.Errorf("facebook: no http client")
+	}
+	anon := *ctx.HTTPClient
+	anon.Cookies = nil
+	return anon.FetchWithContext(ctx.Context, http.MethodGet, url, &networking.RequestParams{
+		Headers: headers,
+	})
+}
+
 // fetchReelMedia performs the www fetch and parses every rendition it carries:
 // the muxed progressive URLs plus the DASH manifest when the page embeds one.
 func fetchReelMedia(ctx *models.ExtractorContext, videoID string) *reelMedia {
@@ -2676,6 +2696,20 @@ func fetchReelMedia(ctx *models.ExtractorContext, videoID string) *reelMedia {
 		"Accept-Language": webHeaders["Accept-Language"],
 	}
 	resp, err := ctx.Fetch(http.MethodGet, watchURL, &networking.RequestParams{Headers: headers})
+	// A stale login cookie makes Facebook answer 400 on the www watch page and
+	// drop the DASH manifest entirely; the anonymous page carries it. Retry
+	// without the cookie jar before giving up on DASH.
+	if err == nil && resp.StatusCode == http.StatusBadRequest {
+		resp.Body.Close()
+		if anon, aerr := anonFetch(ctx, watchURL, headers); aerr == nil {
+			body, _ := io.ReadAll(anon.Body)
+			anon.Body.Close()
+			if m := reelMediaFromBody(body, videoID); m.DASH != nil {
+				return m
+			}
+		}
+		resp, err = ctx.Fetch(http.MethodGet, watchURL, &networking.RequestParams{Headers: headers})
+	}
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {
 			resp.Body.Close()
