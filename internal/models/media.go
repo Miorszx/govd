@@ -107,6 +107,15 @@ func (f *MediaFormat) GetInfo() (FileExtension, FileType) {
 		return FileExtensionMP4, FileTypeDocument
 	case videoCodec == database.MediaCodecAvc && audioCodec == "":
 		return FileExtensionMP4, FileTypeVideo
+	case videoCodec == database.MediaCodecAv1 && audioCodec == "":
+		// DASH renditions are delivered as the source AV1 track muxed with
+		// the AAC audio track. That pair only classifies as MP4; the default
+		// branch below would name it .webm, and ffmpeg refuses to write an
+		// AV1+AAC stream into a WebM container (exit status 234, "Could not
+		// write header"). The extension decides the muxer, so it has to be mp4.
+		return FileExtensionMP4, FileTypeVideo
+	case videoCodec == database.MediaCodecAv1 && audioCodec == database.MediaCodecAac:
+		return FileExtensionMP4, FileTypeDocument
 	case videoCodec == database.MediaCodecHevc && audioCodec == "":
 		return FileExtensionMP4, FileTypeDocument
 	case videoCodec == database.MediaCodecWebp && audioCodec == "":
