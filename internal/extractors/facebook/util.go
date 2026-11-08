@@ -2969,6 +2969,41 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 			}
 		}
 	}
+
+	// Direct message.text fallback for reels whose page doesn't wrap the
+	// caption in comet_sections. Anchor on the video ID to avoid picking a
+	// comment caption from a neighbouring story.
+	directRe := regexp.MustCompile(`"message":\s*\{\s*"text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"`)
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		chunk := m[1]
+		if !bytes.Contains(chunk, []byte(videoID)) {
+			continue
+		}
+		cm := directRe.FindAllSubmatch(chunk, -1)
+		for _, c := range cm {
+			if len(c) < 2 {
+				continue
+			}
+			t := unescapeUnicode(string(c[1]))
+			t = html.UnescapeString(t)
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			low := strings.ToLower(t)
+			if low == "facebook" || strings.HasPrefix(low, "log in to") {
+				continue
+			}
+			t = cleanFacebookCaption(t)
+			if t != "" {
+				return t
+			}
+		}
+	}
+
 	// Fallback to <title> for group permalink posts like <id> (<code>) where savable/comet 0
 	// Title example: "<page> | <page> | #譯 隆重介紹：義大利<page>" -> caption "#譯 隆重介紹：義大利<page>"
 	// Also for <code> which has no savable/comet, use title last part after |
