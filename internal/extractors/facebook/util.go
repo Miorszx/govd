@@ -2499,6 +2499,33 @@ func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string)
 	return m.HD, m.SD, m.Title
 }
 
+// reelPageFetch is the function fetchReelMedia uses to retrieve a www/reel
+// document. Production uses curl (see fetchViaCurl). Tests swap it for a stub
+// backed by their fake HTTP transport so the ladder logic stays testable.
+var reelPageFetch = func(ctx *models.ExtractorContext, url string) ([]byte, error) {
+	return fetchViaCurl(ctx.Context, url)
+}
+
+// fetchReelMedia performs the www fetch and parses every rendition it carries:
+// the muxed progressive URLs plus the DASH manifest when the page embeds one.
+//
+// Facebook fingerprints Go's TLS/HTTP2 stack and serves a session-killing
+// generic shell (Set-Cookie: c_user=deleted, no progressive_url, no DASH).
+// curl (OpenSSL) is the only client that reliably receives the real ~3.2 MB
+// page with media. We fetch via curl, parse with the existing Go parsers.
+func fetchReelMedia(ctx *models.ExtractorContext, videoID string) *reelMedia {
+	if videoID == "" {
+		return &reelMedia{}
+	}
+	// Primary: www watch page (carries videoDelivery + dash_manifest).
+	watchURL := "https://www.facebook.com/watch/?v=" + videoID
+	body, err := reelPageFetch(ctx, watchURL)
+	if err != nil || len(body) == 0 {
+		return &reelMedia{}
+	}
+	return reelMediaFromBody(body, videoID)
+}
+
 // reelMediaFromBody parses one Facebook document into the rendition set the
 // ladder can use.
 func reelMediaFromBody(body []byte, videoID string) *reelMedia {
