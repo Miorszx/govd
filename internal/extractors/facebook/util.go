@@ -2687,10 +2687,15 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 			continue
 		}
 		chunk := m[1]
-		if !bytes.Contains(chunk, []byte(videoID)) {
+		// Find the video ID occurrence in this chunk, then look for a caption
+		// AFTER that position. A chunk can contain multiple videos from a feed;
+		// the caption that belongs to our video appears after its video_id.
+		vidPos := bytes.Index(chunk, []byte(videoID))
+		if vidPos == -1 {
 			continue
 		}
-		cm := directRe.FindAllSubmatch(chunk, -1)
+		after := chunk[vidPos:]
+		cm := directRe.FindAllSubmatch(after, -1)
 		for _, c := range cm {
 			if len(c) < 2 {
 				continue
