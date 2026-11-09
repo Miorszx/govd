@@ -180,10 +180,19 @@ func parseDASHManifest(manifestXML string) *dashTracks {
 		return nil
 	}
 
-	// Tallest first, so "the best rendition that fits Telegram" is a walk
-	// down the slice instead of a max over it.
+	// Tallest first, and within one height the highest bitrate first.
+	//
+	// Facebook publishes several representations that share the same
+	// width/height but differ in quality (FBQualityLabel 480p/540p/640p/720p/
+	// 840p/960p all at 956x1700). They are the same resolution, so sorting by
+	// height alone leaves them in the manifest's ascending-bandwidth order and
+	// the picker takes the lowest quality of the group. Ordering by bandwidth
+	// inside the group makes the picker take the highest quality one.
 	sort.SliceStable(tracks.Videos, func(i, j int) bool {
-		return tracks.Videos[i].Height > tracks.Videos[j].Height
+		if tracks.Videos[i].Height != tracks.Videos[j].Height {
+			return tracks.Videos[i].Height > tracks.Videos[j].Height
+		}
+		return tracks.Videos[i].Bandwidth > tracks.Videos[j].Bandwidth
 	})
 
 	return tracks
