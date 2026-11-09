@@ -2,6 +2,7 @@ package facebook
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -2132,6 +2133,42 @@ func cleanFacebookCaption(s string) string {
 	s = replaceEmoticonWithBoundary(s, ":|", "😐", false)
 	s = replaceEmoticonWithBoundary(s, ":-|", "😐", false)
 	// Split by double newline – FB separates page name and caption with \n\n
+	// Only valid for page-shell text (comet_sections / og:description), NOT for
+	// a direct message.text node which already IS the post caption.
+	return splitFacebookPageNamePrefix(s)
+}
+
+// cleanFacebookCaptionRaw normalises a caption string without applying the
+// page-name-split heuristic. Used for direct message.text nodes where the
+// value is the full post caption and dropping the first line would truncate it.
+func cleanFacebookCaptionRaw(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.Map(func(r rune) rune {
+		switch r {
+		case 0x200E, 0x200F, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF:
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\\n", "\n")
+	s = strings.ReplaceAll(s, "\\r", "")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\\/", "/")
+	return s
+}
+
+// splitFacebookPageNamePrefix drops a leading page-name line from a page-shell
+// caption. It is a heuristic and must never be applied to a caption node that
+// is already anchored to a specific video.
+func splitFacebookPageNamePrefix(s string) string {
 	parts := strings.Split(s, "\n\n")
 	if len(parts) >= 2 {
 		// New: if any later part contains distinctive meme series marker "Random memes from my phone"
@@ -2710,7 +2747,10 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 			if low == "facebook" || strings.HasPrefix(low, "log in to") {
 				continue
 			}
-			t = cleanFacebookCaption(t)
+			// Direct node is already the post caption for this video — do not
+			// apply the page-name-split heuristic, it would truncate the
+			// first line of a multi-line caption.
+			t = cleanFacebookCaptionRaw(t)
 			if t != "" {
 				return t
 			}
@@ -2747,4 +2787,9 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 		}
 	}
 	return ""
+}
+
+// DebugFetchReelPage exposes the raw page body for diagnostics.
+func DebugFetchReelPage(videoID string) ([]byte, error) {
+	return fetchViaCurl(context.Background(), "https://www.facebook.com/watch/?v="+videoID)
 }

@@ -6,7 +6,6 @@ import (
 
 	"github.com/govdbot/govd/internal/config"
 	fb "github.com/govdbot/govd/internal/extractors/facebook"
-	"github.com/govdbot/govd/internal/logger"
 	"github.com/govdbot/govd/internal/models"
 	"github.com/govdbot/govd/internal/networking"
 	"github.com/govdbot/govd/internal/util"
@@ -14,30 +13,20 @@ import (
 
 func main() {
 	config.Load()
-	logger.Init()
-	client := networking.NewHTTPClient(&networking.NewHTTPClientOptions{
-		Cookies:     util.GetExtractorCookies("facebook"),
-		Impersonate: true,
-	})
-	ext := fb.Extractor
-
-	ctx := &models.ExtractorContext{
-		ContentID:  "2792910907770618",
-		ContentURL: "https://www.facebook.com/reel/2792910907770618",
-		Extractor:  ext,
-		HTTPClient: client,
-		Context:    context.Background(),
+	cookies := util.GetExtractorCookies("facebook")
+	for _, id := range []string{"2792910907770618", "1432737025036561", "2182203379338397"} {
+		ctx := &models.ExtractorContext{
+			ContentURL: "https://www.facebook.com/reel/" + id,
+			ContentID:  id,
+			Context:    context.Background(),
+			HTTPClient: &networking.HTTPClient{Cookies: cookies},
+			Extractor:  &models.Extractor{ID: "facebook"},
+		}
+		m, err := fb.GetMedia(ctx)
+		if err != nil {
+			fmt.Println(id, "err:", err)
+			continue
+		}
+		fmt.Printf("%s caption=%q\n", id, m.Caption)
 	}
-	res, err := ext.GetFunc(ctx)
-	if err != nil {
-		fmt.Printf("ERR: %v\n", err)
-		return
-	}
-	if res == nil || res.Media == nil {
-		fmt.Println("NIL media")
-		return
-	}
-	m := res.Media
-	fmt.Printf("caption_len=%d\n", len(m.Caption))
-	fmt.Printf("caption=%q\n", m.Caption)
 }
