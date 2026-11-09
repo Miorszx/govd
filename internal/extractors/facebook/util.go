@@ -2,7 +2,6 @@ package facebook
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -2787,9 +2786,4 @@ func tryExtractCaptionFromBodyBytes(body []byte, videoID string) string {
 		}
 	}
 	return ""
-}
-
-// DebugFetchReelPage exposes the raw page body for diagnostics.
-func DebugFetchReelPage(videoID string) ([]byte, error) {
-	return fetchViaCurl(context.Background(), "https://www.facebook.com/watch/?v="+videoID)
 }
