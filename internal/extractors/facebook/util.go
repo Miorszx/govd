@@ -429,13 +429,7 @@ func extractReelMedia(ctx *models.ExtractorContext, urlLower string) (*VideoData
 		data.DASHDuration = m.DASH.Duration
 	}
 	// Caption already extracted in tryFetchHDFromProgressiveURLs via comet_sections.message.story.message.text + json.Unmarshal (ytdl method)
-	// If still empty, try GraphQL caption fetch (same page method but data-sjs parsing)
-	// For private group share/v, skip GraphQL caption fetch to avoid picking sharer's comment
-	if data.Title == "" && !isPrivateShareV {
-		if capTitle := tryFetchReelCaptionViaGraphQL(ctx, effectiveReelID); capTitle != "" {
-			data.Title = capTitle
-		}
-	}
+	// No fallback caption fetch — if the primary page has no caption, we ship without one.
 	return data, nil
 }
 
@@ -2485,159 +2479,6 @@ func decodeHex4(h string) (rune, bool) {
 // tryFetchReelCaptionViaGraphQL / tryFetchReelCaptionFromWWW implement ytdl's metadata extraction
 // in pure Go: creation_story.comet_sections.message.story.message.text + savable_description.text
 // and ScheduledServerJS JSON traversing, anchored to videoID. No yt-dlp binary needed.
-func tryFetchReelCaptionViaGraphQL(ctx *models.ExtractorContext, videoID string) string {
-	if videoID == "" || len(videoID) < 5 {
-		return ""
-	}
-	// ytdl method: GET www.facebook.com/reel/<id>/ with desktop UA (2.1MB) and parse data-sjs
-	// The caption is inside result.data -> attachments -> media id==videoID -> creation_story.comet_sections.message.text
-	// We try to extract without full GraphQL API call, just parse the page we already have cookies for
-	// Because govd's Fetch already includes cookies jar
-	reelURL := "https://www.facebook.com/reel/" + videoID + "/"
-	resp, err := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{
-		Headers: map[string]string{
-			"User-Agent":      webHeaders["User-Agent"],
-			"Accept":          webHeaders["Accept"],
-			"Accept-Language": webHeaders["Accept-Language"],
-			"Sec-Fetch-Dest":  webHeaders["Sec-Fetch-Dest"],
-			"Sec-Fetch-Mode":  webHeaders["Sec-Fetch-Mode"],
-			"Sec-Fetch-Site":  webHeaders["Sec-Fetch-Site"],
-		},
-	})
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return ""
-	}
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	body := string(bodyBytes)
-
-	// 1) Try data-sjs ScheduledServerJS JSON -> creation_story.comet_sections.message.story.message.text
-	// Pattern same as ytdl: re.findall(r'data-sjs>({.*?ScheduledServerJS.*?})</script>', webpage)
-	// We look for message text near videoID
-	// FIX for private group share/v/<code>/ -> <id>: 10 different captions for same file <id> bytes
-	// Original has no public caption (Only members...), but data-sjs contains 34 occurrences of ID with nearby sharer comments
-	// <page> <caption>, <page>..., 2016 #2016..., When she's..., #<page>python... etc are sharer's comments, not original
-	// If private group placeholder found, return empty to avoid picking sharer's comment as caption - user said Takde is okay
-	if strings.Contains(strings.ToLower(body), "only members can see") {
-		// For share/v/<code>/ private group <id>, original has no caption, user said Takde is okay
-		// Avoid picking sharer's comments like <page> <caption>, When she's..., #<page>python... etc from data-sjs
-		return ""
-	}
-	// 1) Prefer the author's own text (savable_description) over anything found
-	// by scanning feed chunks. A bare "Facebook" or an "Only members can see"
-	// placeholder is not a caption, so it is rejected here and in step 3 below.
-	if mm := fbRe_savableDesc.FindSubmatch(bodyBytes); len(mm) >= 2 {
-		t := unescapeUnicode(string(mm[1]))
-		t = html.UnescapeString(t)
-		t = strings.TrimSpace(t)
-		t = cleanFacebookCaption(t)
-		if t != "" {
-			low := strings.ToLower(t)
-			if !strings.HasPrefix(low, "only members") && low != "facebook" {
-				return t
-			}
-		}
-	}
-	sjsRe := fbRe_dataSjs
-	matches := sjsRe.FindAllStringSubmatch(body, -1)
-	for _, m := range matches {
-		if len(m) < 2 {
-			continue
-		}
-		chunk := m[1]
-		// quick check if this chunk contains our videoID (for faster filter, but don't skip if not - caption may be in nearby chunk)
-		// ytdl: creation_story.comet_sections.message.story.message.text
-		// For reels, best is to parse comet_sections.message.story.message.text directly
-		// Pattern from dump: "comet_sections":{"message":{"__typename":...,"story":{"message":{"text":"<page> <page>"
-		// Allow short captions like "<page> <page>" (15 chars) - ytdl allows any length
-		// Use proper escaped-string regex like messagePattern to handle \ud83d\udc55 \u0040 escapes (👕 @)
-		csCometRe := fbRe_cometMsg
-		if cm := csCometRe.FindAllStringSubmatch(chunk, -1); len(cm) > 0 {
-			best := ""
-			for _, c := range cm {
-				if len(c) < 2 {
-					continue
-				}
-				t := unescapeUnicode(c[1])
-				t = html.UnescapeString(t)
-				t = strings.TrimSpace(t)
-				if t == "" {
-					continue
-				}
-				low := strings.ToLower(t)
-				if low == "facebook" || strings.HasPrefix(low, "log in to") {
-					continue
-				}
-				t = cleanFacebookCaption(t)
-				if t == "" {
-					continue
-				}
-				// Prefer longer but accept short like <page> <page>
-				if len(t) > len(best) {
-					best = t
-				}
-			}
-			if best != "" {
-				return best
-			}
-		}
-		// NOTE: we deliberately do NOT fall back to a bare "message":{"text":...}
-		// search over the data-sjs chunk. That chunk is a whole feed payload in
-		// which our videoID and many unrelated stories coexist, so "chunk
-		// contains videoID" is not real anchoring. It produced a different
-		// random caption on every fetch for posts that actually have none.
-	}
-
-	// 2) Try JSON-LD and meta description fallback from this page (anchored)
-	// Use section anchored to videoID if possible
-	anchored := findCaptionAnchoredToID(bodyBytes, videoID)
-	if anchored != "" && len(anchored) >= 3 {
-		return anchored
-	}
-
-	// No caption genuinely anchored to this video -> return empty (post has no
-	// caption). Returning a recommended-feed caption here would be wrong.
-	return ""
-}
-
-func tryFetchReelCaptionFromWWW(ctx *models.ExtractorContext, videoID string) string {
-	if videoID == "" {
-		return ""
-	}
-	// Secondary: try www facebook reel page og:description when GraphQL fails
-	// Many reels have og:description containing caption even when plugins doesn't
-	reelURL := "https://www.facebook.com/reel/" + videoID + "/"
-	resp, err := ctx.Fetch(http.MethodGet, reelURL, &networking.RequestParams{
-		Headers: map[string]string{
-			"User-Agent": "facebookexternalhit/1.1",
-		},
-	})
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return ""
-	}
-	b, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-
-	if m := ogDescPattern.FindSubmatch(b); len(m) >= 2 {
-		t := html.UnescapeString(string(m[1]))
-		t = strings.TrimSpace(t)
-		low := strings.ToLower(t)
-		if low != "facebook" && !strings.HasPrefix(low, "log in to") && len(t) >= 10 {
-			t = cleanFacebookCaption(t)
-			if t != "" {
-				return t
-			}
-		}
-	}
-	return ""
-}
-
 // reelMedia is the outcome of the reel resolution ladder. DASH is nil when the
 // page carried no manifest, in which case only the progressive renditions are
 // available.
@@ -2656,55 +2497,6 @@ type reelMedia struct {
 func tryFetchHDFromProgressiveURLs(ctx *models.ExtractorContext, videoID string) (hdURL, sdURL, title string) {
 	m := fetchReelMedia(ctx, videoID)
 	return m.HD, m.SD, m.Title
-}
-
-// reelPageFetch is the function fetchReelMedia uses to retrieve a www/reel
-// document. Production uses curl (see fetchViaCurl). Tests swap it for a stub
-// backed by their fake HTTP transport so the ladder logic stays testable.
-var reelPageFetch = func(ctx *models.ExtractorContext, url string) ([]byte, error) {
-	return fetchViaCurl(ctx.Context, url)
-}
-
-// fetchReelMedia performs the www fetch and parses every rendition it carries:
-// the muxed progressive URLs plus the DASH manifest when the page embeds one.
-//
-// Facebook fingerprints Go's TLS/HTTP2 stack and serves a session-killing
-// generic shell (Set-Cookie: c_user=deleted, no progressive_url, no DASH).
-// curl (OpenSSL) is the only client that reliably receives the real ~3.2 MB
-// page with media. We fetch via curl, parse with the existing Go parsers.
-func fetchReelMedia(ctx *models.ExtractorContext, videoID string) *reelMedia {
-	if videoID == "" {
-		return &reelMedia{}
-	}
-	// Try www watch page first (carries videoDelivery + dash_manifest).
-	watchURL := "https://www.facebook.com/watch/?v=" + videoID
-	body, err := reelPageFetch(ctx, watchURL)
-	var wwwTitle string
-	if err == nil && len(body) > 0 {
-		m := reelMediaFromBody(body, videoID)
-		if m.HD != "" || m.DASH != nil {
-			return m
-		}
-		// Page rendered but no usable rendition — keep the caption so the
-		// mbasic fallback can supply the video while the www title survives.
-		wwwTitle = m.Title
-	}
-	// Fallback to reel URL.
-	reelURL := "https://www.facebook.com/reel/" + videoID + "/"
-	body, err = reelPageFetch(ctx, reelURL)
-	if err == nil && len(body) > 0 {
-		m := reelMediaFromBody(body, videoID)
-		if m.HD != "" || m.DASH != nil {
-			if m.Title == "" {
-				m.Title = wwwTitle
-			}
-			return m
-		}
-		if m.Title != "" {
-			wwwTitle = m.Title
-		}
-	}
-	return &reelMedia{Title: wwwTitle}
 }
 
 // reelMediaFromBody parses one Facebook document into the rendition set the
@@ -2745,18 +2537,7 @@ func resolveReelMedia(
 	ctx *models.ExtractorContext,
 	reelID string,
 ) *reelMedia {
-	m := fetchReelMedia(ctx, reelID)
-	if m.HD == "" {
-		var mbasicCaption string
-		m.HD, mbasicCaption = mbasicReelNode(ctx, reelID)
-		// The www page refused to render, so it never supplied a caption
-		// either. Take the one printed on the mbasic document we just paid
-		// for instead of firing a separate GraphQL request for it.
-		if m.Title == "" {
-			m.Title = mbasicCaption
-		}
-	}
-	return m
+	return fetchReelMedia(ctx, reelID)
 }
 
 // mbasicReelNode fetches the mbasic view of a reel once and returns both the
@@ -2768,106 +2549,6 @@ func resolveReelMedia(
 // available anywhere else when the desktop view refuses to render: the www
 // page answers HTTP 400 with a 1.5 KB error document that carries no player
 // data and no post text at all.
-func mbasicReelNode(
-	ctx *models.ExtractorContext,
-	videoID string,
-) (mediaURL, caption string) {
-	if videoID == "" {
-		return "", ""
-	}
-	resp, err := ctx.Fetch(
-		http.MethodGet,
-		"https://mbasic.facebook.com/reel/"+videoID,
-		&networking.RequestParams{
-			Headers: map[string]string{
-				"User-Agent":      fbMBasicUA,
-				"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-				"Accept-Language": "en-US,en;q=0.9",
-			},
-		},
-	)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return "", ""
-	}
-	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil || len(body) == 0 {
-		return "", ""
-	}
-
-	// Facebook escapes forward slashes inside its JSON payloads, so match
-	// against the unescaped copy as well.
-	bodyUnesc := strings.ReplaceAll(string(body), `\/`, "/")
-	var firstNonHD string
-	mediaURL = scanMBasicMedia(ctx, bodyUnesc, &firstNonHD)
-	if mediaURL == "" {
-		// No HD rendition in the node: keep the reel playable rather than
-		// dropping it, the caller only uses this URL when nothing HD was found.
-		mediaURL = firstNonHD
-	}
-	caption = mbasicCaptionFromBody(body)
-	return mediaURL, caption
-}
-
-// scanMBasicMedia walks the mp4 candidates of an mbasic reel document and
-// returns the first downloadable HD rendition. firstNonHD collects the first
-// downloadable SD candidate for callers that have nothing better.
-func scanMBasicMedia(
-	ctx *models.ExtractorContext,
-	bodyUnesc string,
-	firstNonHD *string,
-) string {
-	for _, raw := range fbRe_reelMp4.FindAllString(bodyUnesc, -1) {
-		u := unescapeFacebookURL(raw)
-		u = strings.ReplaceAll(u, "&amp;", "&")
-		u = strings.ReplaceAll(u, `\/`, "/")
-		if !strings.HasPrefix(u, "http") {
-			continue
-		}
-		// Some reels ship several m367 candidates and only one of them is
-		// downloadable; the dead ones answer 403 with a plain-text body.
-		if strings.Contains(u, "m367") || strings.Contains(u, "m366") {
-			if isDownloadableMediaURL(ctx, u) {
-				return u
-			}
-			continue
-		}
-		if *firstNonHD == "" && isDownloadableMediaURL(ctx, u) {
-			*firstNonHD = u
-		}
-	}
-	return ""
-}
-
-// mbasicCaptionFromBody pulls the reel caption out of an mbasic document.
-// The value carries numeric HTML entities for non-Latin scripts, so it is
-// unescaped before use. A "Only members can see" placeholder is a privacy
-// wall, not a caption, and is rejected.
-func mbasicCaptionFromBody(body []byte) string {
-	c := extractOGCaption(body)
-	if c == "" {
-		return ""
-	}
-	low := strings.ToLower(c)
-	if strings.HasPrefix(low, "only members") || strings.HasPrefix(low, "log in") {
-		return ""
-	}
-	return cleanFacebookCaption(c)
-}
-
-// tryFetchHDReelFromMBasic reports only the rendition found by mbasicReelNode.
-// Callers that also want the caption call mbasicReelNode directly.
-func tryFetchHDReelFromMBasic(
-	ctx *models.ExtractorContext,
-	videoID string,
-) string {
-	u, _ := mbasicReelNode(ctx, videoID)
-	return u
-}
-
 // isDownloadableMediaURL reports whether u answers with a real video body.
 // A ranged GET is used instead of HEAD because the CDN answers some HEAD
 // requests with a bare 403 even when the same URL serves fine on GET.
