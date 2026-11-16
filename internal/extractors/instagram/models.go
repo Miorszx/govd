@@ -44,6 +44,7 @@ type Media struct {
 	DisplayURL            string                 `json:"display_url"`
 	ID                    string                 `json:"id"`
 	IsVideo               bool                   `json:"is_video"`
+	HasAudio              bool                   `json:"has_audio"`
 	MediaPreview          string                 `json:"media_preview"`
 	Shortcode             string                 `json:"shortcode"`
 	TakenAtTimestamp      int                    `json:"taken_at_timestamp"`

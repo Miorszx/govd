@@ -122,6 +122,12 @@ func downloadItem(
 		}
 	}
 
+	// the codec declared by the extractor is an assumption until the bytes
+	// arrive. Probing runs after the plugins because MergeAudio is what puts
+	// an audio stream into a video-only DASH rendition; probing before it
+	// would find no audio stream and report nothing.
+	verifyAudioCodec(ctx, downloadedFormat)
+
 	formats <- downloadedFormat
 }
 

@@ -194,10 +194,14 @@ func buildDASHFormat(
 	formats := []*models.MediaFormat{video}
 
 	if data.DASH.AudioURL != "" {
+		// The manifest already reported which codec this rendition carries
+		// (mp4a -> aac, opus -> opus). Declaring AAC unconditionally meant a
+		// manifest that switched to Opus would be labelled wrong and handed
+		// to MergeAudio's stream copy, producing an mp4 Telegram rejects.
 		formats = append(formats, &models.MediaFormat{
 			FormatID:   "dash_audio",
 			Type:       database.MediaTypeAudio,
-			AudioCodec: database.MediaCodecAac,
+			AudioCodec: dashAudioCodec(data.DASH.AudioCodec),
 			URL:        []string{data.DASH.AudioURL},
 			Duration:   data.DASHDuration,
 			DownloadSettings: &models.DownloadSettings{
@@ -207,6 +211,23 @@ func buildDASHFormat(
 	}
 
 	return formats
+}
+
+// dashAudioCodec maps a name produced by codecFromDASHAttr onto the
+// MediaCodec enum. Facebook serves AAC today, so that stays the default; the
+// other names are here so a manifest change is reported rather than mislabelled.
+func dashAudioCodec(codec string) database.MediaCodec {
+	switch codec {
+	case "opus":
+		return database.MediaCodecOpus
+	case "vorbis":
+		return database.MediaCodecVorbis
+	case "mp3":
+		return database.MediaCodecMp3
+	case "flac":
+		return database.MediaCodecFlac
+	}
+	return database.MediaCodecAac
 }
 
 func buildMedia(ctx *models.ExtractorContext, data *VideoData) (*models.Media, error) {

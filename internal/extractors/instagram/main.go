@@ -94,7 +94,7 @@ func GetIGramStory(ctx *models.ExtractorContext) (*models.Media, error) {
 			Type:       database.MediaTypeVideo,
 			URL:        []string{video.URL},
 			VideoCodec: database.MediaCodecAvc,
-			AudioCodec: database.MediaCodecAac,
+			AudioCodec: storyAudioCodec(result.HasAudio),
 		})
 	} else {
 		image := GetBestCandidate(result.ImageVersions.Candidates)
@@ -110,6 +110,20 @@ func GetIGramStory(ctx *models.ExtractorContext) (*models.Media, error) {
 	}
 
 	return media, nil
+}
+
+// storyAudioCodec turns the API's has_audio flag into a declared codec.
+//
+// Instagram delivers one progressive MP4 with the audio already muxed in, so
+// there is nothing to probe before download and nothing to merge afterwards.
+// The flag is the only thing that distinguishes a reel from a silent screen
+// recording, and declaring AAC on a silent file makes Telegram reject it as
+// a video with an audio stream the container does not have.
+func storyAudioCodec(hasAudio bool) database.MediaCodec {
+	if !hasAudio {
+		return ""
+	}
+	return database.MediaCodecAac
 }
 
 func GetStoryFromIGram(ctx *models.ExtractorContext) (*IGramStoryResponse, error) {
