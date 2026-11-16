@@ -6,6 +6,7 @@ import (
 
 	"github.com/govdbot/govd/internal/database"
 	"github.com/govdbot/govd/internal/models"
+	"github.com/govdbot/govd/internal/plugins"
 	"github.com/govdbot/govd/internal/util"
 	"github.com/govdbot/govd/internal/util/download"
 )
@@ -119,6 +120,19 @@ func downloadItem(
 				}
 				return
 			}
+		}
+	}
+
+	// Audio profile normalisation is a separate concern from merging, and it
+	// has to run on every video that reaches a phone. A DASH rendition gets
+	// its audio merged in by MergeAudio, but the progressive Facebook ladder
+	// serves one already-muxed MP4 that no merge touches - so an HE-AAC track
+	// there would reach the status upload unchanged and land silent on iOS.
+	// The plugin inspects the bytes on disk and does nothing when the profile
+	// is already LC.
+	if downloadedFormat.Format.Type == database.MediaTypeVideo {
+		if err := plugins.NormalizeAudioLC.RunFunc(ctx, item, downloadedFormat); err != nil {
+			ctx.Warnf("normalize audio plugin failed, keeping original: %v", err)
 		}
 	}
 
