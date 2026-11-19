@@ -92,3 +92,39 @@ func TestSolveChallengeCookies(t *testing.T) {
 		t.Fatalf("expected solved challenge payload, got %#v", cookiePayload["d"])
 	}
 }
+
+func TestParseUniversalDataEnumeratesBitrateLadder(t *testing.T) {
+	// PlayAddrStruct carries the default gear (540p here). The 1080p rendition
+	// exists only inside bitrateInfo, so a parser that ignores bitrateInfo caps
+	// every download at 540p regardless of what the upload actually supports.
+	body := []byte(`<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">{"__DEFAULT_SCOPE__":{"webapp.video-detail":{"statusCode":0,"itemInfo":{"itemStruct":{"id":"42","desc":"d","video":{"duration":9,"height":960,"width":540,"PlayAddrStruct":{"Uri":"sd","UrlList":["https://cdn/sd.mp4"],"Width":540,"Height":960,"DataSize":"1234"},"bitrateInfo":[{"Bitrate":500000,"GearName":"normal_540","QualityType":1,"PlayAddr":{"Uri":"sd","UrlList":["https://cdn/sd.mp4"],"Width":540,"Height":960,"DataSize":"1234"}},{"Bitrate":2400000,"GearName":"normal_1080","QualityType":1,"PlayAddr":{"Uri":"hd","UrlList":["https://cdn/hd.mp4"],"Width":1080,"Height":1920,"DataSize":"5678"}}]}}}}}}</script>`)
+
+	item, status, err := ParseUniversalData(body)
+	if err != nil || status != 0 {
+		t.Fatalf("parse failed: status=%d err=%v", status, err)
+	}
+	if got := len(item.Video.BitrateInfo); got != 2 {
+		t.Fatalf("expected 2 ladder rungs, got %d", got)
+	}
+	if item.Video.BitrateInfo[1].PlayAddr.SizeBytes() != 5678 {
+		t.Fatalf("expected DataSize 5678 parsed, got %d",
+			item.Video.BitrateInfo[1].PlayAddr.SizeBytes())
+	}
+	if item.Video.BitrateInfo[1].PlayAddr.Width != 1080 {
+		t.Fatalf("expected 1080 width on top rung, got %d",
+			item.Video.BitrateInfo[1].PlayAddr.Width)
+	}
+}
+
+func TestSizeBytesToleratesJunk(t *testing.T) {
+	cases := map[string]int64{"": 0, "   ": 0, "abc": 0, " 4096 ": 4096}
+	for in, want := range cases {
+		got := (&WebPlayAddr{DataSize: in}).SizeBytes()
+		if got != want {
+			t.Fatalf("DataSize %q: expected %d, got %d", in, want, got)
+		}
+	}
+	if got := (*WebPlayAddr)(nil).SizeBytes(); got != 0 {
+		t.Fatalf("nil receiver: expected 0, got %d", got)
+	}
+}

@@ -112,24 +112,74 @@ func mediaFromWeb(
 	if !isImageSlide {
 		item := media.NewItem()
 		video := details.Video
-		if video.PlayAddr != nil {
+		if video == nil {
+			return nil, util.ErrUnavailable
+		}
+
+		// Enumerate the whole quality ladder first. PlayAddrStruct is only the
+		// default gear, so relying on it alone caps every download at whatever
+		// TikTok felt like serving the crawler (typically 540p or 720p) even
+		// when a 1080p rendition exists in bitrateInfo.
+		seen := make(map[string]bool)
+		for _, rung := range video.BitrateInfo {
+			if rung == nil || rung.PlayAddr == nil || len(rung.PlayAddr.URLList) == 0 {
+				continue
+			}
+			key := rung.PlayAddr.URI
+			if key == "" {
+				key = rung.PlayAddr.URLList[0]
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
 			item.AddFormats(&models.MediaFormat{
 				Type:       database.MediaTypeVideo,
-				FormatID:   video.PlayAddr.URI,
-				URL:        video.PlayAddr.URLList,
+				FormatID:   key,
+				URL:        rung.PlayAddr.URLList,
 				VideoCodec: database.MediaCodecAvc,
 				AudioCodec: database.MediaCodecAac,
-				Width:      video.PlayAddr.Width,
-				Height:     video.PlayAddr.Height,
+				FileSize:   rung.PlayAddr.SizeBytes(),
+				Width:      rung.PlayAddr.Width,
+				Height:     rung.PlayAddr.Height,
+				Bitrate:    rung.Bitrate,
 				Duration:   video.Duration,
 				DownloadSettings: &models.DownloadSettings{
 					// avoid 403 error for videos
 					Cookies: cookies,
 				},
 			})
-			return media, nil
 		}
-		return nil, util.ErrUnavailable
+
+		// Fall back to the default gear so a page without bitrateInfo still
+		// resolves to something playable.
+		if video.PlayAddr != nil && len(video.PlayAddr.URLList) > 0 {
+			key := video.PlayAddr.URI
+			if key == "" {
+				key = video.PlayAddr.URLList[0]
+			}
+			if !seen[key] {
+				item.AddFormats(&models.MediaFormat{
+					Type:       database.MediaTypeVideo,
+					FormatID:   key,
+					URL:        video.PlayAddr.URLList,
+					VideoCodec: database.MediaCodecAvc,
+					AudioCodec: database.MediaCodecAac,
+					FileSize:   video.PlayAddr.SizeBytes(),
+					Width:      video.PlayAddr.Width,
+					Height:     video.PlayAddr.Height,
+					Duration:   video.Duration,
+					DownloadSettings: &models.DownloadSettings{
+						Cookies: cookies,
+					},
+				})
+			}
+		}
+
+		if len(item.Formats) == 0 {
+			return nil, util.ErrUnavailable
+		}
+		return media, nil
 	}
 
 	images := details.ImagePost.Images
