@@ -236,6 +236,22 @@ func getShareMedia(ctx *models.ExtractorContext) (*models.Media, bool) {
 	}
 	ctx.Infof("facebook share: post=%s owner=%s", postID, owner)
 
+	// A post id maps to exactly one video and never changes, so a remembered
+	// answer skips the two requests that get rate-limited. This is what makes
+	// the second and later callers of a link reliable: measured 2026-11-24, two
+	// messages nine seconds apart, the second failed with B8DF020F purely
+	// because Facebook had throttled the owner index.
+	if vid, ok := memoGet(postID); ok {
+		ctx.Infof("facebook share: video=%s from memo (%d known)", vid, memoSize())
+		if body, err := curlGet(ctx.Context,
+			"https://www.facebook.com/watch/?v="+vid+"&_rdr", desktopHeaders); err == nil {
+			if muxed, dash := watchPageMedia(body); muxed != "" || dash != nil {
+				return buildShareMedia(ctx, body, muxed, dash)
+			}
+		}
+		ctx.Infof("facebook share: memo hit but watch page empty, re-resolving")
+	}
+
 	candidates := candidateVideoIDs(ctx.Context, owner, ctx.ContentURL)
 	if len(candidates) == 0 {
 		ctx.Infof("facebook share: no candidate video ids for owner %s", owner)
@@ -256,7 +272,14 @@ func getShareMedia(ctx *models.ExtractorContext) (*models.Media, bool) {
 		ctx.Infof("facebook share: nothing downloadable on %s", vid)
 		return nil, false
 	}
+	memoPut(postID, vid)
+	return buildShareMedia(ctx, body, muxed, dash)
+}
 
+// buildShareMedia assembles the deliverable from one watch page. Kept separate
+// so the memo path and the fresh path produce identical formats -- a cache hit
+// must not deliver a different shape than a fresh walk.
+func buildShareMedia(ctx *models.ExtractorContext, body []byte, muxed string, dash *dashTracks) (*models.Media, bool) {
 	media := &models.Media{}
 	if m := reOGDescription.FindSubmatch(body); len(m) == 2 {
 		media.SetCaption(strings.TrimSpace(string(m[1])))
