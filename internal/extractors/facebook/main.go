@@ -113,6 +113,23 @@ func GetMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 	if ctx.HTTPClient.Cookies == nil {
 		return nil, fmt.Errorf("auth cookies are required for facebook")
 	}
+
+	// share/p/ is a *share* code, not a media type. Facebook stamps every share
+	// link with /p/ whatever the post holds, so a post carrying two videos is
+	// labelled exactly like a single photo. Measured 2026-11-24 on
+	// share/p/1A5dDnp3j5: two videos (107 s and 44 s) plus a photo album, and
+	// every path answered "content isn't available" because the dispatcher
+	// below routes /share/p/ straight into the photo branch.
+	//
+	// Ask the page what it carries before trusting the label. When it holds
+	// video, that is the whole answer; when it does not, fall through to the
+	// ordinary path below with no behaviour change at all.
+	if strings.Contains(strings.ToLower(ctx.ContentURL), "/share/p/") {
+		if media, ok := getSharePMedia(ctx); ok {
+			return media, nil
+		}
+	}
+
 	videoData, err := GetVideoData(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get video data: %w", err)

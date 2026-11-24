@@ -39,8 +39,21 @@ func fetchViaCurl(ctx context.Context, url string) ([]byte, error) {
 		"--compressed",
 		"--max-time", "30",
 		"-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-		"-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-		"-H", "Accept-Language: en-us,en;q=0.5",
+		// The Accept header is load-bearing, and this is the bug that made every
+		// restricted post look empty. Facebook picks the response shape from it:
+		//
+		//   Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+		//     -> 210 KB shell, "progressive_url" count = 0
+		//   Accept: ...image/avif,image/webp,*/*;q=0.8
+		//     -> 600 KB, "progressive_url" count = 4
+		//
+		// Measured 2026-11-24 against reel 3093314621017769 with a live cookie
+		// jar: same URL, same cookies, same UA, one header changed. Without the
+		// image types Facebook serves the crawler-shaped page with the media
+		// references stripped, which is why the extractor reported "content
+		// isn't available" on a post the account can plainly see.
+		"-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+		"-H", "Accept-Language: en-US,en;q=0.9",
 		"-H", "Sec-Fetch-Mode: navigate",
 		"-H", "Sec-Fetch-Dest: document",
 		"-H", "Sec-Fetch-Site: none",
