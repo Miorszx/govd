@@ -109,6 +109,20 @@ func FromURL(url string) *models.ExtractorContext {
 			cancel()
 			return nil
 		}
+		// A redirect that resolves to the URL it started on did not happen. Treat
+		// it as terminal and hand the context back: the extractor has already
+		// decided the crawler path is a dead end and wants the cookie-bearing
+		// GetMedia to do the work.
+		//
+		// Measured 2026-11-24 on facebook share/p: the external-agent redirect
+		// lands on /login/?next=..., the extractor correctly refuses it, and this
+		// loop then re-matched the login URL, found no extractor, and returned nil
+		// -- dropping the message with no log line at all.
+		if response.URL == currentURL {
+			extractorCtx.Debugf("redirect resolved to same URL, treating as terminal")
+			return extractorCtx
+		}
+
 		extractorCtx.Debugf("redirected to %s", response.URL)
 
 		currentURL = response.URL

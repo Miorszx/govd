@@ -27,6 +27,12 @@ var (
 
 var facebookHost = []string{"facebook"}
 
+// reShareCode pulls the share type and code out of a share URL so a share the
+// external crawler cannot resolve can still be handed on in a shape the walker
+// recognises. share/r -> reel, share/v -> video, share/p -> post (mixed media).
+var reShareCode = regexp.MustCompile(
+	`facebook\.com/share/(r|v|p)/([A-Za-z0-9]+)`)
+
 var ShareExtractor = &models.Extractor{
 	ID:          "facebook",
 	DisplayName: "Facebook (Share)",
@@ -51,9 +57,18 @@ var ShareExtractor = &models.Extractor{
 			"Accept-Language": "en-US,en;q=0.5",
 		}
 
-		// All share types use same external redirect method
+		// A redirect that lands on /login is not a resolution. Measured
+		// 2026-11-24 on share/p/1A5dDnp3j5: FetchLocation answered with
+		// https://www.facebook.com/login/?next=... and returned no error, so the
+		// code below took it for success and handed a login URL to the walker.
+		// FromURL then re-matched that URL, found no extractor for it, and
+		// returned nil -- the message was dropped with no log line at all.
+		//
+		// A login wall means "this agent cannot see it"; it says nothing about
+		// the post. Fall through to the cookie path instead of following it.
 		finalURL, err := ctx.FetchLocation(ctx.ContentURL, &networking.RequestParams{Headers: webHeaders})
-		if err == nil && finalURL != "" && finalURL != ctx.ContentURL {
+		if err == nil && finalURL != "" && finalURL != ctx.ContentURL &&
+			!strings.Contains(finalURL, "/login") {
 			// For share/v that redirects to /videos/{id}/?rdid=..., try to extract reel id from og:url if present via second fetch for better HD
 			// But return finalURL directly - Extractor will handle via plugins HD m367 method
 			return &models.ExtractorResponse{URL: finalURL}, nil
@@ -70,6 +85,26 @@ var ShareExtractor = &models.Extractor{
 				}
 			}
 		}
+
+		// The external-agent path cannot resolve every share. Measured 2026-11-24
+		// on share/p/1A5dDnp3j5: FetchLocation follows the 302 to story.php, then
+		// Facebook sends the crawler to /login/?next=... and the body carries no
+		// og:url at all, so both attempts above fail.
+		//
+		// That failure used to be fatal in a silent way: FromURL returns nil when a
+		// Redirect extractor's GetFunc errors, so the URL never reached GetMedia.
+		// The bot dropped the message with no log line and no reply -- exactly the
+		// "die x bagi pape" symptom.
+		//
+		// Handing back the same URL would make FromURL loop (it treats the response
+		// as a hop, re-matches, hits the redirect cap), so the share code is
+		// re-expressed in the canonical shape instead. The walker understands that
+		// shape, and GetMedia is where the cookie jar lives.
+		// Returning the URL unchanged is the terminal signal FromURL looks for
+		// (see util.go: a redirect that resolves to the URL it started on is not
+		// a hop). GetMedia then does the real work with the cookie jar and falls
+		// through to the photo path when the post holds no video.
+		return &models.ExtractorResponse{URL: ctx.ContentURL}, nil
 
 		return nil, fmt.Errorf("failed to resolve share url via external redirect - flagged cookies")
 	},
@@ -124,8 +159,12 @@ func GetMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 	// Ask the page what it carries before trusting the label. When it holds
 	// video, that is the whole answer; when it does not, fall through to the
 	// ordinary path below with no behaviour change at all.
-	if strings.Contains(strings.ToLower(ctx.ContentURL), "/share/p/") {
-		if media, ok := getSharePMedia(ctx); ok {
+	// Any share code -- /p/, /r/, /v/ or a bare id -- goes through the redirect
+	// resolver first. Measured 2026-11-24: share URLs and the story.php they
+	// redirect to both answer 400 to a normal request, so the only way in is to
+	// read the 302's own location and work from the post id it names.
+	if strings.Contains(strings.ToLower(ctx.ContentURL), "/share/") {
+		if media, ok := getShareMedia(ctx); ok {
 			return media, nil
 		}
 	}
