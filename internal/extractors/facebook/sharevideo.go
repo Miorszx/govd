@@ -178,8 +178,21 @@ func videoIDsFromIndex(ctx context.Context, owner string) []string {
 // story_fbid identifies an attachment, not a video, and Facebook publishes no
 // mapping between the two. Each candidate's page does name the attachments that
 // embed it, so the post id can be matched exactly instead of guessed.
-func videoForPost(ctx context.Context, postID string, candidates []string) (string, []byte, error) {
+// videosForPost returns EVERY video embedded in a post, not the first.
+//
+// A single share link can carry several videos. Measured 2026-11-24 on
+// share/p/1A5dDnp3j5, which holds two: 3093314621017769 (107.0s) and
+// 1767102851051174 (44.5s). Both watch pages name the same post id, so a
+// search that stops at the first match silently drops the rest -- which is
+// exactly what "post tu ade 2 video asal bagi satu ja" was.
+//
+// Order is preserved as the candidates were found, so the post's own order is
+// kept where the seed source exposes it.
+func videosForPost(ctx context.Context, postID string, candidates []string) ([]string, []videoPage, error) {
 	var firstErr error
+	var ids []string
+	var pages []videoPage
+
 	for _, id := range candidates {
 		body, err := curlGet(ctx,
 			"https://www.facebook.com/watch/?v="+id+"&_rdr", desktopHeaders)
@@ -192,12 +205,29 @@ func videoForPost(ctx context.Context, postID string, candidates []string) (stri
 		if !strings.Contains(string(body), postID) {
 			continue
 		}
-		return id, body, nil
+		muxed, dash := watchPageMedia(body)
+		if muxed == "" && (dash == nil || len(dash.Videos) == 0) {
+			continue // named the post but carries no downloadable media
+		}
+		ids = append(ids, id)
+		pages = append(pages, videoPage{ID: id, Body: body, Muxed: muxed, Dash: dash})
 	}
-	if firstErr != nil {
-		return "", nil, fmt.Errorf("no video matched post %s (%v)", postID, firstErr)
+
+	if len(ids) == 0 {
+		if firstErr != nil {
+			return nil, nil, fmt.Errorf("no video matched post %s (%v)", postID, firstErr)
+		}
+		return nil, nil, fmt.Errorf("no video matched post %s", postID)
 	}
-	return "", nil, fmt.Errorf("no video matched post %s", postID)
+	return ids, pages, nil
+}
+
+// videoPage is one resolved video inside a post.
+type videoPage struct {
+	ID    string
+	Body  []byte
+	Muxed string
+	Dash  *dashTracks
 }
 
 // watchPageMedia extracts everything downloadable from one watch page.
@@ -236,20 +266,20 @@ func getShareMedia(ctx *models.ExtractorContext) (*models.Media, bool) {
 	}
 	ctx.Infof("facebook share: post=%s owner=%s", postID, owner)
 
-	// A post id maps to exactly one video and never changes, so a remembered
-	// answer skips the two requests that get rate-limited. This is what makes
-	// the second and later callers of a link reliable: measured 2026-11-24, two
-	// messages nine seconds apart, the second failed with B8DF020F purely
-	// because Facebook had throttled the owner index.
-	if vid, ok := memoGet(postID); ok {
-		ctx.Infof("facebook share: video=%s from memo (%d known)", vid, memoSize())
-		if body, err := curlGet(ctx.Context,
-			"https://www.facebook.com/watch/?v="+vid+"&_rdr", desktopHeaders); err == nil {
-			if muxed, dash := watchPageMedia(body); muxed != "" || dash != nil {
-				return buildShareMedia(ctx, body, muxed, dash)
-			}
+	// A post id maps to a fixed *set* of videos and never changes, so a
+	// remembered answer skips the two requests that get rate-limited. Measured
+	// 2026-11-24: two messages nine seconds apart, the second failed with
+	// B8DF020F purely because Facebook had throttled the owner index.
+	//
+	// The memo holds a list, because one post can carry several videos -- this
+	// post has two, and storing only the first is what dropped the second.
+	if ids, ok := memoGet(postID); ok && len(ids) > 0 {
+		ctx.Infof("facebook share: %d video(s) from memo (%d posts known)",
+			len(ids), memoSize())
+		if media, ok := shareMediaFromIDs(ctx, ids); ok {
+			return media, true
 		}
-		ctx.Infof("facebook share: memo hit but watch page empty, re-resolving")
+		ctx.Infof("facebook share: memo hit but watch pages empty, re-resolving")
 	}
 
 	candidates := candidateVideoIDs(ctx.Context, owner, ctx.ContentURL)
@@ -259,21 +289,93 @@ func getShareMedia(ctx *models.ExtractorContext) (*models.Media, bool) {
 	}
 	ctx.Infof("facebook share: %d candidates from index", len(candidates))
 
-	vid, body, err := videoForPost(ctx.Context, postID, candidates)
+	ids, pages, err := videosForPost(ctx.Context, postID, candidates)
 	if err != nil {
 		ctx.Infof("facebook share: %v", err)
 		return nil, false
 	}
-	muxed, dash := watchPageMedia(body)
-	ctx.Infof("facebook share: video=%s muxed=%v dash=%v",
-		vid, muxed != "", dash != nil && len(dash.Videos) > 0)
+	ctx.Infof("facebook share: %d video(s) in post %s", len(ids), postID)
 
-	if muxed == "" && (dash == nil || len(dash.Videos) == 0) {
-		ctx.Infof("facebook share: nothing downloadable on %s", vid)
+	media, ok := shareMediaFromPages(ctx, pages)
+	if !ok {
 		return nil, false
 	}
-	memoPut(postID, vid)
-	return buildShareMedia(ctx, body, muxed, dash)
+	memoPut(postID, ids)
+	return media, true
+}
+
+// shareMediaFromIDs rebuilds media from remembered video ids.
+func shareMediaFromIDs(ctx *models.ExtractorContext, ids []string) (*models.Media, bool) {
+	var pages []videoPage
+	for _, id := range ids {
+		body, err := curlGet(ctx.Context,
+			"https://www.facebook.com/watch/?v="+id+"&_rdr", desktopHeaders)
+		if err != nil {
+			continue
+		}
+		muxed, dash := watchPageMedia(body)
+		if muxed == "" && (dash == nil || len(dash.Videos) == 0) {
+			continue
+		}
+		pages = append(pages, videoPage{ID: id, Body: body, Muxed: muxed, Dash: dash})
+	}
+	return shareMediaFromPages(ctx, pages)
+}
+
+// shareMediaFromPages assembles one Media holding every video in the post.
+//
+// Each video becomes its own MediaItem, which is what core turns into an album.
+// The muxed MP4 is delivered as-is: video and audio already together, no merge
+// and no transcode, so the audio cannot be touched. The DASH ladder is only
+// appended when it is strictly taller than the muxed rendition, otherwise the
+// same picture would arrive twice.
+func shareMediaFromPages(ctx *models.ExtractorContext, pages []videoPage) (*models.Media, bool) {
+	if len(pages) == 0 {
+		return nil, false
+	}
+	media := &models.Media{}
+	if m := reOGDescription.FindSubmatch(pages[0].Body); len(m) == 2 {
+		media.SetCaption(strings.TrimSpace(string(m[1])))
+	}
+
+	tgLimit := util.TelegramBotAPIFileLimit()
+	safeLimit := tgLimit * 95 / 100
+
+	for _, p := range pages {
+		item := media.NewItem()
+
+		if p.Muxed != "" {
+			item.Formats = append(item.Formats, &models.MediaFormat{
+				FormatID:   "native",
+				Type:       database.MediaTypeVideo,
+				VideoCodec: database.MediaCodecAvc,
+				AudioCodec: database.MediaCodecAac,
+				URL:        []string{p.Muxed},
+			})
+		}
+
+		if p.Dash != nil && len(p.Dash.Videos) > 0 {
+			tallest := p.Dash.Videos[0]
+			formats := buildDASHFormat(ctx, &VideoData{
+				DASH:         p.Dash,
+				DASHDuration: p.Dash.Duration,
+			}, safeLimit)
+			if len(formats) > 0 && tallest.Height > 640 {
+				item.Formats = append(item.Formats, formats...)
+				ctx.Infof("facebook share: %s ladder %dx%d kept",
+					p.ID, tallest.Width, tallest.Height)
+			}
+		}
+
+		if len(item.Formats) == 0 {
+			media.Items = media.Items[:len(media.Items)-1]
+		}
+	}
+
+	if len(media.Items) == 0 {
+		return nil, false
+	}
+	return media, true
 }
 
 // buildShareMedia assembles the deliverable from one watch page. Kept separate

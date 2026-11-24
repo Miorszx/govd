@@ -37,7 +37,7 @@ func shareMemoPath() string {
 
 var (
 	shareMemoMu sync.RWMutex
-	shareMemo   map[string]string // post id -> video id
+	shareMemo   map[string][]string // post id -> video ids (a post can hold several)
 	shareLoaded bool
 )
 
@@ -46,16 +46,36 @@ func loadShareMemo() {
 		return
 	}
 	shareLoaded = true
-	shareMemo = map[string]string{}
+	shareMemo = map[string][]string{}
 	b, err := os.ReadFile(shareMemoPath())
 	if err != nil {
 		return
 	}
-	_ = json.Unmarshal(b, &shareMemo)
+	// Two shapes exist on disk. The first release stored a bare string per post;
+	// posts can hold several videos, so the current shape is a list. Decode
+	// loosely and normalise, otherwise an existing memo would fail to load and
+	// silently lose everything it had.
+	var loose map[string]json.RawMessage
+	if err := json.Unmarshal(b, &loose); err != nil {
+		return
+	}
+	for post, raw := range loose {
+		var one string
+		if err := json.Unmarshal(raw, &one); err == nil {
+			if one != "" {
+				shareMemo[post] = []string{one}
+			}
+			continue
+		}
+		var many []string
+		if err := json.Unmarshal(raw, &many); err == nil && len(many) > 0 {
+			shareMemo[post] = many
+		}
+	}
 }
 
-// memoGet returns the video id previously learned for postID.
-func memoGet(postID string) (string, bool) {
+// memoGet returns the video ids previously learned for postID.
+func memoGet(postID string) ([]string, bool) {
 	shareMemoMu.RLock()
 	defer shareMemoMu.RUnlock()
 	loadShareMemo()
@@ -63,19 +83,29 @@ func memoGet(postID string) (string, bool) {
 	return v, ok
 }
 
-// memoPut records postID -> videoID. Write failures are ignored: the memo is an
+// memoPut records postID -> videoIDs. Write failures are ignored: the memo is an
 // optimisation, and losing it only costs the requests it was meant to save.
-func memoPut(postID, videoID string) {
-	if postID == "" || videoID == "" {
+func memoPut(postID string, videoIDs []string) {
+	if postID == "" || len(videoIDs) == 0 {
 		return
 	}
 	shareMemoMu.Lock()
 	defer shareMemoMu.Unlock()
 	loadShareMemo()
-	if shareMemo[postID] == videoID {
-		return
+	old := shareMemo[postID]
+	if len(old) == len(videoIDs) {
+		same := true
+		for i := range old {
+			if old[i] != videoIDs[i] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return
+		}
 	}
-	shareMemo[postID] = videoID
+	shareMemo[postID] = videoIDs
 	if b, err := json.MarshalIndent(shareMemo, "", " "); err == nil {
 		_ = os.WriteFile(shareMemoPath(), b, 0o644)
 	}
