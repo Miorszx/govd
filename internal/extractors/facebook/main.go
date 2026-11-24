@@ -66,6 +66,19 @@ var ShareExtractor = &models.Extractor{
 		//
 		// A login wall means "this agent cannot see it"; it says nothing about
 		// the post. Fall through to the cookie path instead of following it.
+		// Resolve the share here first. Anything this returns is a finished
+		// answer -- two videos, caption, HE audio untouched -- and handing a URL
+		// to the walker instead is what produced a 360x640 photo for a post that
+		// carried video.
+		//
+		// Measured 2026-11-24: share/p/1CyyZC8uB7 redirects cleanly to
+		// /<user>/posts/pfbid..., so the old code stopped there and let the
+		// ordinary extractor read that page -- which finds no video and falls
+		// back to the post thumbnail.
+		if media, ok := getShareMedia(ctx); ok {
+			return &models.ExtractorResponse{Media: media}, nil
+		}
+
 		finalURL, err := ctx.FetchLocation(ctx.ContentURL, &networking.RequestParams{Headers: webHeaders})
 		if err == nil && finalURL != "" && finalURL != ctx.ContentURL &&
 			!strings.Contains(finalURL, "/login") {

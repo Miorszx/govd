@@ -143,8 +143,21 @@ func shareRedirect(ctx context.Context, shareURL string) (postID, owner string, 
 	if m := reShareOwner.FindStringSubmatch(loc); len(m) == 2 {
 		owner = m[1]
 	}
+	// Two redirect shapes exist and both are useful:
+	//
+	//	story.php?story_fbid=<post>&id=<owner>   carries the post id directly
+	//	<owner>/posts/pfbid<token>               carries only an opaque pfbid
+	//
+	// The pfbid form is not a dead end: the page it names is readable and does
+	// carry the caption, it just cannot be turned into a video id the way a
+	// story_fbid can. Measured 2026-11-24 on share/p/1CyyZC8uB7: redirect goes
+	// straight to posts/pfbid..., and the old code returned "no story_fbid"
+	// and dropped the whole share.
 	if postID == "" {
-		return "", "", fmt.Errorf("share redirect: no story_fbid in %.90s", loc)
+		if pfbid := rePfbid.FindStringSubmatch(loc); len(pfbid) == 2 {
+			return "", owner, &pfbidOnlyError{pfbid: pfbid[1], loc: loc}
+		}
+		return "", "", fmt.Errorf("share redirect: nothing usable in %.90s", loc)
 	}
 	return postID, owner, nil
 }
@@ -262,6 +275,14 @@ func watchPageMedia(body []byte) (muxed string, dash *dashTracks) {
 func getShareMedia(ctx *models.ExtractorContext) (*models.Media, bool) {
 	postID, owner, err := shareRedirect(ctx.Context, ctx.ContentURL)
 	if err != nil {
+		// A pfbid redirect has no post id, but its page is readable and carries
+		// both the caption and, when the post holds video, the video itself.
+		if pf, ok := err.(*pfbidOnlyError); ok {
+			ctx.Infof("facebook share: pfbid post, resolving from page")
+			if media, ok := shareMediaFromPfbid(ctx, pf.loc); ok {
+				return media, true
+			}
+		}
 		ctx.Infof("facebook share: %v", err)
 		return nil, false
 	}
@@ -565,4 +586,72 @@ func cleanCaption(raw string) string {
 	c = strings.ReplaceAll(c, "\r\n", "\n")
 	c = strings.TrimSpace(c)
 	return c
+}
+
+// rePfbid matches the opaque post token Facebook uses in /posts/ URLs.
+var rePfbid = regexp.MustCompile(`/posts/(pfbid[0-9A-Za-z]+)`)
+
+// pfbidOnlyError signals a share whose redirect names a pfbid instead of a
+// story_fbid. The page is readable, so the caption can still be delivered, but
+// there is no post id to turn into a video id.
+type pfbidOnlyError struct {
+	pfbid string
+	loc   string
+}
+
+func (e *pfbidOnlyError) Error() string {
+	return "share redirect: pfbid post (no story_fbid): " + e.pfbid
+}
+
+// shareMediaFromPfbid handles a share whose redirect names an opaque post
+// token. There is no post id, so the owner-index search cannot run; instead the
+// page is read directly for every video it embeds.
+//
+// Measured 2026-11-24 on share/p/1CyyZC8uB7: the page answers 200 with a full
+// og:description and, for a video post, the same story islands a watch page
+// carries -- which is enough to build media without the search step.
+func shareMediaFromPfbid(ctx *models.ExtractorContext, loc string) (*models.Media, bool) {
+	body, err := curlGet(ctx.Context, loc, desktopHeaders)
+	if err != nil || len(body) < 5000 {
+		return nil, false
+	}
+
+	var pages []videoPage
+	seen := map[string]bool{}
+	for _, id := range collectVideoIDsFromBody(body) {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		wb, err := curlGet(ctx.Context,
+			"https://www.facebook.com/watch/?v="+id+"&_rdr", desktopHeaders)
+		if err != nil {
+			continue
+		}
+		muxed, dash := watchPageMedia(wb)
+		if muxed == "" && (dash == nil || len(dash.Videos) == 0) {
+			continue
+		}
+		pages = append(pages, videoPage{ID: id, Body: wb, Muxed: muxed, Dash: dash})
+	}
+
+	if len(pages) == 0 {
+		// No video in this post. Returning false lets the ordinary photo path
+		// handle it, caption included.
+		ctx.Infof("facebook share: pfbid post carries no video")
+		return nil, false
+	}
+	ctx.Infof("facebook share: pfbid post carries %d video(s)", len(pages))
+
+	media, ok := shareMediaFromPages(ctx, pages)
+	if !ok {
+		return nil, false
+	}
+	// The post page is the authoritative caption source for this shape.
+	if m := reOGDescription.FindSubmatch(body); len(m) == 2 {
+		if c := cleanCaption(string(m[1])); c != "" {
+			media.SetCaption(c)
+		}
+	}
+	return media, true
 }
