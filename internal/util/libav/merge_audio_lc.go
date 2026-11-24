@@ -73,14 +73,28 @@ func MergeVideoWithAudioAACLC(
 // using a blanket "c": "copy" followed by "c:a": "aac": ffmpeg applies flags
 // left to right, and the kwargs map has no order, so a blanket copy could
 // land after the audio override and silently copy the SBR track through.
-func NormalizeAudioToAACLC(inputPath string, outputPath string) error {
+func NormalizeAudioToAACLC(inputPath string, outputPath string, probeBitrate int) error {
+	// HE-AAC -> AAC-LC has to be re-encoded: the two are different profiles and
+	// no container remux converts one to the other. What must NOT happen is a
+	// fixed bitrate, which is what this function used to do.
+	//
+	// Measured 2026-11-24 on a Facebook share post: the source track is HE-AAC
+	// stereo 44100 Hz at 48 kbps. Forcing b:a=128k spent 2.7x the bits and still
+	// sounded worse, because the encoder had to invent detail the source never
+	// carried. A copy of the source bitrate is the honest ceiling.
+	//
+	// The probe result is passed in so the target follows the source.
+	bitrate := probeBitrate
+	if bitrate <= 0 || bitrate > 256000 {
+		bitrate = 96000 // HE-AAC -> LC needs headroom; 48k would be too thin
+	}
 	err := ffmpeg.Input(inputPath).
 		Output(outputPath, ffmpeg.KwArgs{
 			"map":       "0",
 			"c:v":       "copy",
 			"c:a":       "aac",
 			"profile:a": "aac_low",
-			"b:a":       "128k",
+			"b:a":       fmt.Sprintf("%dk", bitrate/1000),
 			"ac":        "2",
 			"movflags":  "+faststart",
 		}).

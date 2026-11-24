@@ -62,7 +62,7 @@ var NormalizeAudioLC = &models.Plugin{
 		) + "_lc" + filepath.Ext(format.FilePath)
 		ctx.FilesTracker.Add(outputPath)
 
-		if err := libav.NormalizeAudioToAACLC(format.FilePath, outputPath); err != nil {
+		if err := libav.NormalizeAudioToAACLC(format.FilePath, outputPath, int(probe.BitRate)); err != nil {
 			// A failed normalise must not cost the whole download: the file
 			// still plays on Android, and Telegram still accepts it.
 			ctx.Warnf("normalize audio: remux failed, keeping original: %v", err)

@@ -57,7 +57,7 @@ func TestNormalizeAudioToAACLCPreservesVideoAndLandsLC(t *testing.T) {
 	t.Logf("input streams: %s", before)
 
 	outPath := filepath.Join(dir, "out.mp4")
-	if err := NormalizeAudioToAACLC(input, outPath); err != nil {
+	if err := NormalizeAudioToAACLC(input, outPath, 48000); err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
 

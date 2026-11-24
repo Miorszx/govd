@@ -236,9 +236,9 @@ func getShareMedia(ctx *models.ExtractorContext) (*models.Media, bool) {
 	}
 	ctx.Infof("facebook share: post=%s owner=%s", postID, owner)
 
-	candidates := videoIDsFromIndex(ctx.Context, owner)
+	candidates := candidateVideoIDs(ctx.Context, owner, ctx.ContentURL)
 	if len(candidates) == 0 {
-		ctx.Infof("facebook share: owner index yielded nothing for %s", owner)
+		ctx.Infof("facebook share: no candidate video ids for owner %s", owner)
 		return nil, false
 	}
 	ctx.Infof("facebook share: %d candidates from index", len(candidates))
