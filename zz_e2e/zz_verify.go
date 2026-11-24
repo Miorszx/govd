@@ -62,7 +62,7 @@ func probe(url string) {
 	// silently: everything above passed, then the bot produced no message.
 	fmt.Printf("  Download: probing...\n")
 	ds := time.Now()
-	res, err := core.DownloadFormats(ctx, resp.Media)
+	res, err := core.DownloadFormats(ec, resp.Media)
 	if err != nil {
 		fmt.Printf("  Download: ERR %v  (%.1fs)\n", err, time.Since(ds).Seconds())
 		return
