@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -335,7 +336,18 @@ func shareMediaFromPages(ctx *models.ExtractorContext, pages []videoPage) (*mode
 	}
 	media := &models.Media{}
 	if m := reOGDescription.FindSubmatch(pages[0].Body); len(m) == 2 {
-		media.SetCaption(strings.TrimSpace(string(m[1])))
+		media.SetCaption(cleanCaption(string(m[1])))
+	}
+	// A watch page carries no post text at all, so the caption is fetched from
+	// the post page instead. Measured 2026-11-24: og:description on
+	// watch/?v=<id> is empty for every Facebook share post, while the same post
+	// reached as /<user>/posts/pfbid... carries the full text. Without this the
+	// delivered video arrives with no caption even though the post has one.
+	if media.Caption == "" {
+		if c := captionFromPostPage(ctx.Context, ctx.ContentURL); c != "" {
+			media.SetCaption(c)
+			ctx.Infof("facebook share: caption from post page (%d chars)", len(c))
+		}
 	}
 
 	tgLimit := util.TelegramBotAPIFileLimit()
@@ -433,3 +445,124 @@ func buildShareMedia(ctx *models.ExtractorContext, body []byte, muxed string, da
 // and re-exported here for the tests that build a page fixture.
 var _ = strconv.Itoa
 var _ = json.Marshal
+
+// captionFromPostPage follows a share code to the post's own page and reads the
+// caption there.
+//
+// Why this is needed: a watch page never carries post text. Measured
+// 2026-11-24, og:description on watch/?v=<id> is empty for every Facebook share
+// post, and the only natural-language strings on the page are UI labels
+// ("Связанные видео") and reader comments. The post page reached through the
+// redirect -- /<user>/posts/pfbid... -- does carry it, which is how the ordinary
+// (non-share) extractor manages to caption its photos.
+//
+// Failures are silent by design: a missing caption must never cost the video.
+func captionFromPostPage(ctx context.Context, shareURL string) string {
+	body, err := curlGetNoFollow(ctx, shareURL, []string{
+		"-A", "facebookexternalhit/1.1",
+		"-H", "Accept: text/html,application/xhtml+xml",
+	})
+	if err != nil {
+		return ""
+	}
+	loc := firstLocation(body)
+	if loc == "" {
+		return ""
+	}
+
+	// Try the redirect target first, then the alternative shapes. Facebook
+	// names the same post three ways and only some of them render:
+	//
+	//	story.php?story_fbid=<post>&id=<owner>   400  856 B  (usually blocked)
+	//	<owner>/posts/pfbid...                    200  with og:description
+	//	<owner>/posts/<post>                      200  sometimes
+	//
+	// Measured 2026-11-24: share/p/1CyyZC8uB7 redirects straight to
+	// posts/pfbid... and the caption comes back intact, while
+	// share/p/1A5dDnp3j5 redirects to story.php which answers 400.
+	candidates := []string{loc}
+	if postID, owner := postRefFromLocation(loc); postID != "" && owner != "" {
+		candidates = append(candidates,
+			"https://www.facebook.com/"+owner+"/posts/"+postID,
+			"https://m.facebook.com/story.php?story_fbid="+postID+"&id="+owner+"&_rdr",
+		)
+	}
+
+	for _, u := range candidates {
+		page, err := curlGet(ctx, u, desktopHeaders)
+		if err != nil || len(page) < 5000 {
+			continue
+		}
+		if m := reOGDescription.FindSubmatch(page); len(m) == 2 {
+			if c := cleanCaption(string(m[1])); c != "" {
+				return c
+			}
+		}
+	}
+	return ""
+}
+
+// curlGetNoFollow issues a request and returns the raw response (headers and all)
+// without following the redirect, so the Location header can be read.
+func curlGetNoFollow(ctx context.Context, url string, opts []string) ([]byte, error) {
+	jar := util.GetExtractorCookies("facebook")
+	var ck strings.Builder
+	for _, c := range jar {
+		if ck.Len() > 0 {
+			ck.WriteString("; ")
+		}
+		ck.WriteString(c.Name + "=" + c.Value)
+	}
+	args := []string{"-s", "-o", "/dev/null", "-D", "-", "--max-time", "25"}
+	args = append(args, opts...)
+	if ck.Len() > 0 {
+		args = append(args, "-H", "Cookie: "+ck.String())
+	}
+	args = append(args, url)
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "curl", args...)
+	var out strings.Builder
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	return []byte(out.String()), nil
+}
+
+// firstLocation returns the first Location header in a raw response.
+func firstLocation(raw []byte) string {
+	for _, ln := range strings.Split(string(raw), "\n") {
+		if i := strings.Index(strings.ToLower(ln), "location:"); i >= 0 {
+			return strings.TrimSpace(ln[i+len("location:"):])
+		}
+	}
+	return ""
+}
+
+// postRefFromLocation pulls the post id and owner out of a redirect target.
+func postRefFromLocation(loc string) (postID, owner string) {
+	if m := reSharePostID.FindStringSubmatch(loc); len(m) == 2 {
+		postID = m[1]
+	}
+	if m := reShareOwner.FindStringSubmatch(loc); len(m) == 2 {
+		owner = m[1]
+	}
+	return postID, owner
+}
+
+// cleanCaption normalises a caption pulled out of an og: meta tag.
+//
+// Two transformations, both needed. Facebook JSON-escapes forward slashes and
+// unicode inside those tags, so the raw match contains \/ and \uXXXX. And the
+// text itself is HTML-encoded, which is how a stylised caption arrives as
+// "&#x1d67c;&#x1d68a;..." instead of the characters it stands for.
+func cleanCaption(raw string) string {
+	c := unescapeFB(raw)
+	c = html.UnescapeString(c)
+	// Collapse the newlines Facebook inserts for paragraph breaks, but keep the
+	// break itself: a long caption reads as one wall otherwise.
+	c = strings.ReplaceAll(c, "\r\n", "\n")
+	c = strings.TrimSpace(c)
+	return c
+}
