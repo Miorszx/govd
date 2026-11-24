@@ -50,6 +50,7 @@ func main() {
 	for i, it := range media.Items {
 		for _, f := range it.Formats {
 			if f.FormatID == "dash" {
+				fmt.Printf("  FULLURL %s\n", f.URL[0])
 				fmt.Printf("  [%d] dash %dx%d %dB %s\n", i, f.Width,
 					f.Height, f.FileSize, truncate(f.URL[0], 90))
 			} else {
