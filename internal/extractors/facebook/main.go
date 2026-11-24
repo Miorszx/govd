@@ -96,15 +96,20 @@ var ShareExtractor = &models.Extractor{
 		// The bot dropped the message with no log line and no reply -- exactly the
 		// "die x bagi pape" symptom.
 		//
-		// Handing back the same URL would make FromURL loop (it treats the response
-		// as a hop, re-matches, hits the redirect cap), so the share code is
-		// re-expressed in the canonical shape instead. The walker understands that
-		// shape, and GetMedia is where the cookie jar lives.
-		// Returning the URL unchanged is the terminal signal FromURL looks for
-		// (see util.go: a redirect that resolves to the URL it started on is not
-		// a hop). GetMedia then does the real work with the cookie jar and falls
-		// through to the photo path when the post holds no video.
-		return &models.ExtractorResponse{URL: ctx.ContentURL}, nil
+		// The crawler path is a dead end for this share, so do the work here
+		// instead of handing a URL back.
+		//
+		// This matters because of how the dispatcher treats a Redirect
+		// extractor: whatever GetFunc returns is used as the *whole* answer. A
+		// response carrying only a URL leaves resp.Media nil, and the caller
+		// then has nothing to send -- measured 2026-11-24, the bot answered
+		// with silence and logged nothing at all.
+		//
+		// Returning the URL unchanged is worse still: FromURL treats it as a
+		// hop, re-matches, and burns the redirect budget before returning nil.
+		if media, ok := getShareMedia(ctx); ok {
+			return &models.ExtractorResponse{Media: media}, nil
+		}
 
 		return nil, fmt.Errorf("failed to resolve share url via external redirect - flagged cookies")
 	},

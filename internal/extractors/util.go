@@ -104,6 +104,18 @@ func FromURL(url string) *models.ExtractorContext {
 			cancel()
 			return nil
 		}
+		// A response that already carries Media is a finished answer, not a hop.
+		// The extractor did the whole job itself (facebook share links do this:
+		// the crawler path is a dead end, so the cookie-bearing resolver runs
+		// inside GetFunc and returns the media directly). Returning nil here
+		// would throw that work away and the bot would answer with silence.
+		if response != nil && response.Media != nil {
+			extractorCtx.Debugf("extractor returned media directly, no redirect")
+			response.Media.ContentURL = extractorCtx.ContentURL
+			response.Media.ContentID = extractorCtx.ContentID
+			response.Media.ExtractorID = extractorCtx.Extractor.ID
+			return extractorCtx
+		}
 		if response == nil || response.URL == "" {
 			extractorCtx.Debugf("no suitable redirect URL found")
 			cancel()
