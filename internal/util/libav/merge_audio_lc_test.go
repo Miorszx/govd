@@ -37,10 +37,17 @@ func probeStreams(t *testing.T, path string) string {
 }
 
 // NormalizeAudioToAACLC must leave the video track alone and land the audio on
-// LC. This is the progressive Facebook repair path: a single already-muxed
-// MP4 that no merge plugin touches.
+// LC when LC is the target. This is the progressive Facebook repair path: a
+// single already-muxed MP4 that no merge plugin touches.
+//
+// The target is pinned to LC here because the native aac encoder cannot emit
+// HE at all -- measured 2026-11-24, aac_he fails encoder-open with "Profile not
+// supported!" on both the host ffmpeg 8.0.1 and the Alpine build in the
+// container. The HE path is covered by TestHEIsLeftUntouched below, which is
+// the behaviour that actually ships for a Facebook share post.
 func TestNormalizeAudioToAACLCPreservesVideoAndLandsLC(t *testing.T) {
 	needFFmpegAndProbe(t)
+	t.Setenv("AAC_PROFILE", "lc")
 	dir := t.TempDir()
 
 	input := filepath.Join(dir, "in.mp4")

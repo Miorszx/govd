@@ -74,28 +74,26 @@ func MergeVideoWithAudioAACLC(
 // left to right, and the kwargs map has no order, so a blanket copy could
 // land after the audio override and silently copy the SBR track through.
 func NormalizeAudioToAACLC(inputPath string, outputPath string, probeBitrate int) error {
-	// HE-AAC -> AAC-LC has to be re-encoded: the two are different profiles and
-	// no container remux converts one to the other. What must NOT happen is a
-	// fixed bitrate, which is what this function used to do.
+	// The target profile is not fixed here. AAC-LC decodes on everything, but
+	// AAC-HE is what iOS uses for WhatsApp and what the sources themselves
+	// carry; encoding HE down to LC strips the SBR extension and is audible as
+	// a dull track on the receiver that mattered. TargetAACProfile reads
+	// AAC_PROFILE so the operator decides, and defaults to HE.
 	//
-	// Measured 2026-11-24 on a Facebook share post: the source track is HE-AAC
-	// stereo 44100 Hz at 48 kbps. Forcing b:a=128k spent 2.7x the bits and still
-	// sounded worse, because the encoder had to invent detail the source never
-	// carried. A copy of the source bitrate is the honest ceiling.
-	//
-	// The probe result is passed in so the target follows the source.
-	bitrate := probeBitrate
-	if bitrate <= 0 || bitrate > 256000 {
-		bitrate = 96000 // HE-AAC -> LC needs headroom; 48k would be too thin
-	}
+	// The source bitrate is passed in so the target follows it. Measured
+	// 2026-11-24: a Facebook share post carries HE-AAC stereo 44100 Hz at
+	// 48 kbps. Forcing b:a=128k at LC spent 2.7x the bits inventing detail the
+	// source never had, which is what made the previous output sound worse.
+	target := TargetAACProfile()
+	bitrate := aacBitrateFor(target, probeBitrate)
+
 	err := ffmpeg.Input(inputPath).
 		Output(outputPath, ffmpeg.KwArgs{
 			"map":       "0",
 			"c:v":       "copy",
 			"c:a":       "aac",
-			"profile:a": "aac_low",
+			"profile:a": target,
 			"b:a":       fmt.Sprintf("%dk", bitrate/1000),
-			"ac":        "2",
 			"movflags":  "+faststart",
 		}).
 		Silent(true).
@@ -104,7 +102,7 @@ func NormalizeAudioToAACLC(inputPath string, outputPath string, probeBitrate int
 
 	if err != nil {
 		os.Remove(outputPath)
-		return fmt.Errorf("failed to normalise audio to aac-lc: %w", err)
+		return fmt.Errorf("failed to normalise audio to %s: %w", target, err)
 	}
 
 	return nil

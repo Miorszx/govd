@@ -43,17 +43,37 @@ var NormalizeAudioLC = &models.Plugin{
 			// track here would be worse than sending silence.
 			return nil
 		}
-		if strings.EqualFold(probe.Profile, "LC") {
+		target := libav.TargetAACProfile()
+
+		// The source already is what the operator asked for: touch nothing.
+		// This is the good path, and on Facebook share posts it is also the
+		// common one -- the track arrives HE-AAC and HE is what an iPhone
+		// needs for WhatsApp, so re-encoding it would only lose quality.
+		if libav.ProfileMatches(probe.Profile, target) {
 			ctx.Debugf(
-				"normalize audio: already %s profile=%q - no remux",
-				probe.Codec, probe.Profile,
+				"normalize audio: %s already %s - no re-encode",
+				probe.Codec, target,
+			)
+			return nil
+		}
+
+		// This ffmpeg build can only emit AAC-LC (see libav.CanEncode). If the
+		// operator wants HE and the source is not HE, there is no way to reach
+		// it by encoding -- and encoding to LC instead would be worse than
+		// leaving the source alone, because LC at the same bitrate sounds
+		// thinner than HE. Leave the file as delivered.
+		if !libav.EncodeSupported(target) {
+			ctx.Infof(
+				"normalize audio: want %s but this ffmpeg cannot encode it "+
+					"(source profile=%q %dch %dHz, left untouched)",
+				target, probe.Profile, probe.Channels, probe.SampleRate,
 			)
 			return nil
 		}
 
 		ctx.Infof(
-			"normalize audio: %s profile=%q (%dch %dHz) - remuxing audio to aac-lc",
-			probe.Codec, probe.Profile, probe.Channels, probe.SampleRate,
+			"normalize audio: %s profile=%q (%dch %dHz) -> %s",
+			probe.Codec, probe.Profile, probe.Channels, probe.SampleRate, target,
 		)
 
 		outputPath := strings.TrimSuffix(
