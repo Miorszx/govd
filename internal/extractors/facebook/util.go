@@ -406,6 +406,23 @@ func extractReelMedia(ctx *models.ExtractorContext, urlLower string) (*VideoData
 	m := resolveReelMedia(ctx, effectiveReelID)
 	hd, sd, title := m.HD, m.SD, m.Title
 	if hd == "" && sd == "" {
+		// Facebook serves many reels as DASH-only: the page carries a full
+		// manifest (AV1 ladder + audio) but no progressive_url at all.
+		// buildMedia already prefers VideoData.DASH when present, so hand
+		// the tracks over instead of reporting a false "flagged/private"
+		// failure on a reel that is fully playable.
+		if m.DASH != nil && len(m.DASH.Videos) > 0 {
+			if isPrivateShareV {
+				title = ""
+			}
+			ctx.Infof("facebook reel %s: no progressive_url, using DASH ladder (%d renditions)",
+				ctx.ContentID, len(m.DASH.Videos))
+			return &VideoData{
+				Title:        title,
+				DASH:         m.DASH,
+				DASHDuration: m.DASH.Duration,
+			}, nil
+		}
 		return nil, fmt.Errorf("no hd progressive_url found for reel %s (flagged/private?)", ctx.ContentID)
 	}
 	// Prefer HD, fallback SD for <id> case (Googlebot <id> prog 2 m367 0 m4 2 SD only) and <code> -> <id>
